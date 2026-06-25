@@ -1,2 +1,0 @@
-class MatchingService:
-    pass
