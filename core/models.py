@@ -35,8 +35,11 @@ class Job:
 class JobProfile:
     job_id: str
     description: str = ""
-    responsibilities: tuple[str, ...] = ()
-    requirements: tuple[str, ...] = ()
+    key_responsibilities: tuple[str, ...] = ()
+    required_skills: tuple[str, ...] = ()
+    specialisms: tuple[str, ...] = ()
+    management_level: str = ""
+    typical_tools: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -64,3 +67,4 @@ class Employee:
     employee_id: str
     name: str
     current_title: str
+    
