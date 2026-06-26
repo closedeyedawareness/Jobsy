@@ -223,4 +223,5 @@ class Repository:
             "levels": len(self.levels),
             "employees": len(self.employees),
             "functions": len(self.jobs_by_function),
-        }
+                }
+        
