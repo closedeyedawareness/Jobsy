@@ -138,6 +138,94 @@ def _pipe_html(match_type):
                f'{label}</div></div>')
     return f'<div style="display:flex;gap:5px;margin:15px 0 2px">{bars}</div>'
 
+
+def _chip(text, bg, fg, size="11px"):
+    return (f'<span style="display:inline-block;font-family:{FONT_MONO};font-size:{size};'
+            f'font-weight:500;background:{bg};color:{fg};border-radius:7px;'
+            f'padding:3px 9px;margin:2px 3px 2px 0">{text}</span>')
+
+def _get_profile(r):
+    """Pull profile from the MatchResult's catalog enrichment, if loaded."""
+    try:
+        from core.repository import Repository  # noqa
+        cat = _get_active_catalog()
+        if cat and r.job_id:
+            complete = cat.get_complete_job(r.job_id)
+            return complete.get("profile") if complete else None
+    except Exception:
+        pass
+    return None
+
+_active_catalog = None
+def _set_active_catalog(cat): global _active_catalog; _active_catalog = cat
+def _get_active_catalog(): return _active_catalog
+
+def _resp_html(r):
+    """Key responsibilities as a compact inline list."""
+    prof = _get_active_catalog().get_complete_job(r.job_id)["profile"] if (
+        _get_active_catalog() and r.job_id) else None
+    if not prof or not prof.key_responsibilities:
+        return (f'<div style="font-size:14px;color:#34424F;margin-top:13px;line-height:1.55">'
+                f'{r.description or ""}</div>') if r.description else ""
+    items = "".join(
+        f'<li style="margin:3px 0;color:#34424F">{item}</li>'
+        for item in prof.key_responsibilities[:5]
+    )
+    desc_part = (f'<div style="font-size:14px;color:#34424F;margin-top:13px;line-height:1.55">'
+                 f'{prof.description}</div>') if prof.description else ""
+    return (
+        desc_part +
+        f'<div style="margin-top:12px">'
+        f'<div style="font-family:{FONT_MONO};font-size:9.5px;letter-spacing:.1em;'
+        f'text-transform:uppercase;color:{C["muted"]};margin-bottom:6px">Key responsibilities</div>'
+        f'<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.5">{items}</ul></div>'
+    )
+
+def _skills_html(r):
+    """Skills, specialisms, management level, and tools chips."""
+    prof = _get_active_catalog().get_complete_job(r.job_id)["profile"] if (
+        _get_active_catalog() and r.job_id) else None
+    if not prof:
+        return ""
+    parts = []
+    # required skills
+    if prof.required_skills:
+        chips = "".join(_chip(s, "#F4F6F8", C["ink"]) for s in prof.required_skills[:5])
+        parts.append(
+            f'<div style="margin-top:12px">'
+            f'<div style="font-family:{FONT_MONO};font-size:9.5px;letter-spacing:.1em;'
+            f'text-transform:uppercase;color:{C["muted"]};margin-bottom:5px">Skills</div>'
+            f'<div style="display:flex;flex-wrap:wrap">{chips}</div></div>'
+        )
+    # specialisms
+    if prof.specialisms:
+        chips = "".join(_chip(s, C["teal"]+"1A", C["teal"]) for s in prof.specialisms[:4])
+        parts.append(
+            f'<div style="margin-top:10px">'
+            f'<div style="font-family:{FONT_MONO};font-size:9.5px;letter-spacing:.1em;'
+            f'text-transform:uppercase;color:{C["muted"]};margin-bottom:5px">Specialisms</div>'
+            f'<div style="display:flex;flex-wrap:wrap">{chips}</div></div>'
+        )
+    # management level
+    if prof.management_level and prof.management_level.strip():
+        parts.append(
+            f'<div style="margin-top:10px;display:flex;align-items:center;gap:8px">'
+            f'<span style="font-family:{FONT_MONO};font-size:9.5px;letter-spacing:.1em;'
+            f'text-transform:uppercase;color:{C["muted"]}">Management</span>'
+            f'{_chip(prof.management_level, C["violet"]+"1A", C["violet"])}</div>'
+        )
+    # tools
+    if prof.typical_tools:
+        chips = "".join(_chip(t, "#F0F2F4", C["muted"], "10px") for t in prof.typical_tools[:6])
+        parts.append(
+            f'<div style="margin-top:10px">'
+            f'<div style="font-family:{FONT_MONO};font-size:9.5px;letter-spacing:.1em;'
+            f'text-transform:uppercase;color:{C["muted"]};margin-bottom:5px">Tools</div>'
+            f'<div style="display:flex;flex-wrap:wrap">{chips}</div></div>'
+        )
+    return "".join(parts)
+
+
 def _card_html(r):
     t=r.match_type.value
     sc=STAGE_C.get(t,C["clay"])
@@ -238,7 +326,12 @@ def _card_html(r):
         f'<span style="font-family:{FONT_MONO};font-size:10px;color:{C["muted"]};'
         f'background:#F4F6F8;border:1px solid {C["line"]};border-radius:7px;padding:3px 9px">'
         f'{r.job_id or ""}</span></div>'
-        f'{desc}{sal}{review}'
+        f'{desc_html}'
+        # responsibilities
+        f'{_resp_html(r)}'
+        # skills + specialisms + tools row
+        f'{_skills_html(r)}'
+        f'{sal}{review}'
         f'</div>'
     )
 
@@ -293,82 +386,4 @@ def main():
     try:
         catalog = load_sample_catalog() if source == "Built-in sample" else load_workbook_catalog(path)
     except Exception as exc:
-        st.error(f"Could not load catalog: {exc}"); st.stop()
-
-    stats = catalog.repository.statistics()
-    with st.sidebar:
-        st.subheader("Library")
-        st.metric("Roles", stats["jobs"])
-        st.caption(f"{stats['title_mappings']} mappings · "
-                   f"{stats['salary_bands']} salary bands · "
-                   f"{stats['functions']} functions")
-
-    service = MatchingService(catalog, review_threshold=threshold, enable_fuzzy=enable_fuzzy)
-
-    # input tabs
-    tab_paste, tab_upload = st.tabs(["Paste titles", "Upload file"])
-    titles: list[str] = []
-
-    with tab_paste:
-        raw = st.text_area(
-            "One title per line",
-            value="HRBP\nhr business partner\nJunior Developer\nController\nBoekhouder\nSofware Enginer\nUnderwater Basket Weaver",
-            height=160, label_visibility="collapsed",
-        )
-        if st.button("Match titles", type="primary"):
-            titles = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-
-    with tab_upload:
-        upload = st.file_uploader("CSV or Excel of titles", type=["csv","xlsx"])
-        if upload:
-            df_in = pd.read_csv(upload) if upload.name.endswith(".csv") else pd.read_excel(upload)
-            col = st.selectbox("Column with titles", list(df_in.columns))
-            if st.button("Match column", type="primary"):
-                titles = df_in[col].fillna("").astype(str).tolist()
-
-    if not titles:
-        st.markdown(
-            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
-            f'border-radius:12px;padding:20px;color:{C["muted"]};font-size:14px;'
-            f'text-align:center;margin-top:4px">'
-            f'Add some titles and tap <b>Match titles</b> to see results.</div>',
-            unsafe_allow_html=True,
-        )
-        return
-
-    # run matching
-    results = service.match_titles(titles)
-    summary = service.summarize(results)
-
-    # stat row
-    st.markdown(
-        f'<div style="display:flex;gap:10px;margin:18px 0">'
-        f'{_stat_card(summary.total, "Total")}'
-        f'{_stat_card(summary.matched, "Matched", C["teal"])}'
-        f'{_stat_card(summary.review, "Review", C["amber"])}'
-        f'{_stat_card(summary.unmatched, "Unmatched", C["clay"])}'
-        f'{_stat_card(f"{summary.avg_confidence:.0f}%", "Avg conf")}'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    only_review = st.checkbox("Show only titles needing review")
-    shown = [r for r in results if r.requires_review] if only_review else results
-
-    # cards
-    st.markdown(
-        "".join(_card_html(r) for r in shown),
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    st.download_button(
-        "⬇  Download results (.xlsx)",
-        data=ExportService().to_workbook_bytes(results, summary),
-        file_name="jobsy_matches.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-if __name__ == "__main__":
-    main()
-    
+  
