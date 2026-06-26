@@ -115,12 +115,28 @@ class Repository:
     def _build_profiles(self, df) -> None:
         if df is None:
             return
+        def _split(row, *names):
+            raw = _val(row, *names) or ""
+            if not raw or str(raw).lower() in ("nan", "none", ""):
+                return ()
+            return tuple(s.strip() for s in str(raw).split(";") if s.strip())
         for row in df.itertuples(index=False):
             job_id = _val(row, "JobID", "job_id")
             if not job_id:
                 continue
-            desc = _val(row, "Description", "description", "Summary", "summary") or ""
-            self.profiles[job_id] = JobProfile(job_id=job_id, description=desc)
+            desc  = _val(row, "Description", "description", "Summary", "summary") or ""
+            mgmt  = _val(row, "ManagementLevel", "management_level") or ""
+            if str(mgmt).lower() in ("nan", "none"):
+                mgmt = ""
+            self.profiles[job_id] = JobProfile(
+                job_id=job_id,
+                description=desc,
+                key_responsibilities=_split(row, "KeyResponsibilities", "key_responsibilities"),
+                required_skills=_split(row, "RequiredSkills", "required_skills"),
+                specialisms=_split(row, "Specialisms", "specialisms"),
+                management_level=mgmt,
+                typical_tools=_split(row, "TypicalTools", "typical_tools"),
+            )
 
     def _build_salary(self, df) -> None:
         if df is None:
@@ -224,4 +240,5 @@ class Repository:
             "levels": len(self.levels),
             "employees": len(self.employees),
             "functions": len(self.jobs_by_function),
-        }
+            }
+            
