@@ -91,9 +91,16 @@ class Repository:
         self._build_levels(data.get("levels"))
         self._build_employees(data.get("employees"))
 
+        def _get(d, *keys):
+            for k in keys:
+                v = d.get(k)
+                if v is not None:
+                    return v
+            return None
+
         self._build_skills(data.get("skills"))
-        self._build_competency_levels(data.get("competencylevels") or data.get("CompetencyLevels") or data.get("competency_levels"))
-        self._build_role_skill_map(data.get("roleskillmap") or data.get("RoleSkillMap") or data.get("role_skill_map"))
+        self._build_competency_levels(_get(data, "competencylevels", "CompetencyLevels", "competency_levels"))
+        self._build_role_skill_map(_get(data, "roleskillmap", "RoleSkillMap", "role_skill_map"))
 
         self.index = SearchIndex()
         self.index.build(data.get("jobs"), data.get("titles"))
@@ -302,3 +309,4 @@ class Repository:
             "skills": len(self.skills),
             "role_skill_mappings": sum(len(v) for v in self.role_skill_map.values()),
         }
+        
