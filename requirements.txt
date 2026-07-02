@@ -1,6 +1,0 @@
-streamlit>=1.35.0
-pandas>=2.0.0
-openpyxl>=3.1.0
-rapidfuzz>=3.6.0
-requests>=2.31.0
-# supabase>=2.4.0  — optional, add manually to enable session persistence
