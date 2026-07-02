@@ -1230,13 +1230,150 @@ def architecture_report_page(catalog):
                     st.code(traceback.format_exc())
 
 
+@st.cache_data(show_spinner=False)
+def _family_frames(path):
+    import pandas as _pd
+    return _pd.read_excel(path, sheet_name=["Jobs", "SalaryBands", "JobGrades", "JobProfiles"], dtype=str)
+
+
+def job_family_page(catalog):
+    """Leveling grid + pay range for a job family (function), Mercer/Hay style."""
+    import pandas as _pd
+    import altair as _alt
+
+    st.markdown(
+        f'<div style="font-family:{FONT_SERIF};font-size:28px;font-weight:600;'
+        f'letter-spacing:-0.02em;margin-bottom:4px">Job Family</div>'
+        f'<p style="color:{C["muted"]};font-size:14px;margin-bottom:16px">'
+        f'A leveling grid and pay range for a job family — every role by level, with grade, '
+        f'salary band and what changes as you move up the ladder.</p>',
+        unsafe_allow_html=True,
+    )
+    try:
+        fr = _family_frames(WORKBOOK_PATH)
+    except Exception as exc:
+        st.warning(f"Job Family needs the reference workbook. ({exc})")
+        return
+
+    jobs = fr["Jobs"].copy(); bands = fr["SalaryBands"].copy()
+    grades = fr["JobGrades"].copy(); profs = fr["JobProfiles"].copy()
+    jobs["Grade"] = _pd.to_numeric(jobs.get("Grade"), errors="coerce")
+    for _c in ("Grade", "Min", "P25", "P50", "P75", "Max"):
+        if _c in bands: bands[_c] = _pd.to_numeric(bands[_c], errors="coerce")
+    grades["Grade"] = _pd.to_numeric(grades.get("Grade"), errors="coerce")
+
+    funcs = sorted(jobs["Function"].dropna().unique())
+    if not funcs:
+        st.info("No roles found."); return
+    fsel = st.selectbox("Job family", funcs,
+                        index=funcs.index("Engineering") if "Engineering" in funcs else 0)
+
+    fam = jobs[jobs["Function"] == fsel].dropna(subset=["Grade"]).sort_values("Grade")
+    if fam.empty:
+        st.info("No roles in this family."); return
+
+    bmap = {(r["Function"], r["Level"]): r for _, r in bands.iterrows()}
+    gmap = {r["Grade"]: r for _, r in grades.iterrows()}
+    pmap = {r["JobID"]: r for _, r in profs.iterrows()}
+
+    def _euro0(v):
+        try: return "€{:,.0f}".format(float(v)).replace(",", ".")
+        except Exception: return "—"
+    def _cell(v, n=170):
+        s = "" if v is None else str(v)
+        if not s or s.lower() == "nan": return "—"
+        s = s.replace(";", " · ")
+        return s if len(s) <= n else s[:n].rsplit(" ", 1)[0] + "…"
+    def _skills_for(jid):
+        try:
+            names = [sk.skill_name for _, sk in catalog.get_role_skills(jid)[:3]]
+            return " · ".join(names) if names else "—"
+        except Exception:
+            return "—"
+
+    cols = []
+    for role in fam.itertuples(index=False):
+        jid = getattr(role, "JobID"); lvl = getattr(role, "Level"); fn = getattr(role, "Function")
+        b = bmap.get((fn, lvl)); g = gmap.get(getattr(role, "Grade")); p = pmap.get(jid)
+        cols.append({
+            "title": _cell(getattr(role, "StandardTitle"), 60), "level": _cell(lvl, 20),
+            "code": _cell(jid, 20), "grade": _cell(getattr(role, "Grade"), 6),
+            "band": (f'{_euro0(b.get("Min"))} – {_euro0(b.get("Max"))}' if b is not None else "—"),
+            "med": (_euro0(b.get("P50")) if b is not None else "—"),
+            "knowledge": _cell(g.get("Scope") if g is not None else None),
+            "problem": _cell(g.get("Complexity") if g is not None else None),
+            "account": _cell(g.get("DecisionRights") if g is not None else None),
+            "lead": _cell(g.get("Leadership") if g is not None else None, 60),
+            "skills": _skills_for(jid),
+        })
+
+    def _th(c):
+        return (f'<th style="min-width:200px;text-align:left;padding:10px 12px;'
+                f'background:{C["teal"]};color:#fff;border:1px solid {C["line"]}">'
+                f'<div style="font-family:{FONT_SANS};font-weight:700;font-size:13px">{c["title"]}</div>'
+                f'<div style="font-family:{FONT_MONO};font-size:10px;opacity:.85;margin-top:2px">'
+                f'{c["level"]} · {c["code"]}</div></th>')
+    def _row(label, key, mono=False):
+        cells = "".join(
+            f'<td style="padding:9px 12px;border:1px solid {C["line"]};vertical-align:top;'
+            f'font-size:12px;color:{C["ink"]};{"font-family:"+FONT_MONO+";" if mono else ""}">'
+            f'{c[key]}</td>' for c in cols)
+        return (f'<tr><td style="padding:9px 12px;border:1px solid {C["line"]};'
+                f'background:{C["surface"]};font-family:{FONT_MONO};font-size:11px;'
+                f'color:{C["muted"]};white-space:nowrap">{label}</td>{cells}</tr>')
+
+    grid = (
+        f'<div style="overflow-x:auto;border-radius:12px;border:1px solid {C["line"]};margin-top:6px">'
+        f'<table style="border-collapse:collapse;width:100%">'
+        f'<tr><th style="background:{C["surface"]};border:1px solid {C["line"]};min-width:130px"></th>'
+        + "".join(_th(c) for c in cols) + "</tr>"
+        + _row("Grade", "grade", mono=True) + _row("Salary band", "band", mono=True)
+        + _row("Median (P50)", "med", mono=True) + _row("Knowledge / scope", "knowledge")
+        + _row("Problem solving", "problem") + _row("Accountability", "account")
+        + _row("Leadership", "lead") + _row("Top skills", "skills")
+        + "</table></div>"
+    )
+    st.markdown(grid, unsafe_allow_html=True)
+
+    # ── pay range chart ─────────────────────────────────────────────────
+    rows, order = [], []
+    for role in fam.itertuples(index=False):
+        b = bmap.get((getattr(role, "Function"), getattr(role, "Level")))
+        if b is None or _pd.isna(b.get("Min")): continue
+        label = str(getattr(role, "StandardTitle"))
+        order.append(label)
+        rows.append({"Role": label, "Level": getattr(role, "Level"),
+                     "Min": b.get("Min"), "P25": b.get("P25"), "Median": b.get("P50"),
+                     "P75": b.get("P75"), "Max": b.get("Max")})
+    if rows:
+        st.markdown(
+            f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+            f'text-transform:uppercase;color:{C["muted"]};margin:20px 0 4px">Pay range by level</div>',
+            unsafe_allow_html=True)
+        df = _pd.DataFrame(rows)
+        tips = ["Role", "Level"] + [_alt.Tooltip(f"{f}:Q", format=",.0f")
+                                    for f in ("Min", "P25", "Median", "P75", "Max")]
+        base = _alt.Chart(df).encode(x=_alt.X("Role:N", sort=order, axis=_alt.Axis(labelAngle=-20, title=None)))
+        rule = base.mark_rule(color="#6F3CFF", strokeWidth=2, opacity=0.45).encode(
+            y=_alt.Y("Min:Q", title="Base salary (€)"), y2="Max:Q")
+        def _pt(field, shape, color, size=70):
+            return base.mark_point(shape=shape, filled=True, color=color, size=size, opacity=0.9).encode(
+                y=f"{field}:Q", tooltip=tips)
+        chart = (rule + _pt("P25", "triangle-down", "#34B5FF") + _pt("P75", "triangle-up", "#34B5FF")
+                 + _pt("Median", "circle", "#E85BB0", 170)).properties(height=340)
+        chart = chart.configure_view(strokeOpacity=0).configure_axis(
+            labelColor="#C9B8E8", titleColor="#C9B8E8", gridColor="#FFFFFF14", domainColor="#FFFFFF30")
+        st.altair_chart(chart, use_container_width=True)
+        st.caption("● median (P50)   ▲ P75   ▼ P25   │ min–max band")
+
+
 def main():
     st.set_page_config(page_title="Jobsy", page_icon="📊",
                        layout="centered", initial_sidebar_state="auto")
     apply_theme()
 
     # page navigation
-    page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Assessment", "Skill Gap", "9-Box Grid", "Architecture Report", "Organisation", "Organigram"], label_visibility="collapsed")
+    page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Assessment", "Skill Gap", "Job Family", "9-Box Grid", "Architecture Report", "Organisation", "Organigram"], label_visibility="collapsed")
 
     # header moved below catalog loading for dashboard statistics
 
@@ -1391,6 +1528,10 @@ def main():
 
     if page == "Skill Gap":
         skill_gap_page(catalog, service)
+        return
+
+    if page == "Job Family":
+        job_family_page(catalog)
         return
 
     if page == "9-Box Grid":
