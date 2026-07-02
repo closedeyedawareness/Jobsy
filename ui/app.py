@@ -1321,18 +1321,19 @@ def main():
                     _db = _ps_health()
                 _conn_state = "ok" if _db.healthy else ("warn" if _db.available else "error")
                 _lat = f"{_db.latency_ms} ms" if _db.latency_ms is not None else "—"
+                _tiles = "".join([
+                    info_tile("Package", "✓" if _db.package_installed else "✗",
+                              color=C["success"] if _db.package_installed else C["danger"]),
+                    info_tile("Secrets", "✓" if _db.configured else "✗",
+                              color=C["success"] if _db.configured else C["danger"]),
+                    info_tile("Client", "✓" if _db.connected else "✗",
+                              color=C["success"] if _db.connected else C["danger"]),
+                    info_tile("Health", "✓" if _db.healthy else "—",
+                              color=C["success"] if _db.healthy else C["subtle"]),
+                    info_tile("Latency", _lat, color=C["secondary"]),
+                ])
                 st.markdown(
-                    f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
-                    f'{info_tile("Package", "✓" if _db.package_installed else "✗",
-                                 color=C["success"] if _db.package_installed else C["danger"])}'
-                    f'{info_tile("Secrets", "✓" if _db.configured else "✗",
-                                 color=C["success"] if _db.configured else C["danger"])}'
-                    f'{info_tile("Client", "✓" if _db.connected else "✗",
-                                 color=C["success"] if _db.connected else C["danger"])}'
-                    f'{info_tile("Health", "✓" if _db.healthy else "—",
-                                 color=C["success"] if _db.healthy else C["subtle"])}'
-                    f'{info_tile("Latency", _lat, color=C["secondary"])}'
-                    f'</div>',
+                    f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">{_tiles}</div>',
                     unsafe_allow_html=True,
                 )
                 if _db.last_error:
