@@ -88,6 +88,8 @@ class Repository:
         self.industry_factors: dict[tuple, float] = {}
         self.industry_skills: dict[str, list[IndustrySkill]] = {}
         self.seniority_levels: dict[str, SeniorityLevel] = {}
+        # {category: {level:int -> {"name": str, "anchor": str}}}
+        self.skill_proficiency: dict[str, dict[int, dict]] = {}
 
         self._build_jobs(data.get("jobs"))
         self._build_profiles(data.get("profiles"))
@@ -112,6 +114,7 @@ class Repository:
         self._build_industry_factors(_get(data, "industrysalaryfactors", "IndustrySalaryFactors"))
         self._build_industry_skills(_get(data, "industryskills", "IndustrySkills"))
         self._build_seniority_levels(_get(data, "senioritylevels", "SeniorityLevels"))
+        self._build_skill_proficiency(_get(data, "skillproficiency", "SkillProficiency", "skill_proficiency"))
 
         self.index = SearchIndex()
         self.index.build(data.get("jobs"), data.get("titles"))
@@ -268,6 +271,24 @@ class Repository:
                 name=_val(row, "Name", "name") or "",
                 description=_val(row, "Description", "description") or "",
             )
+
+    def _build_skill_proficiency(self, df) -> None:
+        """Per-category behavioural anchors for proficiency levels 1-5."""
+        if df is None:
+            return
+        for row in df.itertuples(index=False):
+            category = _val(row, "Category", "category")
+            raw = _val(row, "Level", "level")
+            if category is None or raw is None:
+                continue
+            try:
+                level = int(float(raw))
+            except (TypeError, ValueError):
+                continue
+            self.skill_proficiency.setdefault(category, {})[level] = {
+                "name":   _val(row, "LevelName", "level_name", "Name", "name") or "",
+                "anchor": _val(row, "Anchor", "anchor", "Description", "description") or "",
+            }
 
     def _build_role_skill_map(self, df) -> None:
         if df is None:

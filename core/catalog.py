@@ -38,6 +38,7 @@ SHEET_MAP = {
     "IndustrySalaryFactors": "industrysalaryfactors",
     "IndustrySkills": "industryskills",
     "SeniorityLevels": "senioritylevels",
+    "SkillProficiency": "skillproficiency",
 }
 
 
@@ -209,6 +210,22 @@ class Catalog:
             self.load()
         cl = self.repository.competency_levels.get(level)
         return cl.name if cl else str(level)
+
+    def proficiency_rubric(self, category: str = None) -> dict:
+        """Behavioural anchors per proficiency level (1-5).
+
+        With a category → {level: {"name","anchor"}} for that category.
+        Without → {category: {level: {...}}} for all categories.
+        """
+        if not self._loaded:
+            self.load()
+        rub = self.repository.skill_proficiency
+        return rub.get(category, {}) if category else rub
+
+    def proficiency_anchor(self, category: str, level: int) -> str:
+        """The behavioural anchor text for a category at a given level (or '')."""
+        entry = self.proficiency_rubric(category).get(int(level)) if level else None
+        return entry["anchor"] if entry else ""
 
     def search_jobs(self, query: str = "", function: str = "", level: str = "") -> list:
         """Simple filtered search over standard titles."""
