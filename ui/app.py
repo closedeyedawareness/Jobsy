@@ -1950,10 +1950,43 @@ def skill_assessment_page(catalog):
         {"EmployeeID":"E1001","Name":"Eva de Vries","CurrentRole":"Chief Executive Officer", **sample_skills},
         {"EmployeeID":"E1002","Name":"Sem Meijer",  "CurrentRole":"Chief Financial Officer", **sample_skills},
     ])], ignore_index=True)
-    tmpl_buf = _iosa.BytesIO(); tmpl_df.to_excel(tmpl_buf, index=False)
+    # Behavioural rubric (1-5 anchors per skill category) — for the template + UI
+    _rubric = catalog.proficiency_rubric() if hasattr(catalog, "proficiency_rubric") else {}
+    _rubric_rows = [
+        {"Skill Category": cat, "Level": lvl,
+         "Level Name": _rubric[cat].get(lvl, {}).get("name", ""),
+         "What it looks like": _rubric[cat].get(lvl, {}).get("anchor", "")}
+        for cat in sorted(_rubric) for lvl in range(1, 6) if _rubric[cat].get(lvl)
+    ]
+    tmpl_buf = _iosa.BytesIO()
+    with _pdsa.ExcelWriter(tmpl_buf, engine="openpyxl") as _xl:
+        tmpl_df.to_excel(_xl, index=False, sheet_name="Assessment")
+        if _rubric_rows:
+            _pdsa.DataFrame(_rubric_rows).to_excel(_xl, index=False, sheet_name="Proficiency Rubric")
     st.download_button("⬇ Download assessment template (.xlsx)", tmpl_buf.getvalue(),
         file_name="jobsy_skills_assessment_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    # ── Proficiency rubric reference ─────────────────────────────────────
+    if _rubric:
+        with st.expander("📊 Proficiency rubric — what levels 1–5 mean for each skill category"):
+            st.caption("Score people against these behavioural anchors so ratings stay consistent "
+                       "across assessors. Included as a sheet in the template above.")
+            for cat in sorted(_rubric):
+                rows = "".join(
+                    f'<div style="display:flex;gap:10px;margin:3px 0">'
+                    f'<span style="flex:0 0 24px;font-family:{FONT_MONO};font-weight:700;color:{C["teal"]}">{lvl}</span>'
+                    f'<span style="flex:0 0 92px;font-family:{FONT_MONO};font-size:11px;color:{C["muted"]}">'
+                    f'{_rubric[cat].get(lvl, {}).get("name", "")}</span>'
+                    f'<span style="font-size:13px;color:{C["ink"]}">'
+                    f'{_rubric[cat].get(lvl, {}).get("anchor", "")}</span></div>'
+                    for lvl in range(1, 6) if _rubric[cat].get(lvl)
+                )
+                st.markdown(
+                    f'<div style="margin:10px 0 6px;font-family:{FONT_SANS};font-weight:600;'
+                    f'font-size:14px;color:{C["ink"]}">{cat}</div>{rows}',
+                    unsafe_allow_html=True,
+                )
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
