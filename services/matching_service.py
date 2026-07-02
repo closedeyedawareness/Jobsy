@@ -369,8 +369,15 @@ class MatchingService:
                        "cpo", "cdo", "cio", "ciso", "clo"}
 
     def _is_c_suite_title(self, title: str) -> bool:
-        """True if the input reads as a C-suite title ('Chief X Officer' or a CxO)."""
+        """True if the input reads as a C-suite title ('Chief X Officer' or a CxO).
+
+        Excludes support roles that merely *reference* an executive
+        ('Executive Assistant to the CEO', 'Secretary to the CFO').
+        """
         t = f" {title.lower().strip()} "
+        if any(w in t for w in (" assistant ", " secretary ", "office of",
+                                "reporting to", " to the ", " to ceo", " to cfo")):
+            return False
         if "chief " in t and "officer" in t:
             return True
         tokens = set(re.findall(r"[a-z]+", title.lower()))
