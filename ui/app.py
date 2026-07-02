@@ -492,8 +492,20 @@ class _SampleCatalog:
                 "employees":pd.DataFrame([{"EmployeeID":"1","Name":"-","CurrentTitle":"-"}])}
 
 # ── loaders ────────────────────────────────────────────────────────────────
+def _workbook_sig(path):
+    """A cheap fingerprint of the workbook so the cache busts when it changes."""
+    import os
+    try:
+        s = os.stat(path)
+        return f"{int(s.st_mtime)}-{s.st_size}"
+    except OSError:
+        return "missing"
+
+
 @st.cache_resource(show_spinner="Loading reference library…")
-def load_workbook_catalog(path):
+def load_workbook_catalog(path, sig=None):
+    # `sig` only participates in the cache key: when the workbook file changes,
+    # sig changes and Streamlit rebuilds the catalog instead of serving a stale one.
     from core.catalog import Catalog
     c=Catalog(path); c.load(); return c
 
@@ -1611,7 +1623,7 @@ def main():
     path = WORKBOOK_PATH
     catalog = None
     try:
-        catalog = load_workbook_catalog(path)
+        catalog = load_workbook_catalog(path, _workbook_sig(path))
     except Exception as exc:
         st.error(
             f"Could not load **{path}**. "
