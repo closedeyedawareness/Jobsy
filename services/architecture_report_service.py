@@ -97,6 +97,7 @@ class ArchitectureReportService:
         self._build_career_paths()
         self._build_succession_risk()
         self._build_recommendations()
+        self._build_job_family_leveling()
         buf = io.BytesIO()
         self._wb.save(buf)
         return buf.getvalue()
@@ -521,6 +522,79 @@ class ArchitectureReportService:
                 row+=1
             row+=1
         _border_range(ws,2,row,2,4)
+
+    # ── Sheet 8: Job Family & Pay (leveling grid) ─────────────────────────
+    def _build_job_family_leveling(self):
+        ws = self._wb.create_sheet("8. Job Family & Pay")
+        ws.sheet_view.showGridLines = False
+        headers = ["Role", "Level", "Grade", "Salary Min", "Median (P50)", "Salary Max",
+                   "Knowledge / Scope", "Problem Solving", "Accountability", "Top Skills"]
+        widths  = [30, 10, 8, 13, 13, 13, 34, 30, 34, 34]
+        for ci, (h, w) in enumerate(zip(headers, widths), 1):
+            ws.column_dimensions[get_column_letter(ci)].width = w
+            _hdr(ws, 1, ci, h, bg=TEAL)
+        ws.row_dimensions[1].height = 22
+        ws.freeze_panes = "A2"
+
+        try:
+            fr = pd.read_excel(str(self.catalog.path),
+                               sheet_name=["Jobs", "SalaryBands", "JobGrades"], dtype=str)
+        except Exception as exc:
+            _cell(ws, 2, 1, f"Reference workbook not available ({exc}).", fg=MUTED)
+            return
+        jobs = fr["Jobs"].copy(); bands = fr["SalaryBands"]; grades = fr["JobGrades"]
+        jobs["Grade"] = pd.to_numeric(jobs.get("Grade"), errors="coerce")
+        bmap = {(r["Function"], r["Level"]): r for _, r in bands.iterrows()}
+        gmap = {}
+        for _, r in grades.iterrows():
+            try: gmap[int(float(r["Grade"]))] = r
+            except (TypeError, ValueError): pass
+
+        def _e(v):
+            try: return "€{:,.0f}".format(float(v)).replace(",", ".")
+            except Exception: return "—"
+        def _t(v, n=180):
+            s = "" if v is None else str(v)
+            if not s or s.lower() == "nan": return "—"
+            s = s.replace(";", " · ")
+            return s if len(s) <= n else s[:n].rsplit(" ", 1)[0] + "…"
+        def _skills(jid):
+            try:
+                names = [sk.skill_name for _, sk in self.catalog.get_role_skills(jid)[:3]]
+                return " · ".join(names) if names else "—"
+            except Exception:
+                return "—"
+
+        ri = 2
+        for fn in sorted(jobs["Function"].dropna().unique()):
+            fam = jobs[jobs["Function"] == fn].dropna(subset=["Grade"]).sort_values("Grade")
+            if fam.empty:
+                continue
+            _hdr(ws, ri, 1, f"{fn} — Job Family", bg=BLUE)
+            for ci in range(2, len(headers) + 1):
+                _cell(ws, ri, ci, "", bg=BLUE_L)
+            ws.row_dimensions[ri].height = 20
+            ri += 1
+            for role in fam.itertuples(index=False):
+                jid = getattr(role, "JobID"); lvl = getattr(role, "Level")
+                grade = int(getattr(role, "Grade"))
+                b = bmap.get((getattr(role, "Function"), lvl)); g = gmap.get(grade)
+                bg = _row_bg(ri)
+                _cell(ws, ri, 1, _t(getattr(role, "StandardTitle"), 60), fg=INK, bg=bg, bold=True)
+                _cell(ws, ri, 2, _t(lvl, 20), fg=MUTED, bg=bg)
+                _cell(ws, ri, 3, f"G{grade}", fg=MUTED, bg=bg)
+                _cell(ws, ri, 4, _e(b["Min"]) if b is not None else "—", fg=MUTED, bg=bg)
+                _cell(ws, ri, 5, _e(b["P50"]) if b is not None else "—", fg=TEAL, bg=bg, bold=True)
+                _cell(ws, ri, 6, _e(b["Max"]) if b is not None else "—", fg=MUTED, bg=bg)
+                _cell(ws, ri, 7, _t(g["Scope"]) if g is not None else "—", fg=INK, bg=bg)
+                _cell(ws, ri, 8, _t(g["Complexity"]) if g is not None else "—", fg=INK, bg=bg)
+                _cell(ws, ri, 9, _t(g["DecisionRights"]) if g is not None else "—", fg=INK, bg=bg)
+                _cell(ws, ri, 10, _skills(jid), fg=INK, bg=bg)
+                ws.row_dimensions[ri].height = 30
+                ri += 1
+            ri += 1  # spacer between families
+
+        _border_range(ws, 1, ri - 1, 1, len(headers))
 
     # ── Pattern detection & recommendations ───────────────────────────────
     def _detect_patterns(self):

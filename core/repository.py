@@ -135,7 +135,10 @@ class Repository:
                 continue
             function = _val(row, "Function", "function") or ""
             level = _val(row, "Level", "level") or ""
-            job = Job(job_id=job_id, standard_title=title, function=function, level=level)
+            grade = int(_num(row, "Grade", "grade") or 0)
+            category = _val(row, "Category", "category") or ""
+            job = Job(job_id=job_id, standard_title=title, function=function, level=level,
+                      grade=grade, category=category)
             self.jobs[job_id] = job
             self.jobs_by_function.setdefault(function, []).append(job)
             self.jobs_by_level.setdefault(level, []).append(job)
@@ -179,8 +182,13 @@ class Repository:
             if low is None or high is None:
                 continue
             currency = _val(row, "Currency", "currency") or "EUR"
+            grade = int(_num(row, "Grade", "grade") or 0)
+            p25 = _num(row, "P25", "p25") or 0.0
+            p50 = _num(row, "P50", "p50") or round((low + high) / 2)
+            p75 = _num(row, "P75", "p75") or 0.0
             self.salary[(function, level)] = SalaryBand(
-                function=function, level=level, min=low, max=high, currency=currency
+                function=function, level=level, min=low, max=high, currency=currency,
+                grade=grade, p25=p25, p50=p50, p75=p75,
             )
 
     def _build_titles(self, df) -> None:

@@ -157,10 +157,9 @@ class Catalog:
         from core.models import SalaryBand
         return SalaryBand(
             function=band.function, level=band.level, grade=band.grade,
-            min_salary=round(band.min_salary * factor),
+            min=round(band.min * factor), max=round(band.max * factor),
             p25=round(band.p25 * factor), p50=round(band.p50 * factor),
-            p75=round(band.p75 * factor), max_salary=round(band.max_salary * factor),
-            currency=band.currency,
+            p75=round(band.p75 * factor), currency=band.currency,
         )
 
     def industry_factor(self, function: str, industry_id: str) -> float:
