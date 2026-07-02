@@ -65,6 +65,11 @@ def _row_bg(ri):
     return GREY if ri % 2 == 0 else WHITE
 
 
+def _grade(obj):
+    """Grade of a Job, resilient to stale/old cached objects."""
+    return getattr(obj, "grade", 0) or 0
+
+
 class ArchitectureReportService:
     """Generate a job architecture framework report from Jobsy session data."""
 
@@ -139,7 +144,7 @@ class ArchitectureReportService:
         for r in self.results:
             job = self.catalog.repository.jobs.get(r.job_id)
             if job:
-                g = job.grade
+                g = _grade(job)
                 grade_dist[g] = grade_dist.get(g, 0) + 1
 
         lead_count   = levels.get("Lead", 0)
@@ -210,7 +215,7 @@ class ArchitectureReportService:
         ws.freeze_panes = "A2"
 
         repo  = self.catalog.repository
-        jobs  = sorted(repo.jobs.values(), key=lambda j: (j.function, j.grade or 0, j.standard_title))
+        jobs  = sorted(repo.jobs.values(), key=lambda j: (j.function, _grade(j) or 0, j.standard_title))
         jg    = repo.job_grades
 
         # Load grade→band map from repo if available
@@ -224,24 +229,24 @@ class ArchitectureReportService:
                 ws.merge_cells(f"C{ri}:K{ri}")
                 ri += 1
                 prev_fn = job.function
-            band  = GRADE_BANDS.get(job.grade or 0, "Professional")
+            band  = GRADE_BANDS.get(_grade(job) or 0, "Professional")
             band_col = BAND_COLORS.get(band, MUTED)
             band_lt  = BAND_LIGHT.get(band, GREY)
             sal   = repo.salary.get((job.function, job.level))
-            grade_data = jg.get(job.grade or 0)
+            grade_data = jg.get(_grade(job) or 0)
             hay_range  = f"{grade_data.pay_min}–{grade_data.pay_max}" if grade_data and hasattr(grade_data,"pay_min") else ""
             # Actually use Hay from JobGrades (stored as pay_min/pay_max for Hay there is in grade criteria)
             # Let's use grade-based Hay ranges from our grade_rows
             HAY = {1:(100,130),2:(135,160),3:(165,200),4:(205,250),5:(255,300),6:(305,365),
                    7:(370,440),8:(450,525),9:(530,615),10:(620,725),11:(730,870),12:(880,1040),
                    13:(1050,1260),14:(1270,1800)}
-            hay = HAY.get(job.grade or 0)
+            hay = HAY.get(_grade(job) or 0)
             hay_str = f"{hay[0]}–{hay[1]}" if hay else ""
             bg = _row_bg(ri)
             _cell(ws, ri, 1, "",                   bg=band_lt)
             _cell(ws, ri, 2, job.function,          bg=bg)
             _cell(ws, ri, 3, job.standard_title,    bg=bg, bold=True)
-            _cell(ws, ri, 4, f"G{job.grade}" if job.grade else "", bg=bg, fg=band_col, bold=True)
+            _cell(ws, ri, 4, f"G{_grade(job)}" if _grade(job) else "", bg=bg, fg=band_col, bold=True)
             _cell(ws, ri, 5, band,                  bg=bg, fg=band_col)
             for ci_s, attr in enumerate(["min_salary","p25","p50","p75","max_salary"], 6):
                 val = int(getattr(sal, attr, 0) or 0) if sal else 0
@@ -290,7 +295,7 @@ class ArchitectureReportService:
         for ri, (idx, r) in enumerate(all_results, 2):
             job  = repo.jobs.get(r.job_id)
             sal  = repo.salary.get((r.function, r.level)) if job else None
-            grade = job.grade if job else 0
+            grade = _grade(job) if job else 0
             band  = GRADE_BANDS.get(grade, "Professional")
             band_col = BAND_COLORS.get(band, MUTED)
             salary   = get_salary(idx)
@@ -343,7 +348,7 @@ class ArchitectureReportService:
         grade_data: dict[int,list] = {}
         for r in self.results:
             job = repo.jobs.get(r.job_id)
-            g = job.grade if job else 0
+            g = _grade(job) if job else 0
             grade_data.setdefault(g,[]).append(r)
 
         for ri, grade in enumerate(sorted(grade_data.keys()),2):
@@ -393,19 +398,19 @@ class ArchitectureReportService:
             next_job = repo.jobs.get(cp.next_job_id) if cp.next_job_id else None
             if not job: continue
             # steps to Lead
-            cur_grade  = job.grade or 5
+            cur_grade  = _grade(job) or 5
             lead_grade = LEAD_GRADE.get(job.function, 11)
             steps_to_lead = max(0, lead_grade - cur_grade)
-            band_col = BAND_COLORS.get(self.GRADE_BANDS.get(job.grade or 0,"Professional"), MUTED)
+            band_col = BAND_COLORS.get(self.GRADE_BANDS.get(_grade(job) or 0,"Professional"), MUTED)
             bg = _row_bg(ri)
             _cell(ws,ri,1,job.function,fg=INK,bg=bg)
             _cell(ws,ri,2,job.standard_title,fg=INK,bg=bg,bold=True)
             _cell(ws,ri,3,job.level,fg=band_col,bg=bg)
-            _cell(ws,ri,4,f"G{job.grade}" if job.grade else "—",fg=band_col,bg=bg,bold=True)
+            _cell(ws,ri,4,f"G{_grade(job)}" if _grade(job) else "—",fg=band_col,bg=bg,bold=True)
             _cell(ws,ri,5,next_job.standard_title if next_job else "Top of path",
                   fg=TEAL if next_job else MUTED, bg=bg)
             _cell(ws,ri,6,next_job.level if next_job else "—",fg=MUTED,bg=bg)
-            ngrade = next_job.grade if next_job else 0
+            ngrade = _grade(next_job) if next_job else 0
             _cell(ws,ri,7,f"G{ngrade}" if ngrade else "—",fg=MUTED,bg=bg)
             _cell(ws,ri,8,str(steps_to_lead),fg=AMBER if steps_to_lead>3 else TEAL,bg=bg)
             ws.row_dimensions[ri].height=20
@@ -468,7 +473,7 @@ class ArchitectureReportService:
                     else ("Accelerate development for near-ready candidates. Set succession target date." if total>0
                           else "No pipeline. Prioritise external search and internal development programme immediately."))
             bg=_row_bg(ri)
-            grade=job.grade or 0
+            grade=_grade(job) or 0
             _cell(ws,ri,1,job.standard_title,fg=INK,bg=bg,bold=True)
             _cell(ws,ri,2,job.function,fg=MUTED,bg=bg)
             _cell(ws,ri,3,f"G{grade}" if grade else "—",fg=VIOLET,bg=bg,bold=True)
@@ -606,7 +611,7 @@ class ArchitectureReportService:
         grade_dist:dict[int,int]={}
         for r in self.results:
             job=repo.jobs.get(r.job_id)
-            g=job.grade if job else 0
+            g=_grade(job) if job else 0
             grade_dist[g]=grade_dist.get(g,0)+1
         total=max(len(self.results),1)
 

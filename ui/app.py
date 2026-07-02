@@ -875,9 +875,10 @@ def _card_html(r):
         MKTLO, MKTHI = 24000, 280000
         def _p(v): return min(100, max(0, (v-MKTLO)/(MKTHI-MKTLO)*100))
         if band and getattr(band,'p25',0) and getattr(band,'p75',0):
+            _bg = getattr(band, "grade", 0) or 0
             grade_chip = (f'<span style="font-family:{FONT_MONO};font-size:10px;background:{C["blue"]}1A;'
-                f'color:{C["blue"]};border-radius:6px;padding:2px 8px;margin-left:8px">G{band.grade}</span>'
-                ) if band.grade else ""
+                f'color:{C["blue"]};border-radius:6px;padding:2px 8px;margin-left:8px">G{_bg}</span>'
+                ) if _bg else ""
             sal = (
                 f'<div style="margin-top:14px">'
                 f'<div style="display:flex;align-items:center;margin-bottom:5px">'
@@ -1420,7 +1421,7 @@ def data_quality_page(catalog):
         "Profile":     _profile,
         "Salary band": lambda j: (j.function, j.level) in repo.salary,
         "Skills":      lambda j: len(repo.role_skill_map.get(j.job_id, [])) > 0,
-        "Grade":       lambda j: (j.grade or 0) > 0,
+        "Grade":       lambda j: (getattr(j, "grade", 0) or 0) > 0,
         "Career path": lambda j: j.job_id in repo.career_paths or j.standard_title == "Chief Executive Officer",
         "ISCO code":   lambda j: iso.get(j.job_id, False),
         "Synonyms":    lambda j: syn_ids.get(j.job_id, 0) > 0,
