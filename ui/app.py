@@ -1367,13 +1367,143 @@ def job_family_page(catalog):
         st.caption("● median (P50)   ▲ P75   ▼ P25   │ min–max band")
 
 
+@st.cache_data(show_spinner=False)
+def _dq_frames(path):
+    import pandas as _pd
+    return _pd.read_excel(path, sheet_name=["Jobs", "TitleMapping"], dtype=str)
+
+
+def data_quality_page(catalog):
+    """Live data-quality scorecard for the reference library."""
+    repo = catalog.repository
+    st.markdown(
+        f'<div style="font-family:{FONT_SERIF};font-size:28px;font-weight:600;'
+        f'letter-spacing:-0.02em;margin-bottom:4px">Data Quality</div>'
+        f'<p style="color:{C["muted"]};font-size:14px;margin-bottom:16px">'
+        f'A live scorecard for the reference library — coverage, integrity and freshness. '
+        f'Run it after every edit to catch gaps before they reach users.</p>',
+        unsafe_allow_html=True,
+    )
+    jobs = list(repo.jobs.values()); n = max(len(jobs), 1)
+    try:
+        fr = _dq_frames(WORKBOOK_PATH)
+        jraw = fr["Jobs"]; tm = fr["TitleMapping"]
+    except Exception:
+        jraw = None; tm = None
+
+    iso = own = {}
+    if jraw is not None:
+        iso = {str(r["JobID"]).strip(): str(r.get("IscoGroup", "")).strip() not in ("", "nan")
+               for _, r in jraw.iterrows()}
+        own = {str(r["JobID"]).strip(): str(r.get("Owner", "")).strip() not in ("", "nan")
+               for _, r in jraw.iterrows()}
+    syn_ids = {}
+    if tm is not None:
+        for _, r in tm.iterrows():
+            syn_ids[str(r["JobID"]).strip()] = syn_ids.get(str(r["JobID"]).strip(), 0) + 1
+
+    def _profile(j):
+        p = repo.profiles.get(j.job_id); return bool(p and (p.description or p.key_responsibilities))
+    dims = {
+        "Profile":     _profile,
+        "Salary band": lambda j: (j.function, j.level) in repo.salary,
+        "Skills":      lambda j: len(repo.role_skill_map.get(j.job_id, [])) > 0,
+        "Grade":       lambda j: (j.grade or 0) > 0,
+        "Career path": lambda j: j.job_id in repo.career_paths or j.standard_title == "Chief Executive Officer",
+        "ISCO code":   lambda j: iso.get(j.job_id, False),
+        "Synonyms":    lambda j: syn_ids.get(j.job_id, 0) > 0,
+        "Owner":       lambda j: own.get(j.job_id, False),
+    }
+    cov = {name: sum(1 for j in jobs if fn(j)) for name, fn in dims.items()}
+    health = round(sum(cov.values()) / (len(dims) * n) * 100)
+
+    # ── headline tiles ──────────────────────────────────────────────────
+    hcol = C["teal"] if health >= 90 else (C["amber"] if health >= 70 else C["danger"])
+    tiles = [("Health score", f"{health}%", hcol), ("Roles", str(len(jobs)), C["ink"]),
+             ("Functions", str(len(repo.jobs_by_function)), C["ink"]),
+             ("Title synonyms", str(len(tm)) if tm is not None else "—", C["ink"])]
+    trow = "".join(
+        f'<div style="flex:1;min-width:120px;background:{C["surface"]};border:1px solid {C["line"]};'
+        f'border-radius:12px;padding:14px 16px">'
+        f'<div style="font-family:{FONT_SERIF};font-size:30px;font-weight:700;color:{col}">{val}</div>'
+        f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.08em;text-transform:uppercase;'
+        f'color:{C["muted"]};margin-top:2px">{lab}</div></div>'
+        for lab, val, col in tiles)
+    st.markdown(f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">{trow}</div>',
+                unsafe_allow_html=True)
+
+    # ── coverage bars ───────────────────────────────────────────────────
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:6px 0 8px">Coverage</div>',
+                unsafe_allow_html=True)
+    bars = ""
+    for name, cnt in cov.items():
+        pct = round(cnt / n * 100)
+        bc = C["teal"] if pct == 100 else (C["amber"] if pct >= 80 else C["danger"])
+        bars += (
+            f'<div style="display:flex;align-items:center;gap:12px;margin:5px 0">'
+            f'<span style="flex:0 0 130px;font-size:13px;color:{C["ink"]}">{name}</span>'
+            f'<span style="flex:1;background:{C["line"]};border-radius:999px;height:10px;position:relative">'
+            f'<span style="position:absolute;left:0;top:0;height:10px;width:{pct}%;background:{bc};border-radius:999px"></span></span>'
+            f'<span style="flex:0 0 78px;text-align:right;font-family:{FONT_MONO};font-size:12px;color:{bc}">'
+            f'{pct}% · {cnt}/{n}</span></div>')
+    st.markdown(bars, unsafe_allow_html=True)
+
+    # ── integrity checks ────────────────────────────────────────────────
+    ids = [j.job_id for j in jobs]
+    dupes = {x for x in ids if ids.count(x) > 1}
+    bad_ord = [f"{k[0]}/{k[1]}" for k, b in repo.salary.items() if not (b.min <= b.p50 <= b.max)]
+    dang_cp = [jid for jid, cs in repo.career_paths.items()
+               if cs.next_job_id and cs.next_job_id not in repo.jobs]
+    dang_tm = sorted({str(r["JobID"]).strip() for _, r in tm.iterrows()
+                      if str(r["JobID"]).strip() not in repo.jobs}) if tm is not None else []
+    checks = [
+        ("No duplicate JobIDs", not dupes, ", ".join(sorted(dupes))),
+        ("Salary min ≤ P50 ≤ max", not bad_ord, ", ".join(bad_ord)),
+        ("Career paths resolve", not dang_cp, ", ".join(dang_cp)),
+        ("Synonyms map to real roles", not dang_tm, ", ".join(dang_tm)),
+    ]
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:18px 0 8px">Integrity</div>',
+                unsafe_allow_html=True)
+    crows = ""
+    for label, ok, detail in checks:
+        icon = "✓" if ok else "✗"; col = C["teal"] if ok else C["danger"]
+        crows += (f'<div style="display:flex;align-items:center;gap:10px;margin:4px 0;font-size:13px">'
+                  f'<span style="color:{col};font-weight:700">{icon}</span>'
+                  f'<span style="color:{C["ink"]}">{label}</span>'
+                  f'<span style="color:{C["muted"]};font-size:12px">{("— "+detail) if detail else ""}</span></div>')
+    st.markdown(crows, unsafe_allow_html=True)
+
+    # ── attention list ──────────────────────────────────────────────────
+    gaps = {name: [j.standard_title for j in jobs if not fn(j)]
+            for name, fn in dims.items() if cov[name] < n}
+    if gaps:
+        with st.expander(f"⚠ Roles needing attention ({sum(len(v) for v in gaps.values())} gaps)"):
+            for name, roles in gaps.items():
+                st.markdown(f"**Missing {name}** ({len(roles)}): " + ", ".join(roles))
+    else:
+        st.success("✓ Every role is complete on all coverage dimensions.")
+
+    # ── per-function completeness ───────────────────────────────────────
+    with st.expander("Completeness by function"):
+        import pandas as _pd
+        rows = []
+        for fnname, roles in sorted(repo.jobs_by_function.items()):
+            m = len(roles) * len(dims)
+            got = sum(1 for j in roles for fn in dims.values() if fn(j))
+            rows.append({"Function": fnname, "Roles": len(roles),
+                         "Completeness": f"{round(got/max(m,1)*100)}%"})
+        st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
 def main():
     st.set_page_config(page_title="Jobsy", page_icon="📊",
                        layout="centered", initial_sidebar_state="auto")
     apply_theme()
 
     # page navigation
-    page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Assessment", "Skill Gap", "Job Family", "9-Box Grid", "Architecture Report", "Organisation", "Organigram"], label_visibility="collapsed")
+    page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Assessment", "Skill Gap", "Job Family", "9-Box Grid", "Architecture Report", "Data Quality", "Organisation", "Organigram"], label_visibility="collapsed")
 
     # header moved below catalog loading for dashboard statistics
 
@@ -1532,6 +1662,10 @@ def main():
 
     if page == "Job Family":
         job_family_page(catalog)
+        return
+
+    if page == "Data Quality":
+        data_quality_page(catalog)
         return
 
     if page == "9-Box Grid":
