@@ -279,6 +279,8 @@ class MatchingService:
         "engineering":     {"Engineering"},
         "software":        {"Engineering"},
         "developer":       {"Engineering"},
+        "developper":      {"Engineering"},   # common typo (double p)
+        "ontwikkelaar":    {"Engineering"},   # NL: developer
         "devops":          {"Engineering"},
         "frontend":        {"Engineering"},
         "backend":         {"Engineering"},
@@ -295,6 +297,8 @@ class MatchingService:
         "machine learning":{"Data","Engineering"},
         "finance":         {"Finance"},
         "financial":       {"Finance"},
+        "financieel":      {"Finance"},       # NL: financial
+        "boekhoud":        {"Finance"},       # NL: bookkeeping/accounting
         "accounting":      {"Finance"},
         "treasury":        {"Finance"},
         " hr ":            {"HR"},
