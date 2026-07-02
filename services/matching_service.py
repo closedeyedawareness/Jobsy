@@ -28,6 +28,7 @@ so a fuzzy hit can never outrank a deterministic one.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Protocol, Sequence, runtime_checkable
@@ -189,7 +190,15 @@ class MatchingService:
             return self._no_match(raw)
 
         job_id, match_type, confidence = resolution
-        return self._enrich(raw, job_id, match_type, confidence)
+        result = self._enrich(raw, job_id, match_type, confidence)
+        # Cross-type seniority guard: a C-suite input that resolves to a
+        # non-executive role is almost certainly a bad mapping. This applies to
+        # exact/normalized/synonym hits too (not just fuzzy), so stale seed data
+        # can never present a down-levelled C-level match as confident.
+        if self._c_suite_but_not_executive(raw, result):
+            result.requires_review = True
+            result.confidence = min(result.confidence, self.review_threshold - 1)
+        return result
 
     def match_titles(self, titles: Sequence[str]) -> list[MatchResult]:
         return [self.match(t) for t in titles]
@@ -354,6 +363,24 @@ class MatchingService:
                 break  # first matching keyword wins
 
         return False
+
+    # C-suite abbreviations recognised as whole tokens (bare "CTO", "CFO", ...)
+    _C_SUITE_TOKENS = {"ceo", "cto", "coo", "cfo", "chro", "cmo", "cco", "cro",
+                       "cpo", "cdo", "cio", "ciso", "clo"}
+
+    def _is_c_suite_title(self, title: str) -> bool:
+        """True if the input reads as a C-suite title ('Chief X Officer' or a CxO)."""
+        t = f" {title.lower().strip()} "
+        if "chief " in t and "officer" in t:
+            return True
+        tokens = set(re.findall(r"[a-z]+", title.lower()))
+        return bool(tokens & self._C_SUITE_TOKENS)
+
+    def _c_suite_but_not_executive(self, input_title: str, result: "MatchResult") -> bool:
+        """A C-suite input landing on a non-executive role → suspect mapping."""
+        return (result.matched
+                and self._is_c_suite_title(input_title)
+                and (result.function or "") != "Executive")
 
     def _enrich(self, input_title: str, job_id: str,
                 match_type: MatchType, confidence: int) -> MatchResult:
