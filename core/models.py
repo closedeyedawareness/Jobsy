@@ -24,6 +24,8 @@ class Job:
     standard_title: str
     function: str
     level: str
+    grade: int = 0
+    category: str = ""
 
     @property
     def title(self) -> str:
@@ -49,10 +51,23 @@ class SalaryBand:
     min: float
     max: float
     currency: str = "EUR"
+    grade: int = 0
+    p25: float = 0.0
+    p50: float = 0.0
+    p75: float = 0.0
 
     @property
     def range(self) -> tuple[float, float]:
         return (self.min, self.max)
+
+    # aliases so callers can use either naming
+    @property
+    def min_salary(self) -> float:
+        return self.min
+
+    @property
+    def max_salary(self) -> float:
+        return self.max
 
 
 @dataclass(frozen=True)
