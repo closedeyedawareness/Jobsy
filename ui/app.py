@@ -1232,7 +1232,7 @@ def architecture_report_page(catalog):
 
 def main():
     st.set_page_config(page_title="Jobsy", page_icon="📊",
-                       layout="centered", initial_sidebar_state="expanded")
+                       layout="centered", initial_sidebar_state="auto")
     apply_theme()
 
     # page navigation
