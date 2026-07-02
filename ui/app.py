@@ -1140,6 +1140,23 @@ def _detect_col(df, candidates):
     return df.columns[0] if len(df.columns) > 0 else ""
 
 
+def _smart_detect(cols, exacts, contains):
+    """Pick a column by case-insensitive exact match first, then substring.
+
+    Robust to non-string / numeric headers (uses str(c)). Returns None if
+    nothing matches so callers can supply their own fallback.
+    """
+    low = [(c, str(c).strip().lower()) for c in cols]
+    for c, l in low:
+        if l in exacts:
+            return c
+    for kw in contains:
+        for c, l in low:
+            if kw in l:
+                return c
+    return None
+
+
 
 def architecture_report_page(catalog):
     """Generate a board-ready Job Architecture Framework report."""
@@ -1304,18 +1321,19 @@ def main():
                     _db = _ps_health()
                 _conn_state = "ok" if _db.healthy else ("warn" if _db.available else "error")
                 _lat = f"{_db.latency_ms} ms" if _db.latency_ms is not None else "—"
+                _tiles = "".join([
+                    info_tile("Package", "✓" if _db.package_installed else "✗",
+                              color=C["success"] if _db.package_installed else C["danger"]),
+                    info_tile("Secrets", "✓" if _db.configured else "✗",
+                              color=C["success"] if _db.configured else C["danger"]),
+                    info_tile("Client", "✓" if _db.connected else "✗",
+                              color=C["success"] if _db.connected else C["danger"]),
+                    info_tile("Health", "✓" if _db.healthy else "—",
+                              color=C["success"] if _db.healthy else C["subtle"]),
+                    info_tile("Latency", _lat, color=C["secondary"]),
+                ])
                 st.markdown(
-                    f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
-                    f'{info_tile("Package", "✓" if _db.package_installed else "✗",
-                                 color=C["success"] if _db.package_installed else C["danger"])}'
-                    f'{info_tile("Secrets", "✓" if _db.configured else "✗",
-                                 color=C["success"] if _db.configured else C["danger"])}'
-                    f'{info_tile("Client", "✓" if _db.connected else "✗",
-                                 color=C["success"] if _db.connected else C["danger"])}'
-                    f'{info_tile("Health", "✓" if _db.healthy else "—",
-                                 color=C["success"] if _db.healthy else C["subtle"])}'
-                    f'{info_tile("Latency", _lat, color=C["secondary"])}'
-                    f'</div>',
+                    f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">{_tiles}</div>',
                     unsafe_allow_html=True,
                 )
                 if _db.last_error:
@@ -1422,16 +1440,32 @@ def main():
             if df_in is not None and not df_in.empty:
                 col_opts = list(df_in.columns)
                 # Auto-detect title and name columns
-                auto_title = next((c for c in col_opts if c.lower() in
-                    ["jobtitle","job_title","title","functie","functietitel","function","position"]), col_opts[0])
+                auto_title = _smart_detect(
+                    col_opts,
+                    {"jobtitle","job_title","job title","title","currenttitle","current_title",
+                     "current title","functie","functietitel","functieomschrijving","function",
+                     "position","role","jobrole","job_role"},
+                    ["title","functie","job role","jobrole","role","position", "functi"],
+                ) or col_opts[0]
                 col = st.selectbox("Column with job titles", col_opts,
                                    index=col_opts.index(auto_title))
                 name_opts = ["— none —"] + col_opts
-                auto_name = next((c for c in col_opts if c.lower() in
-                    ["name","fullname","naam","firstname","first_name"]), "— none —")
+                auto_name = _smart_detect(
+                    col_opts,
+                    {"name","fullname","full_name","full name","naam","volledige naam",
+                     "firstname","first_name","employeename","employee_name","medewerker"},
+                    ["full name","fullname","naam","medewerker","name"],
+                ) or "— none —"
                 name_col = st.selectbox("Name column (optional)", name_opts,
                                         index=name_opts.index(auto_name) if auto_name in name_opts else 0)
                 st.caption(f"{len(df_in)} rows · {len(col_opts)} columns detected")
+                # Guard the common failure: an ID/number column selected instead of titles.
+                _sample = df_in[col].dropna().astype(str).str.strip().head(25)
+                if len(_sample) and _sample.str.fullmatch(r"\d+(\.\d+)?").mean() > 0.7:
+                    st.warning(
+                        f"Column **{col}** looks like numbers/IDs, not job titles — "
+                        "pick the column that holds the job titles above, or matching will return no results."
+                    )
                 if st.button("Match column", type="primary", use_container_width=True):
                     titles = df_in[col].fillna("").astype(str).tolist()
                     nm = name_col if name_col != "— none —" else None
