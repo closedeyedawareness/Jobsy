@@ -1652,7 +1652,7 @@ def pay_equity_page(catalog, service):
         band = repo.salary.get((m.function, m.level)) if m.matched else None
         rec = {"Name": (str(r.get(name_col)) if name_col else str(r.get(cols[0]))),
                "Input title": title, "Matched role": m.standard_title or "— no match —",
-               "Level": m.level or "—", "Actual": actual}
+               "Function": m.function or "", "Level": m.level or "—", "Actual": actual}
         if gender_col:
             rec["Gender"] = str(r.get(gender_col, "")).strip().upper()[:1]
         if band is not None:
@@ -1754,6 +1754,47 @@ def pay_equity_page(catalog, service):
             if role_gaps:
                 with st.expander(f"Per-role gender gap ({len(role_gaps)} roles with both M and F)"):
                     st.dataframe(_pd.DataFrame(role_gaps), use_container_width=True, hide_index=True)
+
+    # ── workforce cost & remediation scenario (#4) ──────────────────────
+    if len(priced):
+        try:
+            _pm = _family_frames(WORKBOOK_PATH).get("PayMix")
+        except Exception:
+            _pm = None
+        vmap = {}
+        if _pm is not None:
+            for _, pr in _pm.iterrows():
+                try:
+                    vmap[(str(pr["Function"]), str(pr["Level"]))] = (
+                        float(pr.get("TargetVariablePct") or 0), float(pr.get("ThirteenthMonthPct") or 0))
+                except Exception:
+                    pass
+        base_bill = float(priced["Actual"].sum())
+        reward_bill = 0.0
+        for _, pr in priced.iterrows():
+            a = float(pr["Actual"]); vp, tp = vmap.get((str(pr.get("Function", "")), str(pr.get("Level", ""))), (0.0, 8.33))
+            reward_bill += a * (1 + 0.08 + tp / 100 + vp / 100) + a * 0.12 + 2000
+        rem_min = float(sum(max(0.0, float(pr["Band min"]) - float(pr["Actual"])) for _, pr in priced.iterrows()))
+        rem_p50 = float(sum(max(0.0, float(pr["Band P50"]) - float(pr["Actual"])) for _, pr in priced.iterrows()))
+        n_below = int((priced["Actual"] < priced["Band min"]).sum())
+        _e = lambda v: "€{:,.0f}".format(v).replace(",", ".")
+        st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                    f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">Workforce cost & remediation</div>',
+                    unsafe_allow_html=True)
+        ctiles = [("Base paybill", _e(base_bill), C["ink"]),
+                  ("Est. total reward", _e(reward_bill), C["teal"]),
+                  (f"Fix below-range ({n_below})", _e(rem_min), C["danger"] if rem_min else C["ink"]),
+                  ("Bring all to market P50", _e(rem_p50), C["amber"] if rem_p50 else C["ink"])]
+        crow = "".join(
+            f'<div style="flex:1;min-width:150px;background:{C["surface"]};border:1px solid {C["line"]};'
+            f'border-radius:12px;padding:14px 16px"><div style="font-family:{FONT_SERIF};font-size:22px;'
+            f'font-weight:700;color:{col}">{val}</div><div style="font-family:{FONT_MONO};font-size:10px;'
+            f'letter-spacing:.06em;text-transform:uppercase;color:{C["muted"]};margin-top:2px">{lab}</div></div>'
+            for lab, val, col in ctiles)
+        st.markdown(f'<div style="display:flex;gap:10px;flex-wrap:wrap">{crow}</div>', unsafe_allow_html=True)
+        st.caption("Total reward estimates base + holiday + 13th month + on-target variable + ~12% pension + benefits. "
+                   "'Fix below-range' is the annual base cost to lift underpaid staff to their band minimum; "
+                   "'to market P50' brings everyone below the midpoint up to it.")
 
     # ── table + export ──────────────────────────────────────────────────
     def _row_style(row):
