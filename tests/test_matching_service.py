@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from jobsy.services.matching_service import MatchingService, MatchType
+from services.matching_service import MatchingService, MatchType
 
 
 @pytest.mark.parametrize(

@@ -3,8 +3,8 @@
 import pandas as pd
 import pytest
 
-from jobsy.core.exceptions import ValidationError
-from jobsy.core.validator import Validator
+from core.exceptions import ValidationError
+from core.validator import Validator
 
 
 def test_clean_data_passes(sample_sheets):
