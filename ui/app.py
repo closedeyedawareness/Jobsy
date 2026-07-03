@@ -629,6 +629,40 @@ def render_workspace_anchor() -> None:
     st.markdown('<div id="workspace"></div>', unsafe_allow_html=True)
 
 
+def render_getting_started() -> None:
+    """A 3-step orientation + page guide for first-time business users."""
+    steps = [
+        ("1", "Standardise", "Paste or upload job titles below — Jobsy matches them to canonical roles with salary, grade and skills."),
+        ("2", "Analyse", "Explore pay & levels (Job Family), pay equity/compa-ratio (Pay Equity), and capability (Skills, Skill Gap, 9-Box)."),
+        ("3", "Report", "Generate a board-ready Excel (Architecture Report) and keep the library clean (Data Quality)."),
+    ]
+    cards = "".join(
+        f'<div style="flex:1;min-width:190px;background:{C["surface"]};border:1px solid {C["line"]};'
+        f'border-radius:12px;padding:14px 16px">'
+        f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+        f'<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;'
+        f'border-radius:50%;background:{C["teal"]};color:#fff;font-family:{FONT_MONO};font-size:12px;font-weight:700">{n}</span>'
+        f'<span style="font-family:{FONT_SANS};font-weight:700;font-size:14px;color:{C["ink"]}">{t}</span></div>'
+        f'<div style="font-size:12.5px;color:{C["muted"]};line-height:1.5">{d}</div></div>'
+        for n, t, d in steps)
+    st.markdown(
+        f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;text-transform:uppercase;'
+        f'color:{C["muted"]};margin:6px 0 8px">How Jobsy works</div>'
+        f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">{cards}</div>',
+        unsafe_allow_html=True)
+    with st.expander("What each page does"):
+        st.markdown(
+            "- **Matching** — standardise job titles to canonical roles (paste or upload).\n"
+            "- **Connect** — pull employees live from AFAS or Workday.\n"
+            "- **Job Family** — leveling grid + pay range and total-reward build-up per role.\n"
+            "- **Pay Equity** — compa-ratio, range position and gender pay-gap vs the bands.\n"
+            "- **Skills Assessment / Skill Gap** — rate people and see gaps to target roles.\n"
+            "- **9-Box Grid** — performance × potential talent grid.\n"
+            "- **Architecture Report** — board-ready Excel with 10 analytical sheets.\n"
+            "- **Data Quality** — live coverage & integrity scorecard for the library.\n"
+            "- **Organisation / Organigram** — hierarchy and org-chart views.")
+
+
 def _resp_html(r):
     """Key responsibilities as a compact inline list."""
     prof = _get_active_catalog().get_complete_job(r.job_id)["profile"] if (
@@ -1926,6 +1960,7 @@ def main():
         return
 
     render_dashboard_intro(catalog)
+    render_getting_started()
 
     # input tabs
     tab_paste, tab_upload = st.tabs(["Paste titles", "Upload file"])
