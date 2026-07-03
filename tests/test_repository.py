@@ -2,7 +2,7 @@
 
 import pytest
 
-from jobsy.core.models import Job, SalaryBand
+from core.models import Job, SalaryBand
 
 
 def test_jobs_built_as_typed_records(repository):

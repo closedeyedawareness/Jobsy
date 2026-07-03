@@ -4,7 +4,7 @@ from io import BytesIO
 
 import pandas as pd
 
-from jobsy.services.export_service import ExportService
+from services.export_service import ExportService
 
 
 def _run(service):
