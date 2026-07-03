@@ -104,6 +104,7 @@ class ArchitectureReportService:
         self._build_recommendations()
         self._build_job_family_leveling()
         self._build_total_pay()
+        self._build_pay_equity()
         buf = io.BytesIO()
         self._wb.save(buf)
         return buf.getvalue()
@@ -607,8 +608,9 @@ class ArchitectureReportService:
         ws = self._wb.create_sheet("9. Total Pay & Reward")
         ws.sheet_view.showGridLines = False
         headers = ["Role", "Function", "Level", "Base median (P50)", "Holiday (8%)",
-                   "13th month", "Variable (on-target)", "Total target cash", "LTI"]
-        widths = [30, 14, 10, 16, 13, 16, 18, 18, 8]
+                   "13th month", "Variable (on-target)", "Total target cash",
+                   "Pension (~12%)", "Benefits (est.)", "Total reward", "LTI"]
+        widths = [30, 14, 10, 16, 13, 16, 18, 18, 14, 13, 16, 8]
         for ci, (h, w) in enumerate(zip(headers, widths), 1):
             ws.column_dimensions[get_column_letter(ci)].width = w
             _hdr(ws, 1, ci, h, bg=TEAL)
@@ -654,15 +656,118 @@ class ArchitectureReportService:
                 _cell(ws, ri, 5, _e(hol), fg=MUTED, bg=bg)
                 _cell(ws, ri, 6, (f"{_e(m13)} ({th_pct:.2f}%)" if th_pct else "—"), fg=MUTED, bg=bg)
                 _cell(ws, ri, 7, (f"{_e(varamt)} ({var_pct:.0f}%)" if var_pct else "—"), fg=MUTED, bg=bg)
+                pens = base * 0.12; ben = 2000.0; treward = ttc + pens + ben
                 _cell(ws, ri, 8, _e(ttc), fg=TEAL, bg=bg, bold=True)
-                _cell(ws, ri, 9, str(lti), fg=MUTED, bg=bg)
+                _cell(ws, ri, 9, _e(pens), fg=MUTED, bg=bg)
+                _cell(ws, ri, 10, _e(ben), fg=MUTED, bg=bg)
+                _cell(ws, ri, 11, _e(treward), fg=VIOLET, bg=bg, bold=True)
+                _cell(ws, ri, 12, str(lti), fg=MUTED, bg=bg)
                 ws.row_dimensions[ri].height = 20
                 ri += 1
         _cell(ws, ri + 1, 1,
-              "Total target cash = base median + 8% holiday + 13th month + on-target variable. "
-              "Excludes employer pension (~10–15%) and benefits. See PayElements.",
+              "Total target cash = base + 8% holiday + 13th month + on-target variable. "
+              "Total reward adds indicative employer pension (~12%) and benefits (~€2k). See PayElements.",
               fg=MUTED, italic=True)
         _border_range(ws, 1, ri - 1, 1, len(headers))
+
+    # ── Sheet 10: Pay Equity (compa-ratio) ────────────────────────────────
+    def _build_pay_equity(self):
+        import re as _re
+        ws = self._wb.create_sheet("10. Pay Equity")
+        ws.sheet_view.showGridLines = False
+        for ci, w in enumerate([30, 26, 10, 12, 12, 12, 14], 1):
+            ws.column_dimensions[get_column_letter(ci)].width = w
+        df = self.df_employees
+
+        def _find(colset, keys):
+            low = {str(c).strip().lower(): c for c in colset}
+            for k in keys:
+                for lc, orig in low.items():
+                    if k in lc:
+                        return orig
+            return None
+
+        _hdr(ws, 1, 1, "Pay Equity — compa-ratio vs role bands", bg=TEAL)
+        for ci in range(2, 8):
+            _cell(ws, 1, ci, "", bg=TEAL)
+        if df is None or len(df) == 0:
+            _cell(ws, 2, 1, "Upload workforce data with an actual-salary column to see compa-ratios.", fg=MUTED)
+            return
+        sal_col = _find(df.columns, ["actualsalary", "salaris", "salary", "loon", "bruto", "pay"])
+        title_col = _find(df.columns, ["jobtitle", "functie", "title", "role", "current"])
+        name_col = _find(df.columns, ["name", "naam"])
+        gender_col = _find(df.columns, ["gender", "geslacht", "sex"])
+        if not sal_col:
+            _cell(ws, 2, 1, "No actual-salary column in the uploaded data — add one (e.g. ActualSalary) "
+                            "to compute compa-ratios and outliers.", fg=MUTED)
+            return
+
+        repo = self.catalog.repository
+        rmap = {}
+        for r in self.results:
+            if r.input_title:
+                rmap.setdefault(str(r.input_title).strip().lower(), r)
+
+        rows = []
+        for _, er in df.iterrows():
+            s = _re.sub(r"[^\d]", "", str(er.get(sal_col, "")))
+            if not s:
+                continue
+            actual = int(s)
+            title = str(er.get(title_col, "")).strip() if title_col else ""
+            res = rmap.get(title.lower())
+            band = repo.salary.get((res.function, res.level)) if (res and res.matched) else None
+            if band is None:
+                continue
+            p50 = band.p50 or round((band.min + band.max) / 2)
+            compa = round(actual / p50, 2) if p50 else 0
+            status = ("Below range" if actual < band.min else "Above range" if actual > band.max
+                      else "Below market" if compa < 0.9 else "Above market" if compa > 1.1 else "At market")
+            rows.append({"name": (str(er.get(name_col)) if name_col else title), "role": res.standard_title,
+                         "level": res.level, "actual": actual, "p50": int(p50), "compa": compa,
+                         "status": status, "gender": (str(er.get(gender_col, "")).strip().upper()[:1] if gender_col else "")})
+        if not rows:
+            _cell(ws, 2, 1, "No salaries could be matched to role bands.", fg=MUTED)
+            return
+
+        compas = [r["compa"] for r in rows if r["compa"]]
+        avg = round(sum(compas) / len(compas), 2)
+        below = sum(1 for r in rows if r["status"] == "Below range")
+        above = sum(1 for r in rows if r["status"] == "Above range")
+        SC = {"Below range": RED, "Below market": AMBER, "At market": GREEN,
+              "Above market": BLUE, "Above range": VIOLET}
+        # summary block
+        summ = [("Employees priced", len(rows), INK), ("Average compa-ratio", avg, TEAL),
+                ("Below range (underpaid)", below, RED), ("Above range", above, VIOLET)]
+        for i, (lab, val, col) in enumerate(summ):
+            rr = 2 + i
+            _cell(ws, rr, 1, lab, bold=True, bg=_row_bg(rr))
+            _cell(ws, rr, 2, val, fg=col, bold=True, bg=_row_bg(rr))
+        r0 = 2 + len(summ) + 1
+        if gender_col:
+            gm = [r["actual"] for r in rows if r["gender"] == "M"]
+            gf = [r["actual"] for r in rows if r["gender"] == "F"]
+            if gm and gf:
+                raw = round((sum(gm) / len(gm) - sum(gf) / len(gf)) / (sum(gm) / len(gm)) * 100, 1)
+                _cell(ws, r0, 1, "Gender pay gap (raw M vs F)", bold=True)
+                _cell(ws, r0, 2, f"{raw:+.1f}%", fg=(RED if abs(raw) >= 5 else GREEN), bold=True)
+                r0 += 2
+        # per-employee table (outliers first: sort by |compa-1| desc)
+        rows.sort(key=lambda r: abs(r["compa"] - 1), reverse=True)
+        hdr_row = r0
+        for ci, h in enumerate(["Name / title", "Matched role", "Level", "Actual", "Band P50", "Compa-ratio", "Status"], 1):
+            _hdr(ws, hdr_row, ci, h, bg=INK)
+        for i, r in enumerate(rows):
+            rr = hdr_row + 1 + i
+            bg = _row_bg(rr)
+            _cell(ws, rr, 1, r["name"], bg=bg)
+            _cell(ws, rr, 2, r["role"], bg=bg)
+            _cell(ws, rr, 3, str(r["level"]), fg=MUTED, bg=bg)
+            _cell(ws, rr, 4, f"€{r['actual']:,}".replace(",", "."), bg=bg)
+            _cell(ws, rr, 5, f"€{r['p50']:,}".replace(",", "."), fg=MUTED, bg=bg)
+            _cell(ws, rr, 6, r["compa"], bg=bg)
+            _cell(ws, rr, 7, r["status"], fg=SC.get(r["status"], MUTED), bold=True, bg=bg)
+        _border_range(ws, hdr_row, hdr_row + len(rows), 1, 7)
 
     # ── Pattern detection & recommendations ───────────────────────────────
     def _detect_patterns(self):

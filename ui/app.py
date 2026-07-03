@@ -1321,8 +1321,9 @@ def job_family_page(catalog):
         if base is not None:
             hol = base * 0.08; m13 = base * th_pct / 100; varamt = base * var_pct / 100
             ttc = base + hol + m13 + varamt
+            pens = base * 0.12; ben = 2000.0; treward = ttc + pens + ben
         else:
-            hol = m13 = varamt = ttc = None
+            hol = m13 = varamt = ttc = pens = ben = treward = None
         cols.append({
             "title": _cell(getattr(role, "StandardTitle"), 60), "level": _cell(lvl, 20),
             "code": _cell(jid, 20), "grade": _cell(getattr(role, "Grade"), 6),
@@ -1332,6 +1333,9 @@ def job_family_page(catalog):
             "m13": (f'{_euro0(m13)} ({th_pct:.2f}%)' if (m13 is not None and th_pct) else "—"),
             "var": (f'{_euro0(varamt)} ({var_pct:.0f}%)' if (varamt is not None and var_pct) else "—"),
             "ttc": (_euro0(ttc) if ttc is not None else "—"),
+            "pens": (_euro0(pens) if pens is not None else "—"),
+            "ben": (_euro0(ben) if ben is not None else "—"),
+            "treward": (_euro0(treward) if treward is not None else "—"),
             "lti": ((x.get("LTIEligible") if x is not None else None) or "—"),
             "knowledge": _cell(g.get("Scope") if g is not None else None),
             "problem": _cell(g.get("Complexity") if g is not None else None),
@@ -1366,6 +1370,9 @@ def job_family_page(catalog):
         + _row("+ 13th month", "m13", mono=True)
         + _row("+ Variable (on-target)", "var", mono=True)
         + _row("= Total target cash", "ttc", mono=True)
+        + _row("+ Pension (~12%)", "pens", mono=True)
+        + _row("+ Benefits (est.)", "ben", mono=True)
+        + _row("= Total reward", "treward", mono=True)
         + _row("LTI eligible", "lti", mono=True)
         + _row("Knowledge / scope", "knowledge")
         + _row("Problem solving", "problem") + _row("Accountability", "account")
@@ -1373,8 +1380,8 @@ def job_family_page(catalog):
         + "</table></div>"
     )
     st.markdown(grid, unsafe_allow_html=True)
-    st.caption("Total target cash = base median + 8% holiday allowance + 13th month + on-target variable. "
-               "Excludes employer pension (~10–15%) and benefits. See the PayElements sheet for definitions.")
+    st.caption("Total target cash = base median + 8% holiday + 13th month + on-target variable. "
+               "Total reward adds indicative employer pension (~12%) and benefits (~€2k). See PayElements for definitions.")
 
     # ── pay range chart ─────────────────────────────────────────────────
     rows, order = [], []
@@ -1560,27 +1567,35 @@ def pay_equity_page(catalog, service):
     st.download_button("⬇ Download pay template (.xlsx)", _b.getvalue(),
         file_name="jobsy_pay_equity_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    up = st.file_uploader("Upload actual pay (.csv or .xlsx)", type=["csv", "xls", "xlsx"], key="pe_up")
-    if not up:
-        st.markdown(
-            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};border-radius:12px;'
-            f'padding:16px;color:{C["muted"]};font-size:14px;margin-top:6px">'
-            f'Provide columns for job title, actual annual base salary, and optionally name & gender.</div>',
-            unsafe_allow_html=True)
-        return
-    try:
-        df = _pd.read_csv(up) if up.name.endswith(".csv") else _pd.read_excel(up)
-    except Exception as exc:
-        st.error(f"Could not read file: {exc}"); return
-    if df.empty:
-        st.warning("The file is empty."); return
+    _salkeys = {"actualsalary", "actual salary", "salary", "base salary", "basesalary", "grosssalary",
+                "gross salary", "salaris", "brutosalaris", "loon", "pay"}
+    _salcont = ["sal", "salaris", "loon", "pay", "bruto"]
+    # #2 — reuse the workforce file already uploaded on the Matching page if it carries pay
+    df = None
+    wf = st.session_state.get("upload_df")
+    if wf is not None and _smart_detect(list(wf.columns), _salkeys, _salcont):
+        if st.checkbox(f"Use the workforce data uploaded on Matching ({len(wf)} rows, has pay)", value=True):
+            df = wf.copy()
+    if df is None:
+        up = st.file_uploader("Upload actual pay (.csv or .xlsx)", type=["csv", "xls", "xlsx"], key="pe_up")
+        if not up:
+            st.markdown(
+                f'<div style="background:{C["surface"]};border:1px solid {C["line"]};border-radius:12px;'
+                f'padding:16px;color:{C["muted"]};font-size:14px;margin-top:6px">'
+                f'Provide columns for job title, actual annual base salary, and optionally name & gender.</div>',
+                unsafe_allow_html=True)
+            return
+        try:
+            df = _pd.read_csv(up) if up.name.endswith(".csv") else _pd.read_excel(up)
+        except Exception as exc:
+            st.error(f"Could not read file: {exc}"); return
+    if df is None or df.empty:
+        st.warning("No usable data."); return
 
     cols = list(df.columns)
     title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",
                                      "functie", "functietitel", "role"}, ["title", "functie", "role"]) or cols[0]
-    sal_col = _smart_detect(cols, {"actualsalary", "actual salary", "salary", "base salary", "basesalary",
-                                   "grosssalary", "gross salary", "salaris", "brutosalaris", "loon", "pay"},
-                            ["sal", "salaris", "loon", "pay", "bruto"])
+    sal_col = _smart_detect(cols, _salkeys, _salcont)
     name_col = _smart_detect(cols, {"name", "fullname", "full name", "naam", "employee", "medewerker"}, ["name", "naam"])
     gender_col = _smart_detect(cols, {"gender", "geslacht", "sex", "m/v", "m/f"}, ["gender", "geslacht", "sex"])
     if not sal_col:
@@ -1679,14 +1694,32 @@ def pay_equity_page(catalog, service):
                         f'text-transform:uppercase;color:{C["muted"]};margin:14px 0 6px">Gender pay gap</div>',
                         unsafe_allow_html=True)
             gcol = C["danger"] if abs(raw_gap) >= 5 else C["teal"]
+            # #1 — adjusted within-role gap: only compares same-role men vs women
+            role_gaps = []; wsum = gsum = 0.0
+            for role, grp in priced.groupby("Matched role"):
+                gmr = grp[grp["Gender"] == "M"]; gfr = grp[grp["Gender"] == "F"]
+                if len(gmr) and len(gfr):
+                    mm, mf = gmr["Actual"].mean(), gfr["Actual"].mean()
+                    gpct = (mm - mf) / mm * 100 if mm else 0
+                    nn = len(gmr) + len(gfr)
+                    role_gaps.append({"Role": role, "M": len(gmr), "F": len(gfr),
+                                      "M mean": round(mm), "F mean": round(mf), "Gap %": round(gpct, 1)})
+                    wsum += nn; gsum += gpct * nn
+            adj = round(gsum / wsum, 1) if wsum else None
             st.markdown(
                 f'<div style="font-size:14px;color:{C["ink"]}">Raw mean gap (M vs F): '
                 f'<b style="color:{gcol}">{raw_gap:+.1f}%</b> &nbsp;·&nbsp; '
-                f'Compa-ratio gap: <b>{compa_gap:+.1f} pts</b> &nbsp;'
-                f'<span style="color:{C["muted"]}">(M n={len(gm)}, F n={len(gf)})</span></div>',
+                f'Compa-ratio gap: <b>{compa_gap:+.1f} pts</b>'
+                + (f' &nbsp;·&nbsp; <b>Adjusted (within-role) gap: '
+                   f'<span style="color:{C["danger"] if adj is not None and abs(adj) >= 5 else C["teal"]}">'
+                   f'{adj:+.1f}%</span></b>' if adj is not None else "")
+                + f' &nbsp;<span style="color:{C["muted"]}">(M n={len(gm)}, F n={len(gf)})</span></div>',
                 unsafe_allow_html=True)
-            st.caption("Raw gap is unadjusted; the compa-ratio gap controls for role/level differences. "
-                       "Small samples are indicative only.")
+            st.caption("Raw gap is unadjusted; compa-ratio and within-role gaps control for role/level "
+                       "differences (the within-role gap isolates same-role pay differences). Small samples are indicative only.")
+            if role_gaps:
+                with st.expander(f"Per-role gender gap ({len(role_gaps)} roles with both M and F)"):
+                    st.dataframe(_pd.DataFrame(role_gaps), use_container_width=True, hide_index=True)
 
     # ── table + export ──────────────────────────────────────────────────
     def _row_style(row):
