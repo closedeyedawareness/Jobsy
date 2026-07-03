@@ -103,6 +103,7 @@ class ArchitectureReportService:
         self._build_succession_risk()
         self._build_recommendations()
         self._build_job_family_leveling()
+        self._build_total_pay()
         buf = io.BytesIO()
         self._wb.save(buf)
         return buf.getvalue()
@@ -599,6 +600,68 @@ class ArchitectureReportService:
                 ri += 1
             ri += 1  # spacer between families
 
+        _border_range(ws, 1, ri - 1, 1, len(headers))
+
+    # ── Sheet 9: Total Pay & Reward ───────────────────────────────────────
+    def _build_total_pay(self):
+        ws = self._wb.create_sheet("9. Total Pay & Reward")
+        ws.sheet_view.showGridLines = False
+        headers = ["Role", "Function", "Level", "Base median (P50)", "Holiday (8%)",
+                   "13th month", "Variable (on-target)", "Total target cash", "LTI"]
+        widths = [30, 14, 10, 16, 13, 16, 18, 18, 8]
+        for ci, (h, w) in enumerate(zip(headers, widths), 1):
+            ws.column_dimensions[get_column_letter(ci)].width = w
+            _hdr(ws, 1, ci, h, bg=TEAL)
+        ws.row_dimensions[1].height = 22
+        ws.freeze_panes = "A2"
+        try:
+            fr = pd.read_excel(str(self.catalog.path),
+                               sheet_name=["Jobs", "SalaryBands", "PayMix"], dtype=str)
+        except Exception as exc:
+            _cell(ws, 2, 1, f"Pay data not available ({exc}).", fg=MUTED)
+            return
+        jobs = fr["Jobs"].copy(); bands = fr["SalaryBands"]; mix = fr["PayMix"]
+        jobs["Grade"] = pd.to_numeric(jobs.get("Grade"), errors="coerce")
+        for _c in ("Min", "P50", "Max"):
+            if _c in bands: bands[_c] = pd.to_numeric(bands[_c], errors="coerce")
+        for _c in ("TargetVariablePct", "ThirteenthMonthPct"):
+            if _c in mix: mix[_c] = pd.to_numeric(mix[_c], errors="coerce")
+        bmap = {(r["Function"], r["Level"]): r for _, r in bands.iterrows()}
+        xmap = {(r["Function"], r["Level"]): r for _, r in mix.iterrows()}
+
+        def _e(v):
+            try: return "€{:,.0f}".format(float(v)).replace(",", ".")
+            except Exception: return "—"
+
+        ri = 2
+        for fn in sorted(jobs["Function"].dropna().unique()):
+            fam = jobs[jobs["Function"] == fn].dropna(subset=["Grade"]).sort_values("Grade")
+            for role in fam.itertuples(index=False):
+                lvl = getattr(role, "Level"); b = bmap.get((fn, lvl)); x = xmap.get((fn, lvl))
+                if b is None or pd.isna(b.get("P50")):
+                    continue
+                base = float(b.get("P50"))
+                var_pct = float(x.get("TargetVariablePct") or 0) if x is not None else 0.0
+                th_pct = float(x.get("ThirteenthMonthPct") or 0) if x is not None else 0.0
+                hol = base * 0.08; m13 = base * th_pct / 100; varamt = base * var_pct / 100
+                ttc = base + hol + m13 + varamt
+                lti = (x.get("LTIEligible") if x is not None else None) or "—"
+                bg = _row_bg(ri)
+                _cell(ws, ri, 1, str(getattr(role, "StandardTitle")), fg=INK, bg=bg, bold=True)
+                _cell(ws, ri, 2, fn, fg=MUTED, bg=bg)
+                _cell(ws, ri, 3, str(lvl), fg=MUTED, bg=bg)
+                _cell(ws, ri, 4, _e(base), fg=INK, bg=bg)
+                _cell(ws, ri, 5, _e(hol), fg=MUTED, bg=bg)
+                _cell(ws, ri, 6, (f"{_e(m13)} ({th_pct:.2f}%)" if th_pct else "—"), fg=MUTED, bg=bg)
+                _cell(ws, ri, 7, (f"{_e(varamt)} ({var_pct:.0f}%)" if var_pct else "—"), fg=MUTED, bg=bg)
+                _cell(ws, ri, 8, _e(ttc), fg=TEAL, bg=bg, bold=True)
+                _cell(ws, ri, 9, str(lti), fg=MUTED, bg=bg)
+                ws.row_dimensions[ri].height = 20
+                ri += 1
+        _cell(ws, ri + 1, 1,
+              "Total target cash = base median + 8% holiday + 13th month + on-target variable. "
+              "Excludes employer pension (~10–15%) and benefits. See PayElements.",
+              fg=MUTED, italic=True)
         _border_range(ws, 1, ri - 1, 1, len(headers))
 
     # ── Pattern detection & recommendations ───────────────────────────────
