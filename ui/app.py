@@ -1246,7 +1246,7 @@ def architecture_report_page(catalog):
 @st.cache_data(show_spinner=False)
 def _family_frames(path):
     import pandas as _pd
-    return _pd.read_excel(path, sheet_name=["Jobs", "SalaryBands", "JobGrades", "JobProfiles"], dtype=str)
+    return _pd.read_excel(path, sheet_name=["Jobs", "SalaryBands", "JobGrades", "JobProfiles", "PayMix"], dtype=str)
 
 
 def job_family_page(catalog):
@@ -1288,6 +1288,11 @@ def job_family_page(catalog):
     bmap = {(r["Function"], r["Level"]): r for _, r in bands.iterrows()}
     gmap = {r["Grade"]: r for _, r in grades.iterrows()}
     pmap = {r["JobID"]: r for _, r in profs.iterrows()}
+    pay = fr.get("PayMix")
+    if pay is not None:
+        for _c in ("TargetVariablePct", "ThirteenthMonthPct"):
+            if _c in pay: pay[_c] = _pd.to_numeric(pay[_c], errors="coerce")
+    xmap = {(r["Function"], r["Level"]): r for _, r in pay.iterrows()} if pay is not None else {}
 
     def _euro0(v):
         try: return "€{:,.0f}".format(float(v)).replace(",", ".")
@@ -1308,11 +1313,26 @@ def job_family_page(catalog):
     for role in fam.itertuples(index=False):
         jid = getattr(role, "JobID"); lvl = getattr(role, "Level"); fn = getattr(role, "Function")
         b = bmap.get((fn, lvl)); g = gmap.get(getattr(role, "Grade")); p = pmap.get(jid)
+        x = xmap.get((fn, lvl))
+        base = b.get("P50") if b is not None else None
+        base = None if (base is None or _pd.isna(base)) else float(base)
+        var_pct = float(x.get("TargetVariablePct") or 0) if x is not None else 0.0
+        th_pct  = float(x.get("ThirteenthMonthPct") or 0) if x is not None else 0.0
+        if base is not None:
+            hol = base * 0.08; m13 = base * th_pct / 100; varamt = base * var_pct / 100
+            ttc = base + hol + m13 + varamt
+        else:
+            hol = m13 = varamt = ttc = None
         cols.append({
             "title": _cell(getattr(role, "StandardTitle"), 60), "level": _cell(lvl, 20),
             "code": _cell(jid, 20), "grade": _cell(getattr(role, "Grade"), 6),
             "band": (f'{_euro0(b.get("Min"))} – {_euro0(b.get("Max"))}' if b is not None else "—"),
             "med": (_euro0(b.get("P50")) if b is not None else "—"),
+            "hol": (_euro0(hol) if hol is not None else "—"),
+            "m13": (f'{_euro0(m13)} ({th_pct:.2f}%)' if (m13 is not None and th_pct) else "—"),
+            "var": (f'{_euro0(varamt)} ({var_pct:.0f}%)' if (varamt is not None and var_pct) else "—"),
+            "ttc": (_euro0(ttc) if ttc is not None else "—"),
+            "lti": ((x.get("LTIEligible") if x is not None else None) or "—"),
             "knowledge": _cell(g.get("Scope") if g is not None else None),
             "problem": _cell(g.get("Complexity") if g is not None else None),
             "account": _cell(g.get("DecisionRights") if g is not None else None),
@@ -1341,12 +1361,20 @@ def job_family_page(catalog):
         f'<tr><th style="background:{C["surface"]};border:1px solid {C["line"]};min-width:130px"></th>'
         + "".join(_th(c) for c in cols) + "</tr>"
         + _row("Grade", "grade", mono=True) + _row("Salary band", "band", mono=True)
-        + _row("Median (P50)", "med", mono=True) + _row("Knowledge / scope", "knowledge")
+        + _row("Median (P50)", "med", mono=True)
+        + _row("+ Holiday (8%)", "hol", mono=True)
+        + _row("+ 13th month", "m13", mono=True)
+        + _row("+ Variable (on-target)", "var", mono=True)
+        + _row("= Total target cash", "ttc", mono=True)
+        + _row("LTI eligible", "lti", mono=True)
+        + _row("Knowledge / scope", "knowledge")
         + _row("Problem solving", "problem") + _row("Accountability", "account")
         + _row("Leadership", "lead") + _row("Top skills", "skills")
         + "</table></div>"
     )
     st.markdown(grid, unsafe_allow_html=True)
+    st.caption("Total target cash = base median + 8% holiday allowance + 13th month + on-target variable. "
+               "Excludes employer pension (~10–15%) and benefits. See the PayElements sheet for definitions.")
 
     # ── pay range chart ─────────────────────────────────────────────────
     rows, order = [], []
