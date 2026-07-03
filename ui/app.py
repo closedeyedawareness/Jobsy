@@ -1538,13 +1538,176 @@ def data_quality_page(catalog):
         st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def pay_equity_page(catalog, service):
+    """Compa-ratio & pay-position analysis vs the role bands (EU pay transparency)."""
+    import pandas as _pd, io as _io, re as _re
+    repo = catalog.repository
+    st.markdown(
+        f'<div style="font-family:{FONT_SERIF};font-size:28px;font-weight:600;'
+        f'letter-spacing:-0.02em;margin-bottom:4px">Pay Equity</div>'
+        f'<p style="color:{C["muted"]};font-size:14px;margin-bottom:16px">'
+        f'Upload actual salaries to see each person\'s <b>compa-ratio</b> (pay ÷ band midpoint) '
+        f'and range position against the matched role — the core view for the EU Pay '
+        f'Transparency Directive. Below-range pay is flagged.</p>',
+        unsafe_allow_html=True,
+    )
+    # template
+    tmpl = _pd.DataFrame([
+        {"EmployeeID": "E1001", "Name": "Alex de Vries", "JobTitle": "Software Engineer", "ActualSalary": 68000, "Gender": "F"},
+        {"EmployeeID": "E1002", "Name": "Sam Jansen", "JobTitle": "Head of Sales", "ActualSalary": 118000, "Gender": "M"},
+    ])
+    _b = _io.BytesIO(); tmpl.to_excel(_b, index=False)
+    st.download_button("⬇ Download pay template (.xlsx)", _b.getvalue(),
+        file_name="jobsy_pay_equity_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    up = st.file_uploader("Upload actual pay (.csv or .xlsx)", type=["csv", "xls", "xlsx"], key="pe_up")
+    if not up:
+        st.markdown(
+            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};border-radius:12px;'
+            f'padding:16px;color:{C["muted"]};font-size:14px;margin-top:6px">'
+            f'Provide columns for job title, actual annual base salary, and optionally name & gender.</div>',
+            unsafe_allow_html=True)
+        return
+    try:
+        df = _pd.read_csv(up) if up.name.endswith(".csv") else _pd.read_excel(up)
+    except Exception as exc:
+        st.error(f"Could not read file: {exc}"); return
+    if df.empty:
+        st.warning("The file is empty."); return
+
+    cols = list(df.columns)
+    title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",
+                                     "functie", "functietitel", "role"}, ["title", "functie", "role"]) or cols[0]
+    sal_col = _smart_detect(cols, {"actualsalary", "actual salary", "salary", "base salary", "basesalary",
+                                   "grosssalary", "gross salary", "salaris", "brutosalaris", "loon", "pay"},
+                            ["sal", "salaris", "loon", "pay", "bruto"])
+    name_col = _smart_detect(cols, {"name", "fullname", "full name", "naam", "employee", "medewerker"}, ["name", "naam"])
+    gender_col = _smart_detect(cols, {"gender", "geslacht", "sex", "m/v", "m/f"}, ["gender", "geslacht", "sex"])
+    if not sal_col:
+        st.error("No salary column found. Include an 'ActualSalary' column."); return
+    st.caption(f"Title: **{title_col}** · Salary: **{sal_col}**"
+               + (f" · Name: **{name_col}**" if name_col else "")
+               + (f" · Gender: **{gender_col}**" if gender_col else ""))
+
+    def _num(v):
+        s = _re.sub(r"[^\d]", "", str(v))
+        return int(s) if s else None
+
+    rows = []
+    for _, r in df.iterrows():
+        actual = _num(r.get(sal_col))
+        if actual is None:
+            continue
+        title = str(r.get(title_col, "")).strip()
+        m = service.match(title)
+        band = repo.salary.get((m.function, m.level)) if m.matched else None
+        rec = {"Name": (str(r.get(name_col)) if name_col else str(r.get(cols[0]))),
+               "Input title": title, "Matched role": m.standard_title or "— no match —",
+               "Level": m.level or "—", "Actual": actual}
+        if gender_col:
+            rec["Gender"] = str(r.get(gender_col, "")).strip().upper()[:1]
+        if band is not None:
+            p50 = band.p50 or round((band.min + band.max) / 2)
+            rec["Band P50"] = int(p50); rec["Band min"] = int(band.min); rec["Band max"] = int(band.max)
+            rec["Compa-ratio"] = round(actual / p50, 2) if p50 else None
+            rec["Range %"] = round((actual - band.min) / (band.max - band.min) * 100) if band.max > band.min else None
+            if actual < band.min:
+                rec["Status"] = "Below range"
+            elif actual > band.max:
+                rec["Status"] = "Above range"
+            elif rec["Compa-ratio"] < 0.9:
+                rec["Status"] = "Below market"
+            elif rec["Compa-ratio"] > 1.1:
+                rec["Status"] = "Above market"
+            else:
+                rec["Status"] = "At market"
+        else:
+            rec.update({"Band P50": None, "Compa-ratio": None, "Range %": None, "Status": "No match"})
+        rows.append(rec)
+    if not rows:
+        st.warning("No usable rows (need a numeric salary)."); return
+    res = _pd.DataFrame(rows)
+    priced = res[res["Compa-ratio"].notna()]
+
+    # ── headline tiles ──────────────────────────────────────────────────
+    avg_compa = round(priced["Compa-ratio"].mean(), 2) if len(priced) else 0
+    below = int((res["Status"] == "Below range").sum())
+    above = int((res["Status"] == "Above range").sum())
+    nomatch = int((res["Status"] == "No match").sum())
+    tiles = [("Employees priced", str(len(priced)), C["ink"]),
+             ("Avg compa-ratio", f"{avg_compa:.2f}", C["teal"] if 0.95 <= avg_compa <= 1.05 else C["amber"]),
+             ("Below range", str(below), C["danger"] if below else C["ink"]),
+             ("Above range", str(above), C["blue"] if above else C["ink"]),
+             ("Unmatched", str(nomatch), C["amber"] if nomatch else C["ink"])]
+    trow = "".join(
+        f'<div style="flex:1;min-width:110px;background:{C["surface"]};border:1px solid {C["line"]};'
+        f'border-radius:12px;padding:14px 16px"><div style="font-family:{FONT_SERIF};font-size:28px;'
+        f'font-weight:700;color:{col}">{val}</div><div style="font-family:{FONT_MONO};font-size:10px;'
+        f'letter-spacing:.08em;text-transform:uppercase;color:{C["muted"]};margin-top:2px">{lab}</div></div>'
+        for lab, val, col in tiles)
+    st.markdown(f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 16px">{trow}</div>',
+                unsafe_allow_html=True)
+
+    # ── compa-ratio scatter ─────────────────────────────────────────────
+    STATUS_COLOR = {"Below range": "#E0555F", "Below market": "#D9932B", "At market": "#0E9E7E",
+                    "Above market": "#34B5FF", "Above range": "#8A63D6", "No match": "#8A93A5"}
+    if len(priced):
+        try:
+            import altair as _alt
+            ch = _pd.DataFrame({
+                "Compa-ratio": priced["Compa-ratio"], "Role": priced["Matched role"],
+                "Name": priced["Name"], "Actual": priced["Actual"], "Status": priced["Status"]})
+            pts = _alt.Chart(ch).mark_circle(size=110, opacity=0.85).encode(
+                x=_alt.X("Compa-ratio:Q", scale=_alt.Scale(zero=False), title="Compa-ratio (pay ÷ band midpoint)"),
+                y=_alt.Y("Role:N", title=None),
+                color=_alt.Color("Status:N", scale=_alt.Scale(domain=list(STATUS_COLOR), range=list(STATUS_COLOR.values())), legend=_alt.Legend(orient="bottom")),
+                tooltip=["Name", "Role", _alt.Tooltip("Actual:Q", format=",.0f"), "Compa-ratio", "Status"])
+            rule = _alt.Chart(_pd.DataFrame({"x": [1.0]})).mark_rule(color="#8A93A5", strokeDash=[4, 4]).encode(x="x:Q")
+            chart = (rule + pts).properties(height=max(220, 26 * ch["Role"].nunique())).configure_view(strokeOpacity=0).configure_axis(labelColor="#C9B8E8", titleColor="#C9B8E8", gridColor="#FFFFFF14").configure_legend(labelColor="#C9B8E8", titleColor="#C9B8E8")
+            st.altair_chart(chart, use_container_width=True)
+        except Exception:
+            pass
+
+    # ── gender pay gap ──────────────────────────────────────────────────
+    if gender_col and "Gender" in priced.columns:
+        gm = priced[priced["Gender"] == "M"]; gf = priced[priced["Gender"] == "F"]
+        if len(gm) and len(gf):
+            mean_m, mean_f = gm["Actual"].mean(), gf["Actual"].mean()
+            raw_gap = round((mean_m - mean_f) / mean_m * 100, 1)
+            compa_gap = round((gm["Compa-ratio"].mean() - gf["Compa-ratio"].mean()) * 100, 1)
+            st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                        f'text-transform:uppercase;color:{C["muted"]};margin:14px 0 6px">Gender pay gap</div>',
+                        unsafe_allow_html=True)
+            gcol = C["danger"] if abs(raw_gap) >= 5 else C["teal"]
+            st.markdown(
+                f'<div style="font-size:14px;color:{C["ink"]}">Raw mean gap (M vs F): '
+                f'<b style="color:{gcol}">{raw_gap:+.1f}%</b> &nbsp;·&nbsp; '
+                f'Compa-ratio gap: <b>{compa_gap:+.1f} pts</b> &nbsp;'
+                f'<span style="color:{C["muted"]}">(M n={len(gm)}, F n={len(gf)})</span></div>',
+                unsafe_allow_html=True)
+            st.caption("Raw gap is unadjusted; the compa-ratio gap controls for role/level differences. "
+                       "Small samples are indicative only.")
+
+    # ── table + export ──────────────────────────────────────────────────
+    def _row_style(row):
+        c = STATUS_COLOR.get(row["Status"], "#8A93A5")
+        return [f"color:{c};font-weight:600" if col == "Status" else "" for col in row.index]
+    show_cols = [c for c in ["Name", "Input title", "Matched role", "Level", "Actual",
+                             "Band P50", "Range %", "Compa-ratio", "Status"] if c in res.columns]
+    st.dataframe(res[show_cols].style.apply(_row_style, axis=1), use_container_width=True, hide_index=True)
+    _xb = _io.BytesIO(); res.to_excel(_xb, index=False)
+    st.download_button("⬇ Download pay-equity analysis (.xlsx)", _xb.getvalue(),
+        file_name="jobsy_pay_equity.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 def main():
     st.set_page_config(page_title="Jobsy", page_icon="📊",
                        layout="centered", initial_sidebar_state="auto")
     apply_theme()
 
     # page navigation
-    page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Assessment", "Skill Gap", "Job Family", "9-Box Grid", "Architecture Report", "Data Quality", "Organisation", "Organigram"], label_visibility="collapsed")
+    page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Assessment", "Skill Gap", "Job Family", "Pay Equity", "9-Box Grid", "Architecture Report", "Data Quality", "Organisation", "Organigram"], label_visibility="collapsed")
 
     # header moved below catalog loading for dashboard statistics
 
@@ -1703,6 +1866,10 @@ def main():
 
     if page == "Job Family":
         job_family_page(catalog)
+        return
+
+    if page == "Pay Equity":
+        pay_equity_page(catalog, service)
         return
 
     if page == "Data Quality":
