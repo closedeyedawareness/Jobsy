@@ -79,6 +79,16 @@ class BenefitsService:
                 pooled.extend(obs)
         return pooled
 
+    def named_companies(self, category: str, industry_id: Optional[str]) -> list[str]:
+        """Company names behind real (non-synthetic) observations for a band, if any."""
+        obs = self._observations(category, industry_id)
+        seen, names = set(), []
+        for o in obs:
+            if o.company_name and o.company_name not in seen:
+                seen.add(o.company_name)
+                names.append(o.company_name)
+        return names
+
     # ── comparison vs. an actual package ─────────────────────────────────
     def compare(self, category: str, actual: float, industry_id: Optional[str],
                 level: Optional[str]) -> Optional[BenefitComparison]:

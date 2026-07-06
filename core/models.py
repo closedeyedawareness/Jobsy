@@ -177,6 +177,8 @@ class BenefitObservation:
     value: float
     unit: str = ""
     currency: str = ""
+    company_name: str = ""
+    notes: str = ""
 
 
 @dataclass(frozen=True)

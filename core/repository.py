@@ -430,6 +430,8 @@ class Repository:
                 industry_id=industry_id, category=category, value=value,
                 unit=_val(row, "Unit", "unit") or "",
                 currency=_val(row, "Currency", "currency") or "",
+                company_name=_val(row, "CompanyName", "company_name") or "",
+                notes=_val(row, "Notes", "notes") or "",
             )
             self.benefit_observations.setdefault((industry_id, category), []).append(obs)
 

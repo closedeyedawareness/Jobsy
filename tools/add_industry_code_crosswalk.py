@@ -36,9 +36,10 @@ CROSSWALK = {
     "IND-HLTH": ("Q86, Q87, Q88, C21, C26.6",
                  "Section Q (Human health & social work): hospitals, residential/social "
                  "care; plus Section C: C21 pharma manufacturing, C26.6 medtech/electromedical"),
-    "IND-MFG":  ("C10-C12, C20, C24-C25, C28, C29",
-                 "Section C (Manufacturing): food/beverage, chemicals, basic/fabricated "
-                 "metals, machinery, motor vehicles (CAO Metalektro-adjacent divisions)"),
+    "IND-MFG":  ("C10-C12, C19, C20, C24-C25, C28, C29",
+                 "Section C (Manufacturing): food/beverage, refined petroleum (refineries), "
+                 "chemicals, basic/fabricated metals, machinery, motor vehicles "
+                 "(CAO Metalektro-adjacent divisions)"),
     "IND-RET":  ("G45, G46, G47, G47.91",
                  "Section G (Wholesale & retail trade): motor vehicle trade, wholesale, "
                  "retail incl. G47.91 internet/mail-order retail"),

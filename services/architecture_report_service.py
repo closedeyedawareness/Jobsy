@@ -785,7 +785,8 @@ class ArchitectureReportService:
 
         headers = ["Category", "Unit", "Market P25", "Market Median", "Market P75", "Market P90", "n"]
         headers += [f"{iid} median" for iid in industries]
-        widths = [24, 10, 12, 13, 12, 12, 8] + [14] * len(industries)
+        headers += ["Real company data"]
+        widths = [24, 10, 12, 13, 12, 12, 8] + [14] * len(industries) + [40]
         for ci, (h, w) in enumerate(zip(headers, widths), 1):
             ws.column_dimensions[get_column_letter(ci)].width = w
             _hdr(ws, 1, ci, h, bg=VIOLET)
@@ -817,6 +818,9 @@ class ArchitectureReportService:
             for ci, iid in enumerate(industries, 8):
                 band = svc.get_band(category, iid, None)
                 _cell(ws, ri, ci, _fmt(band.p50, unit) if band else "—", fg=INK, bg=bg)
+            companies = svc.named_companies(category, None)
+            _cell(ws, ri, 8 + len(industries), ", ".join(companies) if companies else "—",
+                  fg=TEAL if companies else MUTED, bg=bg)
             ws.row_dimensions[ri].height = 20
             ri += 1
 

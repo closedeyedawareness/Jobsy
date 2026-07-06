@@ -1954,6 +1954,14 @@ def benefits_benchmarking_page(catalog, benefits_svc):
                    "Median": c.band.p50, "P75": c.band.p75, "P90": c.band.p90,
                    "Status": c.status, "Unit": c.unit} for c in comparisons]
     cdf = _pd.DataFrame(chart_rows)
+
+    named = {c.category: benefits_svc.named_companies(c.category, ind_id) for c in comparisons}
+    real_backed = {cat: names for cat, names in named.items() if names}
+    if real_backed:
+        with st.expander(f"Market band includes real company data for {len(real_backed)} categor"
+                         f"{'y' if len(real_backed)==1 else 'ies'}"):
+            for cat, names in real_backed.items():
+                st.caption(f"**{cat}**: {', '.join(names)}")
     try:
         import altair as _alt
         base = _alt.Chart(cdf).encode(y=_alt.Y("Category:N", title=None))

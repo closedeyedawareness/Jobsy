@@ -50,6 +50,28 @@ def service(catalog) -> BenefitsService:
     return BenefitsService(catalog)
 
 
+def test_observation_company_name_and_notes_are_optional_and_read(catalog):
+    repo = catalog.repository
+    obs = repo.benefit_observations[("IND-A", "Wellness")]
+    assert all(o.company_name == "" and o.notes == "" for o in obs)  # synthetic rows: blank is fine
+
+
+def test_real_company_observation_carries_provenance():
+    df = pd.DataFrame([
+        {"IndustryID": "IND-A", "Category": "Pension", "Value": 15.8, "Unit": "%",
+         "CompanyName": "Shell Nederland Raffinaderij", "Notes": "Derived from CAO text."},
+    ])
+    data = {
+        "jobs": pd.DataFrame(columns=["JobID", "StandardTitle", "Function", "Level"]),
+        "titles": pd.DataFrame(columns=["ExistingTitle", "JobID"]),
+        "benefitsobservations": df,
+    }
+    repo = Repository(data, validate=False)
+    obs = repo.benefit_observations[("IND-A", "Pension")][0]
+    assert obs.company_name == "Shell Nederland Raffinaderij"
+    assert obs.notes == "Derived from CAO text."
+
+
 def test_categories_and_catalog_item(service):
     assert service.categories() == ["Wellness"]
     item = service.catalog_item("Wellness")
