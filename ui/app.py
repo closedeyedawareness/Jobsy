@@ -1223,6 +1223,14 @@ def _assess_import(cols, title_col=None):
              "grosssalary", "gross salary", "salaris", "brutosalaris", "loon", "pay"},
             ["sal", "salaris", "loon", "pay", "bruto"]),
         "gender": d({"gender", "geslacht", "sex", "m/v", "m/f"}, ["gender", "geslacht", "sex"]),
+        "bonus": d({"bonus", "variable pay", "variable", "incentive", "commission", "bonus/commission"},
+                   ["bonus", "incentive", "commission", "variable"]),
+        "allowances": d({"allowances", "allowance", "toeslag", "toeslagen", "vergoeding",
+                         "13th month", "holiday allowance", "vakantiegeld"},
+                        ["allowance", "toeslag", "vergoeding", "vakantiegeld"]),
+        "lti": d({"lti", "equity", "long-term incentive", "long term incentive", "rsu",
+                  "stock", "aandelen", "options", "share plan"},
+                 ["lti", "equity", "rsu", "aandelen"]),
         "name": d({"name", "fullname", "full name", "naam", "employee", "medewerker"}, ["name", "naam"]),
         "empid": d({"employeeid", "employee id", "empid", "id", "personeelsnummer", "medewerkernummer"},
                    ["employeeid", "empid", "personeelsn"]),
@@ -1233,6 +1241,7 @@ def _assess_import(cols, title_col=None):
         "fte": d({"fte", "parttime", "part-time", "werkuren", "contract hours"}, ["fte", "parttime"]),
     }
     has = {k: bool(v) for k, v in found.items()}
+    has["variable"] = has["bonus"] or has["allowances"] or has["lti"]
 
     ready, assumed, unlock = [], [], []
 
@@ -1250,11 +1259,17 @@ def _assess_import(cols, title_col=None):
     if has["salary"] and has["gender"]:
         ready.append(("Gender pay-gap breakdown",
                       "Pay Equity splits compa-ratios by gender."))
+    if has["salary"] and has["gender"] and has["variable"]:
+        ready.append(("Total-pay gender gap (EU Directive basis)",
+                      "Bonus/allowances/LTI are added to base for the gap on total pay, not just base."))
 
     # ── What Jobsy will assume from partial data ─────────────────────────
     if has["salary"] and not has["gender"]:
         assumed.append(("Pay equity runs org-wide, no gender split",
                         "No Gender column — the gender pay-gap view is skipped."))
+    if has["salary"] and has["gender"] and not has["variable"]:
+        assumed.append(("Gender gap measured on base pay only",
+                        "No Bonus/Allowances/LTI — variable-pay gaps aren't captured; the Directive reports on total pay."))
     if has["salary"] and not has["fte"]:
         assumed.append(("Salaries treated as full-time",
                         "No FTE column — part-timers are compared to full bands, not pro-rated."))
@@ -1275,6 +1290,9 @@ def _assess_import(cols, title_col=None):
     if has["salary"] and not has["gender"]:
         unlock.append(("Gender → gender pay-gap analysis",
                        "Add M/F/X to split pay equity by gender."))
+    if has["salary"] and not has["variable"]:
+        unlock.append(("Bonus / Allowances / LTI → total-pay gap",
+                       "Add variable-pay columns to report the gender gap on total pay, per the EU Directive."))
     if has["salary"] and not has["fte"]:
         unlock.append(("FTE → pro-rate part-time pay",
                        "1.0 / 0.8 etc. lets Pay Equity compare part-timers fairly."))
@@ -1701,7 +1719,8 @@ def pay_equity_page(catalog, service):
             st.markdown(
                 f'<div style="background:{C["surface"]};border:1px solid {C["line"]};border-radius:12px;'
                 f'padding:16px;color:{C["muted"]};font-size:14px;margin-top:6px">'
-                f'Provide columns for job title, actual annual base salary, and optionally name & gender.</div>',
+                f'Provide columns for job title and actual annual base salary; optionally name, gender, and '
+                f'variable pay (Bonus, Allowances, LTI) for the total-pay gender gap.</div>',
                 unsafe_allow_html=True)
             return
         try:
@@ -1717,11 +1736,20 @@ def pay_equity_page(catalog, service):
     sal_col = _smart_detect(cols, _salkeys, _salcont)
     name_col = _smart_detect(cols, {"name", "fullname", "full name", "naam", "employee", "medewerker"}, ["name", "naam"])
     gender_col = _smart_detect(cols, {"gender", "geslacht", "sex", "m/v", "m/f"}, ["gender", "geslacht", "sex"])
+    bonus_col = _smart_detect(cols, {"bonus", "variable pay", "variable", "incentive", "commission",
+                                     "bonus/commission"}, ["bonus", "incentive", "commission", "variable"])
+    allow_col = _smart_detect(cols, {"allowances", "allowance", "toeslag", "toeslagen", "vergoeding",
+                                     "13th month", "holiday allowance", "vakantiegeld"},
+                              ["allowance", "toeslag", "vergoeding", "vakantiegeld"])
+    lti_col = _smart_detect(cols, {"lti", "equity", "long-term incentive", "long term incentive", "rsu",
+                                   "stock", "aandelen", "options", "share plan"}, ["lti", "equity", "rsu", "aandelen"])
+    comp_cols = {"Bonus": bonus_col, "Allowances": allow_col, "LTI": lti_col}
+    has_variable = any(comp_cols.values())
     if not sal_col:
         st.error("No salary column found. Include an 'ActualSalary' column."); return
-    st.caption(f"Title: **{title_col}** · Salary: **{sal_col}**"
-               + (f" · Name: **{name_col}**" if name_col else "")
-               + (f" · Gender: **{gender_col}**" if gender_col else ""))
+    _detected = [("Title", title_col), ("Salary", sal_col), ("Name", name_col), ("Gender", gender_col),
+                 ("Bonus", bonus_col), ("Allowances", allow_col), ("LTI", lti_col)]
+    st.caption(" · ".join(f"{lab}: **{c}**" for lab, c in _detected if c))
 
     def _num(v):
         s = _re.sub(r"[^\d]", "", str(v))
@@ -1740,6 +1768,13 @@ def pay_equity_page(catalog, service):
                "Function": m.function or "", "Level": m.level or "—", "Actual": actual}
         if gender_col:
             rec["Gender"] = str(r.get(gender_col, "")).strip().upper()[:1]
+        if has_variable:
+            _bonus = (_num(r.get(bonus_col)) or 0) if bonus_col else 0
+            _allow = (_num(r.get(allow_col)) or 0) if allow_col else 0
+            _lti = (_num(r.get(lti_col)) or 0) if lti_col else 0
+            rec["Bonus"] = _bonus; rec["Allowances"] = _allow; rec["LTI"] = _lti
+            rec["Total cash"] = actual + _bonus + _allow
+            rec["Total pay"] = actual + _bonus + _allow + _lti
         if band is not None:
             p50 = band.p50 or round((band.min + band.max) / 2)
             rec["Band P50"] = int(p50); rec["Band min"] = int(band.min); rec["Band max"] = int(band.max)
@@ -1836,6 +1871,23 @@ def pay_equity_page(catalog, service):
                 unsafe_allow_html=True)
             st.caption("Raw gap is unadjusted; compa-ratio and within-role gaps control for role/level "
                        "differences (the within-role gap isolates same-role pay differences). Small samples are indicative only.")
+            # ── total-pay gap (EU Pay Transparency Directive basis) ──────────
+            if has_variable and "Total pay" in priced.columns:
+                tot_m, tot_f = gm["Total pay"].mean(), gf["Total pay"].mean()
+                if tot_m:
+                    tot_gap = round((tot_m - tot_f) / tot_m * 100, 1)
+                    tcol = C["danger"] if abs(tot_gap) >= 5 else C["teal"]
+                    _delta = tot_gap - raw_gap
+                    st.markdown(
+                        f'<div style="font-size:14px;color:{C["ink"]};margin-top:4px">'
+                        f'Total-pay gap (base + bonus + allowances + LTI): '
+                        f'<b style="color:{tcol}">{tot_gap:+.1f}%</b>'
+                        f' &nbsp;<span style="color:{C["muted"]}">'
+                        f'({_delta:+.1f} pts vs base — variable pay '
+                        f'{"widens" if _delta > 0 else "narrows" if _delta < 0 else "does not change"} the gap)</span></div>',
+                        unsafe_allow_html=True)
+                    st.caption("The EU Pay Transparency Directive reports the gender pay gap on **total pay** — "
+                               "base plus all variable and complementary components — which is where gaps often hide.")
             if role_gaps:
                 with st.expander(f"Per-role gender gap ({len(role_gaps)} roles with both M and F)"):
                     st.dataframe(_pd.DataFrame(role_gaps), use_container_width=True, hide_index=True)
@@ -1886,7 +1938,8 @@ def pay_equity_page(catalog, service):
         c = STATUS_COLOR.get(row["Status"], "#8A93A5")
         return [f"color:{c};font-weight:600" if col == "Status" else "" for col in row.index]
     show_cols = [c for c in ["Name", "Input title", "Matched role", "Level", "Actual",
-                             "Band P50", "Range %", "Compa-ratio", "Status"] if c in res.columns]
+                             "Total cash", "Total pay", "Band P50", "Range %", "Compa-ratio", "Status"]
+                 if c in res.columns]
     st.dataframe(res[show_cols].style.apply(_row_style, axis=1), use_container_width=True, hide_index=True)
     _xb = _io.BytesIO(); res.to_excel(_xb, index=False)
     st.download_button("⬇ Download pay-equity analysis (.xlsx)", _xb.getvalue(),
@@ -2109,18 +2162,22 @@ def main():
         #   • EmployeeID/Name + context columns -> carried through to results & exports
         import io as _io
         _TPL_COLS = ["EmployeeID", "Name", "CurrentTitle", "Department", "Manager",
-                     "Location", "FTE", "StartDate", "Gender", "ActualSalary"]
+                     "Location", "FTE", "StartDate", "Gender", "ActualSalary",
+                     "Bonus", "Allowances", "LTI"]
         _tpl_df = pd.DataFrame(
             [
                 {"EmployeeID": "E1001", "Name": "Alice Johnson",  "CurrentTitle": "HR Business Partner",
                  "Department": "People & Culture", "Manager": "Priya Nair",  "Location": "Amsterdam",
-                 "FTE": 1.0, "StartDate": "2021-03-15", "Gender": "F", "ActualSalary": 68000},
+                 "FTE": 1.0, "StartDate": "2021-03-15", "Gender": "F", "ActualSalary": 68000,
+                 "Bonus": 6800, "Allowances": 4000, "LTI": 0},
                 {"EmployeeID": "E1002", "Name": "Bob Smit",       "CurrentTitle": "Financial Controller",
                  "Department": "Finance", "Manager": "Tom de Boer", "Location": "Rotterdam",
-                 "FTE": 1.0, "StartDate": "2019-09-01", "Gender": "M", "ActualSalary": 82000},
+                 "FTE": 1.0, "StartDate": "2019-09-01", "Gender": "M", "ActualSalary": 82000,
+                 "Bonus": 12000, "Allowances": 4000, "LTI": 15000},
                 {"EmployeeID": "E1003", "Name": "Sanne de Vries", "CurrentTitle": "Software Engineer",
                  "Department": "Engineering", "Manager": "Lars Bakker", "Location": "Utrecht",
-                 "FTE": 0.8, "StartDate": "2022-06-20", "Gender": "F", "ActualSalary": 71000},
+                 "FTE": 0.8, "StartDate": "2022-06-20", "Gender": "F", "ActualSalary": 71000,
+                 "Bonus": 5000, "Allowances": 3000, "LTI": 8000},
             ],
             columns=_TPL_COLS,
         )
@@ -2148,9 +2205,19 @@ def main():
                 {"Column": "Gender", "Required": "Recommended", "Used by": "Pay Equity",
                  "Description": "M, F or X. Powers the gender pay-gap view on the Pay Equity page. Leave blank if not analysing pay."},
                 {"Column": "ActualSalary", "Required": "Recommended", "Used by": "Pay Equity",
-                 "Description": ("Actual annual base salary as a plain number (no currency symbol or thousands separator), "
-                                 "e.g. 68000. Drives each person's compa-ratio (pay / band midpoint) on the Pay Equity page. "
+                 "Description": ("Actual annual BASE salary as a plain number (no currency symbol or thousands separator), "
+                                 "e.g. 68000. Drives each person's compa-ratio (base / band midpoint) on the Pay Equity page. "
                                  "Leave blank if you're only standardising titles.")},
+                {"Column": "Bonus", "Required": "Optional", "Used by": "Pay Equity",
+                 "Description": ("Actual annual variable/incentive cash paid (bonus, commission) as a plain number. Added to "
+                                 "base + allowances for the total-pay gender gap — the basis the EU Pay Transparency "
+                                 "Directive reports on. Leave blank/0 if none.")},
+                {"Column": "Allowances", "Required": "Optional", "Used by": "Pay Equity",
+                 "Description": ("Fixed annual cash allowances as a plain number (holiday allowance, 13th month, car/travel "
+                                 "allowance). Counted in total cash pay. Leave blank/0 if none.")},
+                {"Column": "LTI", "Required": "Optional", "Used by": "Pay Equity",
+                 "Description": ("Annualised value of long-term incentives / equity granted (RSUs, options, share plan) as a "
+                                 "plain number. Counted in total pay on top of cash. Leave blank/0 if none.")},
             ],
             columns=["Column", "Required", "Used by", "Description"],
         )
@@ -2160,6 +2227,7 @@ def main():
                 "Fill CurrentTitle with a genuine job title — not a code, grade, or number.",
                 "One person per row; replace the example rows with your own data.",
                 "Add ActualSalary + Gender to unlock the Pay Equity page from this same file — no second upload needed.",
+                "Add Bonus / Allowances / LTI to see the gender gap on TOTAL pay (base + variable), not just base — the EU Directive basis.",
                 "Spelling wobbles are fine (fuzzy matching handles them), but cleaner titles score higher.",
                 "Keep these exact headers so Jobsy auto-detects each column; extra columns you add are preserved too.",
                 "ActualSalary must be a plain number (68000, not '€68.000' or '68k'). FTE as 1.0 / 0.8. Dates as YYYY-MM-DD.",
