@@ -126,6 +126,9 @@ class Industry:
     name: str
     scope: str = ""
     characteristics: str = ""
+    sbi_2008: str = ""
+    nace_rev2: str = ""
+    code_scope: str = ""
 
 
 @dataclass(frozen=True)

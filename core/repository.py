@@ -361,6 +361,9 @@ class Repository:
                 name=_val(row, "IndustryName", "name") or "",
                 scope=_val(row, "Scope", "scope") or "",
                 characteristics=_val(row, "Characteristics", "characteristics") or "",
+                sbi_2008=_val(row, "SBI2008", "sbi_2008") or "",
+                nace_rev2=_val(row, "NACERev2", "nace_rev2") or "",
+                code_scope=_val(row, "CodeScope", "code_scope") or "",
             )
 
     def _build_industry_factors(self, df) -> None:

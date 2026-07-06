@@ -2195,8 +2195,11 @@ def main():
             if _ind_pick == "General (NL baseline)":
                 st.session_state["industry_id"] = None
             else:
-                st.session_state["industry_id"] = next(
-                    (iid for iid, i in _inds.items() if i.name == _ind_pick), None)
+                _picked_id = next((iid for iid, i in _inds.items() if i.name == _ind_pick), None)
+                st.session_state["industry_id"] = _picked_id
+                _picked = _inds.get(_picked_id)
+                if _picked and _picked.sbi_2008:
+                    st.caption(f"SBI 2008 / NACE Rev.2: `{_picked.sbi_2008}`")
             st.caption("Scales salary bands and adds sector-specific skills.")
     service = MatchingService(catalog, review_threshold=threshold, enable_fuzzy=enable_fuzzy)
     benefits_svc = BenefitsService(catalog)
