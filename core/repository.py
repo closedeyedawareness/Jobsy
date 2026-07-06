@@ -417,6 +417,7 @@ class Repository:
                 statutory_nl=_val(row, "StatutoryNL", "statutory_nl") or "",
                 taxable=_val(row, "Taxable", "taxable") or "",
                 description=_val(row, "Description", "description") or "",
+                benefit_group=_val(row, "BenefitGroup", "benefit_group") or "",
             )
 
     def _build_benefit_observations(self, df) -> None:

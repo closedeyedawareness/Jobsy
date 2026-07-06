@@ -52,6 +52,15 @@ class BenefitsService:
     def catalog_item(self, category: str):
         return self.repo.benefits_catalog.get(category)
 
+    def categories_by_group(self) -> dict:
+        """{BenefitGroup: [category, ...]} preserving BenefitsCatalog order."""
+        groups: dict = {}
+        for category in self.categories():
+            item = self.catalog_item(category)
+            group = (item.benefit_group if item else "") or "Other"
+            groups.setdefault(group, []).append(category)
+        return groups
+
     def get_band(self, category: str, industry_id: Optional[str],
                  level: Optional[str]) -> Optional[BenefitBand]:
         """P25/P50/P75/P90 computed from raw observations for (industry, category),

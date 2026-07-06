@@ -799,30 +799,36 @@ class ArchitectureReportService:
             return f"€{v:,.0f}".replace(",", ".") if unit == "EUR" else f"{v:g} {unit}".strip()
 
         ri = 2
-        for category in svc.categories():
-            item = svc.catalog_item(category)
-            unit = item.unit if item else ""
-            pooled = svc.get_band(category, None, None)
-            bg = _row_bg(ri)
-            _cell(ws, ri, 1, category, fg=INK, bg=bg, bold=True)
-            _cell(ws, ri, 2, unit, fg=MUTED, bg=bg)
-            if pooled:
-                _cell(ws, ri, 3, _fmt(pooled.p25, unit), fg=MUTED, bg=bg)
-                _cell(ws, ri, 4, _fmt(pooled.p50, unit), fg=TEAL, bg=bg, bold=True)
-                _cell(ws, ri, 5, _fmt(pooled.p75, unit), fg=MUTED, bg=bg)
-                _cell(ws, ri, 6, _fmt(pooled.p90, unit), fg=MUTED, bg=bg)
-                _cell(ws, ri, 7, pooled.n_observations, fg=MUTED, bg=bg)
-            else:
-                for ci in range(3, 8):
-                    _cell(ws, ri, ci, "—", fg=MUTED, bg=bg)
-            for ci, iid in enumerate(industries, 8):
-                band = svc.get_band(category, iid, None)
-                _cell(ws, ri, ci, _fmt(band.p50, unit) if band else "—", fg=INK, bg=bg)
-            companies = svc.named_companies(category, None)
-            _cell(ws, ri, 8 + len(industries), ", ".join(companies) if companies else "—",
-                  fg=TEAL if companies else MUTED, bg=bg)
-            ws.row_dimensions[ri].height = 20
+        for group, cats_in_group in svc.categories_by_group().items():
+            _hdr(ws, ri, 1, group.upper(), bg=BLUE, size=9)
+            for ci in range(2, len(headers) + 1):
+                _cell(ws, ri, ci, "", bg=BLUE_L)
+            ws.row_dimensions[ri].height = 18
             ri += 1
+            for category in cats_in_group:
+                item = svc.catalog_item(category)
+                unit = item.unit if item else ""
+                pooled = svc.get_band(category, None, None)
+                bg = _row_bg(ri)
+                _cell(ws, ri, 1, category, fg=INK, bg=bg, bold=True)
+                _cell(ws, ri, 2, unit, fg=MUTED, bg=bg)
+                if pooled:
+                    _cell(ws, ri, 3, _fmt(pooled.p25, unit), fg=MUTED, bg=bg)
+                    _cell(ws, ri, 4, _fmt(pooled.p50, unit), fg=TEAL, bg=bg, bold=True)
+                    _cell(ws, ri, 5, _fmt(pooled.p75, unit), fg=MUTED, bg=bg)
+                    _cell(ws, ri, 6, _fmt(pooled.p90, unit), fg=MUTED, bg=bg)
+                    _cell(ws, ri, 7, pooled.n_observations, fg=MUTED, bg=bg)
+                else:
+                    for ci in range(3, 8):
+                        _cell(ws, ri, ci, "—", fg=MUTED, bg=bg)
+                for ci, iid in enumerate(industries, 8):
+                    band = svc.get_band(category, iid, None)
+                    _cell(ws, ri, ci, _fmt(band.p50, unit) if band else "—", fg=INK, bg=bg)
+                companies = svc.named_companies(category, None)
+                _cell(ws, ri, 8 + len(industries), ", ".join(companies) if companies else "—",
+                      fg=TEAL if companies else MUTED, bg=bg)
+                ws.row_dimensions[ri].height = 20
+                ri += 1
 
         _border_range(ws, 1, ri - 1, 1, len(headers))
         note_row = ri + 1

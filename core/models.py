@@ -168,6 +168,7 @@ class BenefitCatalogItem:
     statutory_nl: str = ""
     taxable: str = ""
     description: str = ""
+    benefit_group: str = ""  # Perquisite / Insurance-Protection / Retirement / Leave / Pay Premium
 
 
 @dataclass(frozen=True)

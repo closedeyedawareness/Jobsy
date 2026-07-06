@@ -1847,14 +1847,15 @@ def benefits_benchmarking_page(catalog, benefits_svc):
         f'text-transform:uppercase;color:{C["muted"]};margin:8px 0 6px">Your benefits package</div>',
         unsafe_allow_html=True)
 
-    CAT_COL, UNIT_COL, BASIS_COL = "Category", "Unit", "Market basis (reference)"
+    CAT_COL, GROUP_COL, UNIT_COL, BASIS_COL = "Category", "Group", "Unit", "Market basis (reference)"
     PLACE_COL, VALUE_COL, DESIGN_COL = "In place? (Yes / No / Null)", "Your value", "Design features"
 
     tmpl_rows = []
     for cat in benefits_svc.categories():
         item = benefits_svc.catalog_item(cat)
         tmpl_rows.append({
-            CAT_COL: cat, UNIT_COL: item.unit if item else "",
+            CAT_COL: cat, GROUP_COL: item.benefit_group if item else "",
+            UNIT_COL: item.unit if item else "",
             BASIS_COL: item.basis if item else "",
             PLACE_COL: "Null", VALUE_COL: "", DESIGN_COL: "",
         })
@@ -1902,12 +1903,14 @@ def benefits_benchmarking_page(catalog, benefits_svc):
                 design_features[cat] = design
         st.caption(f"{len(package)} of {len(benefits_svc.categories())} categories marked in place from the upload.")
     else:
-        rows = [{CAT_COL: cat, UNIT_COL: (benefits_svc.catalog_item(cat).unit if benefits_svc.catalog_item(cat) else ""),
+        rows = [{CAT_COL: cat, GROUP_COL: (benefits_svc.catalog_item(cat).benefit_group if benefits_svc.catalog_item(cat) else ""),
+                 UNIT_COL: (benefits_svc.catalog_item(cat).unit if benefits_svc.catalog_item(cat) else ""),
                  "Offered": False, VALUE_COL: 0.0} for cat in benefits_svc.categories()]
         edited = st.data_editor(
             _pd.DataFrame(rows), use_container_width=True, hide_index=True, num_rows="fixed",
             column_config={
                 CAT_COL:    st.column_config.TextColumn("Category", disabled=True, width="medium"),
+                GROUP_COL:  st.column_config.TextColumn("Group", disabled=True, width="small"),
                 UNIT_COL:   st.column_config.TextColumn("Unit", disabled=True, width="small"),
                 "Offered":  st.column_config.CheckboxColumn("Offered?", width="small"),
                 VALUE_COL:  st.column_config.NumberColumn("Your value", min_value=0.0, step=1.0, width="small"),
