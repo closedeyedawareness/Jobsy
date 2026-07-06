@@ -1204,6 +1204,91 @@ def _smart_detect(cols, exacts, contains):
     return None
 
 
+def _assess_import(cols, title_col=None):
+    """Read the columns of an uploaded workforce file and report, per Jobsy module,
+    what can be delivered now, what will be assumed from partial data, and what data
+    the client should add to unlock more. Pure & testable — returns plain data, no UI.
+
+    Returns dict: {found: {field: colname|None}, ready: [...], assumed: [...], unlock: [...]}
+    where each list item is (label, detail).
+    """
+    d = lambda ex, co: _smart_detect(cols, ex, co)
+    found = {
+        "title": title_col or d(
+            {"jobtitle", "job title", "title", "currenttitle", "current title",
+             "functie", "functietitel", "role", "position"},
+            ["title", "functie", "role", "position", "functi"]),
+        "salary": d(
+            {"actualsalary", "actual salary", "salary", "base salary", "basesalary",
+             "grosssalary", "gross salary", "salaris", "brutosalaris", "loon", "pay"},
+            ["sal", "salaris", "loon", "pay", "bruto"]),
+        "gender": d({"gender", "geslacht", "sex", "m/v", "m/f"}, ["gender", "geslacht", "sex"]),
+        "name": d({"name", "fullname", "full name", "naam", "employee", "medewerker"}, ["name", "naam"]),
+        "empid": d({"employeeid", "employee id", "empid", "id", "personeelsnummer", "medewerkernummer"},
+                   ["employeeid", "empid", "personeelsn"]),
+        "department": d({"department", "dept", "afdeling", "team", "business unit"},
+                        ["department", "afdeling", "dept"]),
+        "manager": d({"manager", "linemanager", "line manager", "leidinggevende", "supervisor"},
+                     ["manager", "leidinggev", "supervisor"]),
+        "fte": d({"fte", "parttime", "part-time", "werkuren", "contract hours"}, ["fte", "parttime"]),
+    }
+    has = {k: bool(v) for k, v in found.items()}
+
+    ready, assumed, unlock = [], [], []
+
+    # ── What Jobsy can give now ──────────────────────────────────────────
+    if has["title"]:
+        ready.append(("Title standardisation & job matching",
+                      "Every row is matched to a canonical role — the core output."))
+        ready.append(("Job Family: levels, grades & salary bands",
+                      "Derived from the matched roles — no extra columns needed."))
+        ready.append(("Skill-gap & 9-Box rosters",
+                      "The matched people load straight into these pages; you rate them in-app."))
+    if has["salary"]:
+        ready.append(("Pay Equity — compa-ratio vs role band",
+                      "Each person's pay ÷ band midpoint, with below-range pay flagged."))
+    if has["salary"] and has["gender"]:
+        ready.append(("Gender pay-gap breakdown",
+                      "Pay Equity splits compa-ratios by gender."))
+
+    # ── What Jobsy will assume from partial data ─────────────────────────
+    if has["salary"] and not has["gender"]:
+        assumed.append(("Pay equity runs org-wide, no gender split",
+                        "No Gender column — the gender pay-gap view is skipped."))
+    if has["salary"] and not has["fte"]:
+        assumed.append(("Salaries treated as full-time",
+                        "No FTE column — part-timers are compared to full bands, not pro-rated."))
+    if not has["department"]:
+        assumed.append(("Results shown as one flat list",
+                        "No Department column — results aren't grouped by team."))
+    if not has["name"] and not has["empid"]:
+        assumed.append(("Rows identified by position only",
+                        "No Name or EmployeeID — results are keyed by row number."))
+
+    # ── What to add to unlock more ───────────────────────────────────────
+    if not has["title"]:
+        unlock.append(("A job-title column — REQUIRED",
+                       "Nothing can be matched without it. Add CurrentTitle."))
+    if not has["salary"]:
+        unlock.append(("ActualSalary → Pay Equity",
+                       "Annual base salary as a number unlocks compa-ratio & below-band flags."))
+    if has["salary"] and not has["gender"]:
+        unlock.append(("Gender → gender pay-gap analysis",
+                       "Add M/F/X to split pay equity by gender."))
+    if has["salary"] and not has["fte"]:
+        unlock.append(("FTE → pro-rate part-time pay",
+                       "1.0 / 0.8 etc. lets Pay Equity compare part-timers fairly."))
+    if not has["department"]:
+        unlock.append(("Department → group & filter by team",
+                       "Carried through so you can slice every report by department."))
+    if not has["manager"]:
+        unlock.append(("Manager → org & succession context",
+                       "Line-manager names enrich the succession and org views."))
+    unlock.append(("Skills (per-skill 1–5) → Skills Assessment",
+                   "Use the separate Skills Assessment template to unlock skill-gap analysis."))
+
+    return {"found": found, "has": has, "ready": ready, "assumed": assumed, "unlock": unlock}
+
 
 def architecture_report_page(catalog):
     """Generate a board-ready Job Architecture Framework report."""
@@ -2018,39 +2103,71 @@ def main():
 
     with tab_upload:
         # ── Blank import template (CSV + Excel) ──────────────────────────────
+        # One comprehensive workforce file that feeds every Jobsy module:
+        #   • CurrentTitle  -> Matching (the only matched field)
+        #   • ActualSalary + Gender -> Pay Equity (compa-ratio & pay-gap view)
+        #   • EmployeeID/Name + context columns -> carried through to results & exports
         import io as _io
+        _TPL_COLS = ["EmployeeID", "Name", "CurrentTitle", "Department", "Manager",
+                     "Location", "FTE", "StartDate", "Gender", "ActualSalary"]
         _tpl_df = pd.DataFrame(
             [
-                {"EmployeeID": "E1001", "Name": "Alice Johnson",  "CurrentTitle": "HR Business Partner"},
-                {"EmployeeID": "E1002", "Name": "Bob Smit",       "CurrentTitle": "Financial Controller"},
-                {"EmployeeID": "E1003", "Name": "Sanne de Vries", "CurrentTitle": "Software Engineer"},
+                {"EmployeeID": "E1001", "Name": "Alice Johnson",  "CurrentTitle": "HR Business Partner",
+                 "Department": "People & Culture", "Manager": "Priya Nair",  "Location": "Amsterdam",
+                 "FTE": 1.0, "StartDate": "2021-03-15", "Gender": "F", "ActualSalary": 68000},
+                {"EmployeeID": "E1002", "Name": "Bob Smit",       "CurrentTitle": "Financial Controller",
+                 "Department": "Finance", "Manager": "Tom de Boer", "Location": "Rotterdam",
+                 "FTE": 1.0, "StartDate": "2019-09-01", "Gender": "M", "ActualSalary": 82000},
+                {"EmployeeID": "E1003", "Name": "Sanne de Vries", "CurrentTitle": "Software Engineer",
+                 "Department": "Engineering", "Manager": "Lars Bakker", "Location": "Utrecht",
+                 "FTE": 0.8, "StartDate": "2022-06-20", "Gender": "F", "ActualSalary": 71000},
             ],
-            columns=["EmployeeID", "Name", "CurrentTitle"],
+            columns=_TPL_COLS,
         )
         _instr_df = pd.DataFrame(
             [
-                {"Column": "EmployeeID", "Required": "Optional",
-                 "Description": "Your own unique ID for the person. Carried through to the results; not used for matching."},
-                {"Column": "Name", "Required": "Optional",
-                 "Description": "Person's name, for your reference. Not used for matching."},
-                {"Column": "CurrentTitle", "Required": "REQUIRED",
+                {"Column": "EmployeeID", "Required": "Optional", "Used by": "Identifier (carried through)",
+                 "Description": "Your own unique ID for the person. Echoed in the results & exports; not used for matching."},
+                {"Column": "Name", "Required": "Optional", "Used by": "Identifier (carried through)",
+                 "Description": "Person's name, for your reference. Carried through to results; not used for matching."},
+                {"Column": "CurrentTitle", "Required": "REQUIRED", "Used by": "Matching",
                  "Description": ("The person's current job title — the ONLY field that gets matched. Use the real, full "
                                  "title (e.g. 'Senior HR Advisor', not 'SR HRA' or an ID code). One title per row. English "
                                  "or Dutch both work. The engine matches exact -> normalised -> synonyms -> fuzzy against "
                                  "the reference library, so clean, standard titles get the highest-confidence matches.")},
+                {"Column": "Department", "Required": "Optional", "Used by": "Context (carried through)",
+                 "Description": "Team / department, e.g. 'Finance'. Carried through for your own grouping & filtering of results."},
+                {"Column": "Manager", "Required": "Optional", "Used by": "Context (carried through)",
+                 "Description": "Line manager's name. Carried through to results; useful for succession & org views."},
+                {"Column": "Location", "Required": "Optional", "Used by": "Context (carried through)",
+                 "Description": "Office / city / country. Carried through for filtering; not used for matching."},
+                {"Column": "FTE", "Required": "Optional", "Used by": "Context (carried through)",
+                 "Description": "Full-time equivalent as a number: 1.0 = full-time, 0.8 = 4 days/week. Carried through."},
+                {"Column": "StartDate", "Required": "Optional", "Used by": "Context (carried through)",
+                 "Description": "Hire date in YYYY-MM-DD, e.g. 2022-06-20. Carried through (tenure context); not matched."},
+                {"Column": "Gender", "Required": "Recommended", "Used by": "Pay Equity",
+                 "Description": "M, F or X. Powers the gender pay-gap view on the Pay Equity page. Leave blank if not analysing pay."},
+                {"Column": "ActualSalary", "Required": "Recommended", "Used by": "Pay Equity",
+                 "Description": ("Actual annual base salary as a plain number (no currency symbol or thousands separator), "
+                                 "e.g. 68000. Drives each person's compa-ratio (pay / band midpoint) on the Pay Equity page. "
+                                 "Leave blank if you're only standardising titles.")},
             ],
-            columns=["Column", "Required", "Description"],
+            columns=["Column", "Required", "Used by", "Description"],
         )
         _tips_df = pd.DataFrame(
             {"Tips for best matches": [
+                "CurrentTitle is the only required field — everything else is optional context or feeds other pages.",
                 "Fill CurrentTitle with a genuine job title — not a code, grade, or number.",
                 "One person per row; replace the example rows with your own data.",
+                "Add ActualSalary + Gender to unlock the Pay Equity page from this same file — no second upload needed.",
                 "Spelling wobbles are fine (fuzzy matching handles them), but cleaner titles score higher.",
-                "You can keep extra columns — only the title column is used, and you pick it after upload.",
-                "Both .csv and .xlsx upload fine. Keep these exact headers for a clean round-trip.",
+                "Keep these exact headers so Jobsy auto-detects each column; extra columns you add are preserved too.",
+                "ActualSalary must be a plain number (68000, not '€68.000' or '68k'). FTE as 1.0 / 0.8. Dates as YYYY-MM-DD.",
+                "Skills go in the separate Skills Assessment template; 9-Box performance/potential are set on that page.",
+                "Both .csv and .xlsx upload fine.",
             ]}
         )
-        st.markdown("**New here?** Download a blank template, fill in **CurrentTitle**, then upload it below.")
+        st.markdown("**New here?** Download the template, fill in **CurrentTitle** (add salary/gender for Pay Equity), then upload below.")
         _tc1, _tc2 = st.columns(2)
         with _tc1:
             st.download_button(
@@ -2073,7 +2190,8 @@ def main():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
-        st.caption("Only **CurrentTitle** drives matching — EmployeeID & Name are optional and carried through to results.")
+        st.caption("Only **CurrentTitle** is required for matching. **ActualSalary** + **Gender** feed the Pay Equity page from "
+                   "this same file; all other columns are optional context, carried through to your results & exports.")
 
         upload = st.file_uploader("Upload CSV or Excel (.csv, .xls, .xlsx)",
                                    type=["csv","xls","xlsx"])
@@ -2109,6 +2227,41 @@ def main():
                 name_col = st.selectbox("Name column (optional)", name_opts,
                                         index=name_opts.index(auto_name) if auto_name in name_opts else 0)
                 st.caption(f"{len(df_in)} rows · {len(col_opts)} columns detected")
+
+                # ── Data-readiness panel: what this file unlocks, assumes, and needs ──
+                _rep = _assess_import(col_opts, title_col=col)
+                _sections = [
+                    ("✅ Jobsy can give you now", C["success"], _rep["ready"]),
+                    ("◐ Assumed from partial data", C["amber"], _rep["assumed"]),
+                    ("➕ Add to unlock more", C["accent"], _rep["unlock"]),
+                ]
+                with st.expander(
+                    f"📋 What Jobsy can do with this file — "
+                    f"{len(_rep['ready'])} ready · {len(_rep['assumed'])} assumed · "
+                    f"{len(_rep['unlock'])} to unlock",
+                    expanded=True,
+                ):
+                    _cols3 = st.columns(3)
+                    for _cix, (_head, _clr, _items) in enumerate(_sections):
+                        with _cols3[_cix]:
+                            _rows = "".join(
+                                f'<div style="margin:0 0 10px 0">'
+                                f'<div style="font-size:13px;font-weight:600;color:{C["ink"]}">{_lbl}</div>'
+                                f'<div style="font-size:12px;color:{C["muted"]};line-height:1.4">{_det}</div>'
+                                f'</div>'
+                                for _lbl, _det in _items
+                            ) or f'<div style="font-size:12px;color:{C["muted"]}">— nothing here —</div>'
+                            st.markdown(
+                                f'<div style="border-top:3px solid {_clr};background:{C["surface"]};'
+                                f'border:1px solid {C["line"]};border-top:3px solid {_clr};'
+                                f'border-radius:10px;padding:12px 14px;height:100%">'
+                                f'<div style="font-size:12px;font-weight:700;letter-spacing:.02em;'
+                                f'color:{_clr};margin-bottom:10px">{_head}</div>{_rows}</div>',
+                                unsafe_allow_html=True,
+                            )
+                    st.caption("This updates automatically from your column headers — a partly-filled "
+                               "template still works; you just get fewer analyses until you add the missing fields.")
+
                 # Guard the common failure: an ID/number column selected instead of titles.
                 _sample = df_in[col].dropna().astype(str).str.strip().head(25)
                 if len(_sample) and _sample.str.fullmatch(r"\d+(\.\d+)?").mean() > 0.7:
