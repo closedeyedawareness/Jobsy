@@ -1239,9 +1239,15 @@ def _assess_import(cols, title_col=None):
         "manager": d({"manager", "linemanager", "line manager", "leidinggevende", "supervisor"},
                      ["manager", "leidinggev", "supervisor"]),
         "fte": d({"fte", "parttime", "part-time", "werkuren", "contract hours"}, ["fte", "parttime"]),
+        "performance": d({"performance", "perf", "performance rating", "prestatie"}, ["perform", "prestatie"]),
+        "potential": d({"potential", "pot", "potential rating", "potentie"}, ["potential", "potentie"]),
+        "skills": d({"skillproficiency", "skill proficiency", "skills", "skill", "competenties",
+                     "vaardigheden", "coreskillproficiency", "softskills"},
+                    ["proficiency", "skill", "competenti", "vaardighe"]),
     }
     has = {k: bool(v) for k, v in found.items()}
     has["variable"] = has["bonus"] or has["allowances"] or has["lti"]
+    has["ninebox"] = has["performance"] and has["potential"]
 
     ready, assumed, unlock = [], [], []
 
@@ -1252,7 +1258,13 @@ def _assess_import(cols, title_col=None):
         ready.append(("Job Family: levels, grades & salary bands",
                       "Derived from the matched roles — no extra columns needed."))
         ready.append(("Skill-gap & 9-Box rosters",
-                      "The matched people load straight into these pages; you rate them in-app."))
+                      "The matched people load straight into these pages."))
+    if has["ninebox"]:
+        ready.append(("9-Box grid auto-placed",
+                      "Performance + Potential (1-3) drop each person onto the grid — no manual rating."))
+    if has["skills"]:
+        ready.append(("Skills Assessment & Skill-Gap",
+                      "SkillProficiency levels feed the skills pages — no separate skills upload needed."))
     if has["salary"]:
         ready.append(("Pay Equity — compa-ratio vs role band",
                       "Each person's pay ÷ band midpoint, with below-range pay flagged."))
@@ -1302,8 +1314,12 @@ def _assess_import(cols, title_col=None):
     if not has["manager"]:
         unlock.append(("Manager → org & succession context",
                        "Line-manager names enrich the succession and org views."))
-    unlock.append(("Skills (per-skill 1–5) → Skills Assessment",
-                   "Use the separate Skills Assessment template to unlock skill-gap analysis."))
+    if not has["ninebox"]:
+        unlock.append(("Performance + Potential (1-3) → 9-Box",
+                       "Add both ratings to auto-place people on the 9-Box talent grid."))
+    if not has["skills"]:
+        unlock.append(("SkillProficiency → Skills & Skill-Gap",
+                       "Add 'Skill:Level; Skill:Level' per person to unlock skill-gap analysis."))
 
     return {"found": found, "has": has, "ready": ready, "assumed": assumed, "unlock": unlock}
 
@@ -2163,21 +2179,24 @@ def main():
         import io as _io
         _TPL_COLS = ["EmployeeID", "Name", "CurrentTitle", "Department", "Manager",
                      "Location", "FTE", "StartDate", "Gender", "ActualSalary",
-                     "Bonus", "Allowances", "LTI"]
+                     "Bonus", "Allowances", "LTI", "Performance", "Potential", "SkillProficiency"]
         _tpl_df = pd.DataFrame(
             [
                 {"EmployeeID": "E1001", "Name": "Alice Johnson",  "CurrentTitle": "HR Business Partner",
                  "Department": "People & Culture", "Manager": "Priya Nair",  "Location": "Amsterdam",
                  "FTE": 1.0, "StartDate": "2021-03-15", "Gender": "F", "ActualSalary": 68000,
-                 "Bonus": 6800, "Allowances": 4000, "LTI": 0},
+                 "Bonus": 6800, "Allowances": 4000, "LTI": 0, "Performance": 3, "Potential": 2,
+                 "SkillProficiency": "Performance management:Advanced; Stakeholder management:Proficient"},
                 {"EmployeeID": "E1002", "Name": "Bob Smit",       "CurrentTitle": "Financial Controller",
                  "Department": "Finance", "Manager": "Tom de Boer", "Location": "Rotterdam",
                  "FTE": 1.0, "StartDate": "2019-09-01", "Gender": "M", "ActualSalary": 82000,
-                 "Bonus": 12000, "Allowances": 4000, "LTI": 15000},
+                 "Bonus": 12000, "Allowances": 4000, "LTI": 15000, "Performance": 2, "Potential": 2,
+                 "SkillProficiency": "Budget and resource management:Expert; Project management:Advanced"},
                 {"EmployeeID": "E1003", "Name": "Sanne de Vries", "CurrentTitle": "Software Engineer",
                  "Department": "Engineering", "Manager": "Lars Bakker", "Location": "Utrecht",
                  "FTE": 0.8, "StartDate": "2022-06-20", "Gender": "F", "ActualSalary": 71000,
-                 "Bonus": 5000, "Allowances": 3000, "LTI": 8000},
+                 "Bonus": 5000, "Allowances": 3000, "LTI": 8000, "Performance": 3, "Potential": 3,
+                 "SkillProficiency": "Change management:Proficient; Stakeholder management:Basic"},
             ],
             columns=_TPL_COLS,
         )
@@ -2218,6 +2237,17 @@ def main():
                 {"Column": "LTI", "Required": "Optional", "Used by": "Pay Equity",
                  "Description": ("Annualised value of long-term incentives / equity granted (RSUs, options, share plan) as a "
                                  "plain number. Counted in total pay on top of cash. Leave blank/0 if none.")},
+                {"Column": "Performance", "Required": "Optional", "Used by": "9-Box Grid",
+                 "Description": ("Performance rating 1-3 (1 = low, 2 = effective, 3 = top). Seeds each person's spot on the "
+                                 "9-Box grid automatically. Leave blank if you're not using the 9-Box.")},
+                {"Column": "Potential", "Required": "Optional", "Used by": "9-Box Grid",
+                 "Description": ("Potential rating 1-3 (1 = limited, 2 = growth, 3 = high). Pairs with Performance to place "
+                                 "people on the 9-Box grid. Leave blank if unused.")},
+                {"Column": "SkillProficiency", "Required": "Optional", "Used by": "Skills Assessment",
+                 "Description": ("Optional skills for one person in a single cell, as 'Skill:Level; Skill:Level' — e.g. "
+                                 "'Project management:Advanced; Budgeting:Expert'. Levels: Basic/Proficient/Advanced/Expert. "
+                                 "Feeds the Skills Assessment & Skill-Gap pages. For a guided grid with one column per skill "
+                                 "and a 1-5 rubric, use the dedicated Skills Assessment template instead.")},
             ],
             columns=["Column", "Required", "Used by", "Description"],
         )
@@ -2231,7 +2261,8 @@ def main():
                 "Spelling wobbles are fine (fuzzy matching handles them), but cleaner titles score higher.",
                 "Keep these exact headers so Jobsy auto-detects each column; extra columns you add are preserved too.",
                 "ActualSalary must be a plain number (68000, not '€68.000' or '68k'). FTE as 1.0 / 0.8. Dates as YYYY-MM-DD.",
-                "Skills go in the separate Skills Assessment template; 9-Box performance/potential are set on that page.",
+                "Add Performance + Potential (1-3) to auto-place people on the 9-Box grid — no re-entry needed.",
+                "Put skills in one cell as 'Skill:Level; Skill:Level' under SkillProficiency, or use the dedicated Skills template for a per-skill grid.",
                 "Both .csv and .xlsx upload fine.",
             ]}
         )
@@ -2864,7 +2895,20 @@ def skill_assessment_page(catalog):
     # ── Upload ───────────────────────────────────────────────────────────
     upload_sa = st.file_uploader("Upload completed assessment (.csv or .xlsx)",
                                   type=["csv","xlsx"], key="sa_upload")
-    if not upload_sa:
+    df_sa = None
+    if upload_sa:
+        df_sa = (_pdsa.read_csv(upload_sa) if upload_sa.name.endswith(".csv")
+                 else _pdsa.read_excel(upload_sa))
+    else:
+        # Reuse the workforce file from Matching if it carries skill proficiencies.
+        _wf = st.session_state.get("upload_df")
+        if _wf is not None and _smart_detect(list(_wf.columns),
+                {"skillproficiency", "skill proficiency", "skills", "coreskillproficiency"},
+                ["proficiency", "skill"]):
+            if st.checkbox(f"Use the workforce data uploaded on Matching "
+                           f"({len(_wf)} rows, has skill proficiencies)", value=True, key="sa_reuse"):
+                df_sa = _wf.copy()
+    if df_sa is None:
         existing = st.session_state.get("skill_assessments")
         if existing:
             n_people = len(existing)
@@ -2883,9 +2927,6 @@ def skill_assessment_page(catalog):
                 unsafe_allow_html=True,
             )
         return
-
-    df_sa = (_pdsa.read_csv(upload_sa) if upload_sa.name.endswith(".csv")
-             else _pdsa.read_excel(upload_sa))
 
     skill_name_to_id = {s.skill_name.lower(): s.skill_id
                         for s in catalog.repository.skills.values()}
@@ -3569,6 +3610,27 @@ def nine_box_page(catalog):
             st.info("Run a match on the Matching page first.")
         else:
             matched_all = [(i,r) for i,r in enumerate(results) if r.matched]
+
+            # Auto-seed ratings from the workforce file if it carries Performance/Potential
+            # columns (keyed by row index so it always aligns with get_name).
+            if df_input is not None and not ratings:
+                _pc = next((c for c in df_input.columns if "perf" in c.lower()), None)
+                _ptc = next((c for c in df_input.columns if "pot" in c.lower()), None)
+                if _pc and _ptc:
+                    _seeded = 0
+                    for _i, _r in matched_all:
+                        if _i < len(df_input):
+                            try:
+                                _p = max(1, min(3, int(float(df_input.iloc[_i][_pc]))))
+                                _pt = max(1, min(3, int(float(df_input.iloc[_i][_ptc]))))
+                                ratings[get_name(_i)] = (_p, _pt)
+                                _seeded += 1
+                            except Exception:
+                                pass
+                    if _seeded:
+                        st.session_state["ninebox_ratings"] = ratings
+                        st.caption(f"↩ Seeded **{_seeded}** ratings from Performance/Potential columns "
+                                   "in your uploaded workforce file — edit below if needed.")
 
             col_a, col_b = st.columns([1,1])
             with col_a:
