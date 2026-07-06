@@ -2017,6 +2017,64 @@ def main():
             titles = [ln.strip() for ln in raw.splitlines() if ln.strip()]
 
     with tab_upload:
+        # ── Blank import template (CSV + Excel) ──────────────────────────────
+        import io as _io
+        _tpl_df = pd.DataFrame(
+            [
+                {"EmployeeID": "E1001", "Name": "Alice Johnson",  "CurrentTitle": "HR Business Partner"},
+                {"EmployeeID": "E1002", "Name": "Bob Smit",       "CurrentTitle": "Financial Controller"},
+                {"EmployeeID": "E1003", "Name": "Sanne de Vries", "CurrentTitle": "Software Engineer"},
+            ],
+            columns=["EmployeeID", "Name", "CurrentTitle"],
+        )
+        _instr_df = pd.DataFrame(
+            [
+                {"Column": "EmployeeID", "Required": "Optional",
+                 "Description": "Your own unique ID for the person. Carried through to the results; not used for matching."},
+                {"Column": "Name", "Required": "Optional",
+                 "Description": "Person's name, for your reference. Not used for matching."},
+                {"Column": "CurrentTitle", "Required": "REQUIRED",
+                 "Description": ("The person's current job title — the ONLY field that gets matched. Use the real, full "
+                                 "title (e.g. 'Senior HR Advisor', not 'SR HRA' or an ID code). One title per row. English "
+                                 "or Dutch both work. The engine matches exact -> normalised -> synonyms -> fuzzy against "
+                                 "the reference library, so clean, standard titles get the highest-confidence matches.")},
+            ],
+            columns=["Column", "Required", "Description"],
+        )
+        _tips_df = pd.DataFrame(
+            {"Tips for best matches": [
+                "Fill CurrentTitle with a genuine job title — not a code, grade, or number.",
+                "One person per row; replace the example rows with your own data.",
+                "Spelling wobbles are fine (fuzzy matching handles them), but cleaner titles score higher.",
+                "You can keep extra columns — only the title column is used, and you pick it after upload.",
+                "Both .csv and .xlsx upload fine. Keep these exact headers for a clean round-trip.",
+            ]}
+        )
+        st.markdown("**New here?** Download a blank template, fill in **CurrentTitle**, then upload it below.")
+        _tc1, _tc2 = st.columns(2)
+        with _tc1:
+            st.download_button(
+                "⬇ Import template (.csv)",
+                _tpl_df.to_csv(index=False).encode("utf-8"),
+                file_name="jobsy_import_template.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with _tc2:
+            _xbuf = _io.BytesIO()
+            with pd.ExcelWriter(_xbuf, engine="openpyxl") as _xl:
+                _tpl_df.to_excel(_xl, index=False, sheet_name="Workforce")
+                _instr_df.to_excel(_xl, index=False, sheet_name="Instructions")
+                _tips_df.to_excel(_xl, index=False, sheet_name="Match tips")
+            st.download_button(
+                "⬇ Import template (.xlsx)",
+                _xbuf.getvalue(),
+                file_name="jobsy_import_template.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        st.caption("Only **CurrentTitle** drives matching — EmployeeID & Name are optional and carried through to results.")
+
         upload = st.file_uploader("Upload CSV or Excel (.csv, .xls, .xlsx)",
                                    type=["csv","xls","xlsx"])
         if upload:
