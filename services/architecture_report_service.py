@@ -105,6 +105,7 @@ class ArchitectureReportService:
         self._build_job_family_leveling()
         self._build_total_pay()
         self._build_pay_equity()
+        self._build_benefits_benchmarking()
         buf = io.BytesIO()
         self._wb.save(buf)
         return buf.getvalue()
@@ -768,6 +769,64 @@ class ArchitectureReportService:
             _cell(ws, rr, 6, r["compa"], bg=bg)
             _cell(ws, rr, 7, r["status"], fg=SC.get(r["status"], MUTED), bold=True, bg=bg)
         _border_range(ws, hdr_row, hdr_row + len(rows), 1, 7)
+
+    # ── Sheet 11: Benefits Benchmarking (market reference) ────────────────
+    def _build_benefits_benchmarking(self):
+        ws = self._wb.create_sheet("11. Benefits Benchmarking")
+        ws.sheet_view.showGridLines = False
+        repo = self.catalog.repository
+        if not getattr(repo, "benefits_catalog", None):
+            _cell(ws, 1, 1, "No BenefitsCatalog data in the reference workbook.", fg=MUTED)
+            return
+
+        from services.benefits_service import BenefitsService
+        svc = BenefitsService(self.catalog)
+        industries = sorted(repo.industries.keys()) if repo.industries else []
+
+        headers = ["Category", "Unit", "Market P25", "Market Median", "Market P75", "Market P90", "n"]
+        headers += [f"{iid} median" for iid in industries]
+        widths = [24, 10, 12, 13, 12, 12, 8] + [14] * len(industries)
+        for ci, (h, w) in enumerate(zip(headers, widths), 1):
+            ws.column_dimensions[get_column_letter(ci)].width = w
+            _hdr(ws, 1, ci, h, bg=VIOLET)
+        ws.row_dimensions[1].height = 22
+        ws.freeze_panes = "A2"
+
+        def _fmt(v, unit):
+            if v is None:
+                return "—"
+            return f"€{v:,.0f}".replace(",", ".") if unit == "EUR" else f"{v:g} {unit}".strip()
+
+        ri = 2
+        for category in svc.categories():
+            item = svc.catalog_item(category)
+            unit = item.unit if item else ""
+            pooled = svc.get_band(category, None, None)
+            bg = _row_bg(ri)
+            _cell(ws, ri, 1, category, fg=INK, bg=bg, bold=True)
+            _cell(ws, ri, 2, unit, fg=MUTED, bg=bg)
+            if pooled:
+                _cell(ws, ri, 3, _fmt(pooled.p25, unit), fg=MUTED, bg=bg)
+                _cell(ws, ri, 4, _fmt(pooled.p50, unit), fg=TEAL, bg=bg, bold=True)
+                _cell(ws, ri, 5, _fmt(pooled.p75, unit), fg=MUTED, bg=bg)
+                _cell(ws, ri, 6, _fmt(pooled.p90, unit), fg=MUTED, bg=bg)
+                _cell(ws, ri, 7, pooled.n_observations, fg=MUTED, bg=bg)
+            else:
+                for ci in range(3, 8):
+                    _cell(ws, ri, ci, "—", fg=MUTED, bg=bg)
+            for ci, iid in enumerate(industries, 8):
+                band = svc.get_band(category, iid, None)
+                _cell(ws, ri, ci, _fmt(band.p50, unit) if band else "—", fg=INK, bg=bg)
+            ws.row_dimensions[ri].height = 20
+            ri += 1
+
+        _border_range(ws, 1, ri - 1, 1, len(headers))
+        note_row = ri + 1
+        _cell(ws, note_row, 1,
+              "Percentiles and medians are computed at run time from the self-built BenefitsObservations "
+              "reference data (not static columns) — see services/benefits_service.py. For a company-specific "
+              "comparison, percentile rank, status and advice, use the live Benefits Benchmarking page.",
+              fg=MUTED, italic=True)
 
     # ── Pattern detection & recommendations ───────────────────────────────
     def _detect_patterns(self):

@@ -39,6 +39,9 @@ SHEET_MAP = {
     "IndustrySkills": "industryskills",
     "SeniorityLevels": "senioritylevels",
     "SkillProficiency": "skillproficiency",
+    "BenefitsCatalog": "benefitscatalog",
+    "BenefitsObservations": "benefitsobservations",
+    "LevelBenefitsFactors": "levelbenefitsfactors",
 }
 
 

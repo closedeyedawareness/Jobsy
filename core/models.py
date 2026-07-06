@@ -15,7 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-__all__ = ["Job", "JobProfile", "SalaryBand", "CareerStep", "Employee"]
+__all__ = ["Job", "JobProfile", "SalaryBand", "CareerStep", "Employee",
+           "BenefitCatalogItem", "BenefitObservation", "LevelBenefitFactor", "BenefitBand"]
 
 
 @dataclass(frozen=True)
@@ -152,3 +153,50 @@ class SeniorityLevel:
     grade_range: str = ""
     definition: str = ""
     grades: str = ""
+
+
+@dataclass(frozen=True)
+class BenefitCatalogItem:
+    benefit_id: str
+    category: str
+    basis: str = ""
+    unit: str = ""
+    typical_value_description: str = ""
+    statutory_nl: str = ""
+    taxable: str = ""
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class BenefitObservation:
+    industry_id: str
+    category: str
+    value: float
+    unit: str = ""
+    currency: str = ""
+
+
+@dataclass(frozen=True)
+class LevelBenefitFactor:
+    level: str
+    category: str
+    factor: float = 1.0
+
+
+@dataclass(frozen=True)
+class BenefitBand:
+    """Computed (not stored) — percentiles derived from BenefitObservations at runtime."""
+    category: str
+    industry_id: str
+    level: str
+    unit: str
+    p25: float
+    p50: float
+    p75: float
+    p90: float
+    n_observations: int
+
+    @property
+    def median(self) -> float:
+        """Alias for P50 — the market median."""
+        return self.p50

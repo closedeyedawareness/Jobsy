@@ -60,3 +60,27 @@ def test_strict_raises_on_error(sample_sheets):
     del sample_sheets["jobs"]
     with pytest.raises(ValidationError):
         Validator().validate(sample_sheets, strict=True)
+
+
+def test_benefits_sheets_are_optional(sample_sheets):
+    # sample_sheets has no benefits keys at all — must not be flagged as missing.
+    report = Validator().validate(sample_sheets, strict=False)
+    assert report.ok
+    assert not any("benefit" in e.lower() for e in report.errors)
+
+
+def test_benefits_missing_column_is_error_only_when_sheet_present(sample_sheets):
+    sample_sheets["benefitscatalog"] = pd.DataFrame([{"NotCategory": "Wellness"}])
+    report = Validator().validate(sample_sheets, strict=False)
+    assert not report.ok
+    assert any("benefitscatalog" in e and "Category" in e for e in report.errors)
+
+
+def test_unknown_benefit_industry_reference_is_warning(sample_sheets):
+    sample_sheets["industries"] = pd.DataFrame([{"IndustryID": "IND-TECH"}])
+    sample_sheets["benefitsobservations"] = pd.DataFrame([
+        {"IndustryID": "IND-GHOST", "Category": "Wellness", "Value": 100},
+    ])
+    report = Validator().validate(sample_sheets, strict=False)
+    assert report.ok  # warning, not error
+    assert any("IND-GHOST" in w for w in report.warnings)

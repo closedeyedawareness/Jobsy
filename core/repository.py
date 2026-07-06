@@ -30,8 +30,9 @@ import pandas as pd
 
 import logging
 logger = logging.getLogger('jobsy')
-from core.models import (CareerStep, CompetencyLevel, Employee, Industry, IndustrySalaryFactor,
-    IndustrySkill, Job, JobGrade, JobProfile, RoleSkillRequirement, SalaryBand, SeniorityLevel, Skill)
+from core.models import (BenefitCatalogItem, BenefitObservation, CareerStep, CompetencyLevel,
+    Employee, Industry, IndustrySalaryFactor, IndustrySkill, Job, JobGrade, JobProfile,
+    LevelBenefitFactor, RoleSkillRequirement, SalaryBand, SeniorityLevel, Skill)
 from core.search_index import SearchIndex
 from core.utils import normalize_title
 from core.validator import Validator
@@ -90,6 +91,9 @@ class Repository:
         self.seniority_levels: dict[str, SeniorityLevel] = {}
         # {category: {level:int -> {"name": str, "anchor": str}}}
         self.skill_proficiency: dict[str, dict[int, dict]] = {}
+        self.benefits_catalog: dict[str, BenefitCatalogItem] = {}
+        self.benefit_observations: dict[tuple, list[BenefitObservation]] = {}
+        self.level_benefit_factors: dict[tuple, float] = {}
 
         self._build_jobs(data.get("jobs"))
         self._build_profiles(data.get("profiles"))
@@ -115,6 +119,9 @@ class Repository:
         self._build_industry_skills(_get(data, "industryskills", "IndustrySkills"))
         self._build_seniority_levels(_get(data, "senioritylevels", "SeniorityLevels"))
         self._build_skill_proficiency(_get(data, "skillproficiency", "SkillProficiency", "skill_proficiency"))
+        self._build_benefits_catalog(_get(data, "benefitscatalog", "BenefitsCatalog"))
+        self._build_benefit_observations(_get(data, "benefitsobservations", "BenefitsObservations"))
+        self._build_level_benefit_factors(_get(data, "levelbenefitsfactors", "LevelBenefitsFactors"))
 
         self.index = SearchIndex()
         self.index.build(data.get("jobs"), data.get("titles"))
@@ -393,6 +400,44 @@ class Repository:
                 grades=_val(row, "Grades", "grades") or "",
             )
 
+    def _build_benefits_catalog(self, df) -> None:
+        if df is None: return
+        for row in df.itertuples(index=False):
+            category = _val(row, "Category", "category")
+            if not category: continue
+            self.benefits_catalog[category] = BenefitCatalogItem(
+                benefit_id=_val(row, "BenefitID", "benefit_id") or "",
+                category=category,
+                basis=_val(row, "Basis", "basis") or "",
+                unit=_val(row, "Unit", "unit") or "",
+                typical_value_description=_val(row, "TypicalValueDescription", "typical_value_description") or "",
+                statutory_nl=_val(row, "StatutoryNL", "statutory_nl") or "",
+                taxable=_val(row, "Taxable", "taxable") or "",
+                description=_val(row, "Description", "description") or "",
+            )
+
+    def _build_benefit_observations(self, df) -> None:
+        if df is None: return
+        for row in df.itertuples(index=False):
+            industry_id = _val(row, "IndustryID", "industry_id")
+            category = _val(row, "Category", "category")
+            value = _num(row, "Value", "value")
+            if not industry_id or not category or value is None: continue
+            obs = BenefitObservation(
+                industry_id=industry_id, category=category, value=value,
+                unit=_val(row, "Unit", "unit") or "",
+                currency=_val(row, "Currency", "currency") or "",
+            )
+            self.benefit_observations.setdefault((industry_id, category), []).append(obs)
+
+    def _build_level_benefit_factors(self, df) -> None:
+        if df is None: return
+        for row in df.itertuples(index=False):
+            level = _val(row, "Level", "level")
+            category = _val(row, "Category", "category")
+            if not level or not category: continue
+            self.level_benefit_factors[(level, category)] = _num(row, "Factor", "factor") or 1.0
+
     # ------------------------------------------------------------------- API
     def find_job(self, title: str) -> Optional[Job]:
         """Deterministic lookup (exact -> normalized -> synonym). No fuzzy here."""
@@ -426,4 +471,6 @@ class Repository:
             "job_grades": len(self.job_grades),
             "industries": len(self.industries),
             "industry_skills": sum(len(v) for v in self.industry_skills.values()),
+            "benefit_categories": len(self.benefits_catalog),
+            "benefit_observations": sum(len(v) for v in self.benefit_observations.values()),
         }
