@@ -1841,33 +1841,89 @@ def benefits_benchmarking_page(catalog, benefits_svc):
     level = st.selectbox("Level", levels, index=levels.index("Medior") if "Medior" in levels else 0)
     st.caption(f"Industry context: **{ind_name}** (change in the sidebar) · Level: **{level}**")
 
-    # ── input table ──────────────────────────────────────────────────────
-    cats = benefits_svc.categories()
-    rows = []
-    for cat in cats:
-        item = benefits_svc.catalog_item(cat)
-        rows.append({"Category": cat, "Unit": item.unit if item else "", "Offered": False, "Your value": 0.0})
-    df_input = _pd.DataFrame(rows)
+    # ── import template + upload ──────────────────────────────────────────
     st.markdown(
         f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
         f'text-transform:uppercase;color:{C["muted"]};margin:8px 0 6px">Your benefits package</div>',
         unsafe_allow_html=True)
-    edited = st.data_editor(
-        df_input, use_container_width=True, hide_index=True, num_rows="fixed",
-        column_config={
-            "Category":   st.column_config.TextColumn("Category", disabled=True, width="medium"),
-            "Unit":       st.column_config.TextColumn("Unit", disabled=True, width="small"),
-            "Offered":    st.column_config.CheckboxColumn("Offered?", width="small"),
-            "Your value": st.column_config.NumberColumn("Your value", min_value=0.0, step=1.0, width="small"),
-        },
-        key="benefits_input_editor",
-    )
 
-    package = {r["Category"]: r["Your value"] for _, r in edited.iterrows() if r["Offered"]}
+    CAT_COL, UNIT_COL, BASIS_COL = "Category", "Unit", "Market basis (reference)"
+    PLACE_COL, VALUE_COL, DESIGN_COL = "In place? (Yes / No / Null)", "Your value", "Design features"
+
+    tmpl_rows = []
+    for cat in benefits_svc.categories():
+        item = benefits_svc.catalog_item(cat)
+        tmpl_rows.append({
+            CAT_COL: cat, UNIT_COL: item.unit if item else "",
+            BASIS_COL: item.basis if item else "",
+            PLACE_COL: "Null", VALUE_COL: "", DESIGN_COL: "",
+        })
+    tmpl = _pd.DataFrame(tmpl_rows)
+    _tb = _io.BytesIO(); tmpl.to_excel(_tb, index=False)
+    st.download_button("⬇ Download benefits import template (.xlsx)", _tb.getvalue(),
+        file_name="jobsy_benefits_import_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.caption("Set **In place?** for every row. Use **Null** where the benefit isn't offered "
+               "(leave value / design features blank) — that's what drives the 'not offered' advice below. "
+               "For benefits you do offer, enter **Yes**, the value, and a short note on how it's designed "
+               "(eligibility, provider, structure).")
+
+    up = st.file_uploader("Upload completed import template (.xlsx or .csv)",
+                          type=["csv", "xls", "xlsx"], key="benefits_up")
+
+    package: dict = {}
+    design_features: dict = {}
+    if up is not None:
+        try:
+            df_up = _pd.read_csv(up) if up.name.endswith(".csv") else _pd.read_excel(up)
+        except Exception as exc:
+            st.error(f"Could not read file: {exc}"); return
+        up_cols = list(df_up.columns)
+        cat_col    = _smart_detect(up_cols, {"category"}, ["categor"]) or CAT_COL
+        place_col  = _smart_detect(up_cols, {"in place? (yes / no / null)", "in place", "offered"},
+                                   ["in place", "offered", "null"])
+        value_col  = _smart_detect(up_cols, {"your value"}, ["value"])
+        design_col = _smart_detect(up_cols, {"design features"}, ["design"])
+        for _, r in df_up.iterrows():
+            cat = str(r.get(cat_col, "")).strip()
+            if cat not in benefits_svc.categories():
+                continue
+            in_place = str(r.get(place_col, "")).strip().lower() if place_col else ""
+            if in_place in ("", "nan", "null", "no", "n", "false", "0"):
+                continue  # explicit Null / No / blank -> not offered by this client
+            val = r.get(value_col) if value_col else None
+            try:
+                val = float(val)
+            except (TypeError, ValueError):
+                continue
+            package[cat] = val
+            design = str(r.get(design_col, "")).strip() if design_col else ""
+            if design and design.lower() != "nan":
+                design_features[cat] = design
+        st.caption(f"{len(package)} of {len(benefits_svc.categories())} categories marked in place from the upload.")
+    else:
+        rows = [{CAT_COL: cat, UNIT_COL: (benefits_svc.catalog_item(cat).unit if benefits_svc.catalog_item(cat) else ""),
+                 "Offered": False, VALUE_COL: 0.0} for cat in benefits_svc.categories()]
+        edited = st.data_editor(
+            _pd.DataFrame(rows), use_container_width=True, hide_index=True, num_rows="fixed",
+            column_config={
+                CAT_COL:    st.column_config.TextColumn("Category", disabled=True, width="medium"),
+                UNIT_COL:   st.column_config.TextColumn("Unit", disabled=True, width="small"),
+                "Offered":  st.column_config.CheckboxColumn("Offered?", width="small"),
+                VALUE_COL:  st.column_config.NumberColumn("Your value", min_value=0.0, step=1.0, width="small"),
+            },
+            key="benefits_input_editor",
+        )
+        package = {r[CAT_COL]: r[VALUE_COL] for _, r in edited.iterrows() if r["Offered"]}
+
     offered = set(package.keys())
 
     if not package:
-        st.info("Tick **Offered** and enter a value for at least one benefit to see the market comparison.")
+        if up is not None:
+            st.info("No rows marked **Yes** for 'In place?' in the uploaded file — nothing to benchmark yet.")
+        else:
+            st.info("Upload a completed import template (marking **Null** for benefits not in place), or "
+                    "tick **Offered** in the table above, to see the market comparison.")
         return
 
     comparisons = benefits_svc.compare_package(package, ind_id, level)
@@ -1919,11 +1975,17 @@ def benefits_benchmarking_page(catalog, benefits_svc):
         pass
 
     # ── table + export ────────────────────────────────────────────────────
-    show = cdf[["Category", "Your value", "P25", "Median", "P75", "P90", "Status"]]
+    cdf["Design features"] = cdf["Category"].map(design_features).fillna("")
+    show = cdf[["Category", "Your value", "P25", "Median", "P75", "P90", "Status", "Design features"]]
     def _row_style(row):
         color = STATUS_COLOR.get(row["Status"], "#8A93A5")
         return [f"color:{color};font-weight:600" if col == "Status" else "" for col in row.index]
     st.dataframe(show.style.apply(_row_style, axis=1), use_container_width=True, hide_index=True)
+
+    if design_features:
+        with st.expander(f"Plan design notes ({len(design_features)})"):
+            for cat, text in design_features.items():
+                st.markdown(f"**{cat}** — {text}")
 
     _xb = _io.BytesIO(); show.to_excel(_xb, index=False)
     st.download_button("⬇ Download benefits benchmarking (.xlsx)", _xb.getvalue(),
