@@ -44,6 +44,12 @@ Three quality dimensions, one goal:
   Architecture Report, Organisation hierarchy, Organigram.
 - **Board-ready output** — `services/architecture_report_service.py` produces a formatted,
   multi-section Excel workbook with narrative recommendations.
+- **Employee Benefits Benchmarking** — `services/benefits_service.py` + `ui/app.py`'s
+  "Benefits Benchmarking" page. Unlike Pay Benchmarking's static SalaryBands columns,
+  P25/median/P75/P90 are *computed at run time* from a self-built `BenefitsObservations`
+  reference dataset (industry × category), scaled by `LevelBenefitsFactors`, with rule-based
+  advice and a market-reference sheet in the Architecture Report. Ships a first "Total Rewards"
+  tile combining a Pay compa-ratio with the Benefits Richness Index into one score — see 2.6.
 - **One live integration** — `services/workday_connector.py` (Workday REST/OAuth) plus file upload.
 - **Session persistence** — `services/persistence_service.py` shares sessions via Supabase
   (`jobsy_sessions`) using a session code.
@@ -128,6 +134,7 @@ human; every role on screen traceable to its source.
 | 2.3 | **More connectors.** SAP SuccessFactors, and Dutch-market HR/payroll (AFAS, Nmbrs), plus a clean CSV template and Google Sheets sync — meeting business users where their data already lives. | 🟩 | M |
 | 2.4 | **Scenario modelling / what-if.** Re-level a population, shift a band, re-map a function — preview cost and headcount impact before committing. | 🟩 | M |
 | 2.5 | **Org-wide trend analytics.** Now that data is in a DB and time-stamped: skills coverage, 9-box drift, succession-risk trends over time. | 🟩🟦 | M |
+| 2.6 | **Unified Total Rewards center.** Pay Benchmarking and Employee Benefits Benchmarking currently live as sibling pages sharing a "Total Rewards snapshot" tile. Bring them into one view: a single industry/level/function selection driving both, one combined report section, one percentile-and-advice model instead of two. | 🟩🟪 | M |
 
 **Exit criteria:** a comp analyst can run a pay-gap review and a re-leveling scenario in Jobsy;
 another system can pull a canonical role via API.

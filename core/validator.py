@@ -69,6 +69,11 @@ class Validator:
         "titles": [("ExistingTitle", "existing_title", "Title", "title")],
         "salary": [("Function", "function"), ("Level", "level")],
         "employees": [("EmployeeID", "employee_id", "ID", "id")],
+        # Benefits sheets are optional (not in REQUIRED) — these only fire if the sheet exists.
+        "benefitscatalog": [("Category", "category")],
+        "benefitsobservations": [("IndustryID", "industry_id"), ("Category", "category"),
+                                  ("Value", "value")],
+        "levelbenefitsfactors": [("Level", "level"), ("Category", "category")],
     }
 
     def validate(self, data: dict, *, strict: bool = True) -> ValidationReport:
@@ -100,6 +105,7 @@ class Validator:
             self._check_jobs(data, report)
             self._check_salary(data, report)
             self._check_references(data, report)
+            self._check_benefit_references(data, report)
         except Exception as exc:  # pragma: no cover - defensive
             report.warnings.append(f"Validation halted early: {exc}")
 
@@ -153,6 +159,24 @@ class Validator:
                     f"Sheet '{sheet}' references unknown JobIDs: "
                     f"{', '.join(sorted(unknown))}."
                 )
+
+    def _check_benefit_references(self, data, report: ValidationReport) -> None:
+        """BenefitsObservations.IndustryID should be a known Industries row (warning only)."""
+        obs_df = data.get("benefitsobservations")
+        industries_df = data.get("industries")
+        if obs_df is None or industries_df is None:
+            return
+        ind_col = _find_col(industries_df, "IndustryID", "industry_id")
+        obs_ind_col = _find_col(obs_df, "IndustryID", "industry_id")
+        if not ind_col or not obs_ind_col:
+            return
+        known = {str(v).strip() for v in industries_df[ind_col].tolist() if not _isna(v)}
+        unknown = {str(v).strip() for v in obs_df[obs_ind_col].tolist()
+                   if not _isna(v) and str(v).strip() not in known}
+        if unknown:
+            report.warnings.append(
+                f"Sheet 'benefitsobservations' references unknown IndustryIDs: {', '.join(sorted(unknown))}."
+            )
 
     # --------------------------------------------------------------- finish
     def _finish(self, report: ValidationReport, strict: bool) -> ValidationReport:
