@@ -1708,8 +1708,10 @@ def pay_equity_page(catalog, service):
         f'letter-spacing:-0.02em;margin-bottom:4px">Pay Equity</div>'
         f'<p style="color:{C["muted"]};font-size:14px;margin-bottom:16px">'
         f'Upload actual salaries to see each person\'s <b>compa-ratio</b> (pay ÷ band midpoint) '
-        f'and range position against the matched role — the core view for the EU Pay '
-        f'Transparency Directive. Below-range pay is flagged.</p>',
+        f'and range position, plus a light <b>EU Pay Transparency Directive</b> read-out: '
+        f'mean &amp; median gender gaps on base and total pay (full-time-equivalent), '
+        f'per-category testing against the 5% threshold, pay-quartile split and who receives variable pay. '
+        f'Below-range pay is flagged.</p>',
         unsafe_allow_html=True,
     )
     # template
@@ -1760,17 +1762,33 @@ def pay_equity_page(catalog, service):
                               ["allowance", "toeslag", "vergoeding", "vakantiegeld"])
     lti_col = _smart_detect(cols, {"lti", "equity", "long-term incentive", "long term incentive", "rsu",
                                    "stock", "aandelen", "options", "share plan"}, ["lti", "equity", "rsu", "aandelen"])
+    fte_col = _smart_detect(cols, {"fte", "parttime", "part-time", "part time", "werkuren", "deeltijd",
+                                   "contract hours", "hours", "parttimefactor", "deeltijdfactor"},
+                            ["fte", "parttime", "deeltijd"])
     comp_cols = {"Bonus": bonus_col, "Allowances": allow_col, "LTI": lti_col}
     has_variable = any(comp_cols.values())
     if not sal_col:
         st.error("No salary column found. Include an 'ActualSalary' column."); return
     _detected = [("Title", title_col), ("Salary", sal_col), ("Name", name_col), ("Gender", gender_col),
-                 ("Bonus", bonus_col), ("Allowances", allow_col), ("LTI", lti_col)]
+                 ("FTE", fte_col), ("Bonus", bonus_col), ("Allowances", allow_col), ("LTI", lti_col)]
     st.caption(" · ".join(f"{lab}: **{c}**" for lab, c in _detected if c))
 
     def _num(v):
         s = _re.sub(r"[^\d]", "", str(v))
         return int(s) if s else None
+
+    def _fnum(v):
+        # Parse an FTE / part-time factor: accepts 1.0 / 0.8 / "0,8" / "80%" / 80.
+        try:
+            s = _re.sub(r"[^\d.]", "", str(v).strip().replace(",", ".").replace("%", ""))
+            f = float(s) if s else None
+        except Exception:
+            f = None
+        if f is None or f <= 0:
+            return None
+        if f > 2:            # given as a percentage (e.g. 80) → 0.80
+            f = f / 100.0
+        return round(f, 4) if f <= 1.5 else None
 
     rows = []
     for _, r in df.iterrows():
@@ -1783,6 +1801,9 @@ def pay_equity_page(catalog, service):
         rec = {"Name": (str(r.get(name_col)) if name_col else str(r.get(cols[0]))),
                "Input title": title, "Matched role": m.standard_title or "— no match —",
                "Function": m.function or "", "Level": m.level or "—", "Actual": actual}
+        _fte = _fnum(r.get(fte_col)) if fte_col else None
+        rec["FTE"] = _fte if _fte else 1.0
+        rec["Actual FT"] = round(actual / rec["FTE"]) if rec["FTE"] else actual
         if gender_col:
             rec["Gender"] = str(r.get(gender_col, "")).strip().upper()[:1]
         if has_variable:
@@ -1792,9 +1813,11 @@ def pay_equity_page(catalog, service):
             rec["Bonus"] = _bonus; rec["Allowances"] = _allow; rec["LTI"] = _lti
             rec["Total cash"] = actual + _bonus + _allow
             rec["Total pay"] = actual + _bonus + _allow + _lti
+            rec["Total pay FT"] = round((actual + _bonus + _allow + _lti) / rec["FTE"]) if rec["FTE"] else (actual + _bonus + _allow + _lti)
         if band is not None:
             p50 = band.p50 or round((band.min + band.max) / 2)
             rec["Band P50"] = int(p50); rec["Band min"] = int(band.min); rec["Band max"] = int(band.max)
+            rec["Grade"] = getattr(band, "grade", None) or None
             rec["Compa-ratio"] = round(actual / p50, 2) if p50 else None
             rec["Range %"] = round((actual - band.min) / (band.max - band.min) * 100) if band.max > band.min else None
             if actual < band.min:
@@ -1808,7 +1831,7 @@ def pay_equity_page(catalog, service):
             else:
                 rec["Status"] = "At market"
         else:
-            rec.update({"Band P50": None, "Compa-ratio": None, "Range %": None, "Status": "No match"})
+            rec.update({"Band P50": None, "Compa-ratio": None, "Range %": None, "Status": "No match", "Grade": None})
         rows.append(rec)
     if not rows:
         st.warning("No usable rows (need a numeric salary)."); return
@@ -1854,60 +1877,122 @@ def pay_equity_page(catalog, service):
         except Exception:
             pass
 
-    # ── gender pay gap ──────────────────────────────────────────────────
+    # ── gender pay gap & equity reasoning (EU Pay Transparency Directive) ──
     if gender_col and "Gender" in priced.columns:
         gm = priced[priced["Gender"] == "M"]; gf = priced[priced["Gender"] == "F"]
+        n_x = int((~priced["Gender"].isin(["M", "F"])).sum())
         if len(gm) and len(gf):
-            mean_m, mean_f = gm["Actual"].mean(), gf["Actual"].mean()
-            raw_gap = round((mean_m - mean_f) / mean_m * 100, 1)
+            _basis = "Actual FT" if "Actual FT" in priced.columns else "Actual"
+            _fte_on = bool(fte_col)
+
+            def _gap(a, b):
+                return round((a - b) / a * 100, 1) if a else None
+
+            def _c(v):
+                return C["danger"] if (v is not None and abs(v) >= 5) else C["teal"]
+
+            raw_mean = _gap(gm[_basis].mean(), gf[_basis].mean())
+            raw_med = _gap(gm[_basis].median(), gf[_basis].median())
             compa_gap = round((gm["Compa-ratio"].mean() - gf["Compa-ratio"].mean()) * 100, 1)
+            _xnote = f", X/other n={n_x} excluded" if n_x else ""
             st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
-                        f'text-transform:uppercase;color:{C["muted"]};margin:14px 0 6px">Gender pay gap</div>',
-                        unsafe_allow_html=True)
-            gcol = C["danger"] if abs(raw_gap) >= 5 else C["teal"]
-            # #1 — adjusted within-role gap: only compares same-role men vs women
-            role_gaps = []; wsum = gsum = 0.0
-            for role, grp in priced.groupby("Matched role"):
-                gmr = grp[grp["Gender"] == "M"]; gfr = grp[grp["Gender"] == "F"]
-                if len(gmr) and len(gfr):
-                    mm, mf = gmr["Actual"].mean(), gfr["Actual"].mean()
-                    gpct = (mm - mf) / mm * 100 if mm else 0
-                    nn = len(gmr) + len(gfr)
-                    role_gaps.append({"Role": role, "M": len(gmr), "F": len(gfr),
-                                      "M mean": round(mm), "F mean": round(mf), "Gap %": round(gpct, 1)})
-                    wsum += nn; gsum += gpct * nn
-            adj = round(gsum / wsum, 1) if wsum else None
+                        f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
+                        f'Gender pay gap &amp; equity reasoning</div>', unsafe_allow_html=True)
             st.markdown(
-                f'<div style="font-size:14px;color:{C["ink"]}">Raw mean gap (M vs F): '
-                f'<b style="color:{gcol}">{raw_gap:+.1f}%</b> &nbsp;·&nbsp; '
-                f'Compa-ratio gap: <b>{compa_gap:+.1f} pts</b>'
-                + (f' &nbsp;·&nbsp; <b>Adjusted (within-role) gap: '
-                   f'<span style="color:{C["danger"] if adj is not None and abs(adj) >= 5 else C["teal"]}">'
-                   f'{adj:+.1f}%</span></b>' if adj is not None else "")
-                + f' &nbsp;<span style="color:{C["muted"]}">(M n={len(gm)}, F n={len(gf)})</span></div>',
+                f'<div style="font-size:14px;color:{C["ink"]}">'
+                f'Mean gap (M vs F): <b style="color:{_c(raw_mean)}">{raw_mean:+.1f}%</b> &nbsp;·&nbsp; '
+                f'Median gap: <b style="color:{_c(raw_med)}">{raw_med:+.1f}%</b> &nbsp;·&nbsp; '
+                f'Compa-ratio gap: <b>{compa_gap:+.1f} pts</b> &nbsp;'
+                f'<span style="color:{C["muted"]}">(M n={len(gm)}, F n={len(gf)}{_xnote})</span></div>',
                 unsafe_allow_html=True)
-            st.caption("Raw gap is unadjusted; compa-ratio and within-role gaps control for role/level "
-                       "differences (the within-role gap isolates same-role pay differences). Small samples are indicative only.")
-            # ── total-pay gap (EU Pay Transparency Directive basis) ──────────
-            if has_variable and "Total pay" in priced.columns:
-                tot_m, tot_f = gm["Total pay"].mean(), gf["Total pay"].mean()
-                if tot_m:
-                    tot_gap = round((tot_m - tot_f) / tot_m * 100, 1)
-                    tcol = C["danger"] if abs(tot_gap) >= 5 else C["teal"]
-                    _delta = tot_gap - raw_gap
+            st.caption("Positive = men paid more. Mean and median are both shown, as the Directive requires "
+                       "(median is less distorted by a few high earners). " +
+                       ("Salaries are compared full-time-equivalent (base ÷ FTE)." if _fte_on else
+                        "⚠ No FTE column supplied — part-time pay is NOT normalised; in the Dutch context "
+                        "(high, strongly gendered part-time rates) this tends to overstate the gap."))
+            # total-pay gap (mean + median) + who actually receives variable pay
+            if has_variable:
+                _tb = ("Total pay FT" if "Total pay FT" in priced.columns
+                       else ("Total pay" if "Total pay" in priced.columns else None))
+                if _tb:
+                    tp_mean = _gap(gm[_tb].mean(), gf[_tb].mean())
+                    tp_med = _gap(gm[_tb].median(), gf[_tb].median())
+                    _d = (tp_mean - raw_mean) if (tp_mean is not None and raw_mean is not None) else 0.0
+                    _w = "widens" if _d > 0 else "narrows" if _d < 0 else "does not change"
                     st.markdown(
                         f'<div style="font-size:14px;color:{C["ink"]};margin-top:4px">'
                         f'Total-pay gap (base + bonus + allowances + LTI): '
-                        f'<b style="color:{tcol}">{tot_gap:+.1f}%</b>'
-                        f' &nbsp;<span style="color:{C["muted"]}">'
-                        f'({_delta:+.1f} pts vs base — variable pay '
-                        f'{"widens" if _delta > 0 else "narrows" if _delta < 0 else "does not change"} the gap)</span></div>',
-                        unsafe_allow_html=True)
-                    st.caption("The EU Pay Transparency Directive reports the gender pay gap on **total pay** — "
-                               "base plus all variable and complementary components — which is where gaps often hide.")
+                        f'mean <b style="color:{_c(tp_mean)}">{tp_mean:+.1f}%</b> &nbsp;·&nbsp; '
+                        f'median <b style="color:{_c(tp_med)}">{tp_med:+.1f}%</b> &nbsp;'
+                        f'<span style="color:{C["muted"]}">({_d:+.1f} pts vs base — variable pay {_w} the gap)</span>'
+                        f'</div>', unsafe_allow_html=True)
+                _var = (priced["Bonus"].fillna(0) + priced["Allowances"].fillna(0) + priced["LTI"].fillna(0)) > 0
+                pm = round(100 * _var[priced["Gender"] == "M"].mean()) if len(gm) else 0
+                pf = round(100 * _var[priced["Gender"] == "F"].mean()) if len(gf) else 0
+                st.caption(f"Receiving any variable pay — men {pm}% · women {pf}% "
+                           "(the Directive also reports who receives variable components, not only their size).")
+
+            # per-category gaps — the 5% trigger is per category of equal / equal-value work, not org-wide
+            def _cat_gaps(keycol, label):
+                out = []
+                for key, grp in priced.groupby(keycol):
+                    a = grp[grp["Gender"] == "M"]; b = grp[grp["Gender"] == "F"]
+                    if len(a) and len(b):
+                        g = _gap(a[_basis].mean(), b[_basis].mean())
+                        out.append({label: key, "M": len(a), "F": len(b),
+                                    "M mean": round(a[_basis].mean()), "F mean": round(b[_basis].mean()),
+                                    "Gap %": g, "≥5%?": "⚠ yes" if (g is not None and abs(g) >= 5) else "no"})
+                return out
+
+            role_gaps = _cat_gaps("Matched role", "Role (equal work)")
+            grade_gaps = (_cat_gaps("Grade", "Grade (equal value)")
+                          if "Grade" in priced.columns and priced["Grade"].notna().any() else [])
+            n_breach = sum(1 for x in role_gaps if str(x["≥5%?"]).startswith("⚠"))
+
+            _reason = [f"Overall median gap {raw_med:+.1f}% (mean {raw_mean:+.1f}%)."]
             if role_gaps:
-                with st.expander(f"Per-role gender gap ({len(role_gaps)} roles with both M and F)"):
+                _bcol = C["danger"] if n_breach else C["teal"]
+                _reason.append(f'<b style="color:{_bcol}">{n_breach} of {len(role_gaps)}</b> role categories '
+                               f'(with both men and women) show a gap of 5% or more.')
+            else:
+                _reason.append("No role category has both men and women yet — add more rows for category-level testing.")
+            _reason.append('Under the Directive a gap of ≥5% <b>within a category of equal or equal-value work</b> '
+                           'triggers a <b>joint pay assessment</b> — but only if it is <b>not justified</b> by '
+                           'objective, gender-neutral criteria and <b>not remedied within 6 months</b>. '
+                           'A high org-wide gap on its own is context, not a breach.')
+            _rcol = C["danger"] if n_breach else C["teal"]
+            st.markdown(
+                f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
+                f'border-left:3px solid {_rcol};border-radius:10px;padding:13px 15px;margin:12px 0;'
+                f'font-size:13.5px;color:{C["ink"]};line-height:1.55">'
+                f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.1em;text-transform:uppercase;'
+                f'color:{C["muted"]};margin-bottom:6px">Equity reasoning</div>' + " ".join(_reason) + '</div>',
+                unsafe_allow_html=True)
+
+            if role_gaps:
+                with st.expander(f"Per-role gap — equal work ({len(role_gaps)} categories with M and F)"):
                     st.dataframe(_pd.DataFrame(role_gaps), use_container_width=True, hide_index=True)
+            if grade_gaps:
+                with st.expander(f"Per-grade gap — equal value ({len(grade_gaps)} grades with M and F)"):
+                    st.caption("Groups different roles of the same grade — approximates 'work of equal value'.")
+                    st.dataframe(_pd.DataFrame(grade_gaps), use_container_width=True, hide_index=True)
+
+            # pay quartiles by gender (Directive Art. 9 reporting metric)
+            try:
+                _q = _pd.qcut(priced[_basis], 4, labels=["Q1 lowest", "Q2", "Q3", "Q4 highest"], duplicates="drop")
+                _qt = _pd.crosstab(_q, priced["Gender"])
+                for _g in ("M", "F"):
+                    if _g not in _qt.columns:
+                        _qt[_g] = 0
+                _tot = _qt.sum(axis=1)
+                _qt["% women"] = (100 * _qt["F"] / _tot).fillna(0).round().astype(int)
+                with st.expander("Gender split across pay quartiles"):
+                    st.caption("The Directive reports the share of women and men in each quartile pay band. "
+                               "Few women in Q4 (or many in Q1) points to vertical segregation behind the gap.")
+                    st.dataframe(_qt.reset_index().rename(columns={_basis: "Quartile"}),
+                                 use_container_width=True, hide_index=True)
+            except Exception:
+                pass
 
     # ── workforce cost & remediation scenario (#4) ──────────────────────
     if len(priced):
@@ -1954,8 +2039,8 @@ def pay_equity_page(catalog, service):
     def _row_style(row):
         c = STATUS_COLOR.get(row["Status"], "#8A93A5")
         return [f"color:{c};font-weight:600" if col == "Status" else "" for col in row.index]
-    show_cols = [c for c in ["Name", "Input title", "Matched role", "Level", "Actual",
-                             "Total cash", "Total pay", "Band P50", "Range %", "Compa-ratio", "Status"]
+    show_cols = [c for c in ["Name", "Input title", "Matched role", "Level", "FTE", "Actual", "Actual FT",
+                             "Total cash", "Total pay", "Total pay FT", "Band P50", "Range %", "Compa-ratio", "Status"]
                  if c in res.columns]
     st.dataframe(res[show_cols].style.apply(_row_style, axis=1), use_container_width=True, hide_index=True)
     _xb = _io.BytesIO(); res.to_excel(_xb, index=False)
