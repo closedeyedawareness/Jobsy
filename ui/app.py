@@ -1838,6 +1838,19 @@ def pay_equity_page(catalog, service):
     res = _pd.DataFrame(rows)
     priced = res[res["Compa-ratio"].notna()]
 
+    # coverage / exclusions (transparency — excluded rows silently leave the figures)
+    _total_in = len(df); _parsed = len(res); _matched = len(priced)
+    _unparsed = _total_in - _parsed; _nomatch = _parsed - _matched
+    _excl = []
+    if _nomatch:
+        _excl.append(f"{_nomatch} no role match")
+    if _unparsed:
+        _excl.append(f"{_unparsed} unparsed pay")
+    _covmsg = f"Coverage: {_matched} of {_total_in} uploaded employees are included in the pay analysis"
+    if _excl:
+        _covmsg += " — excluded: " + ", ".join(_excl)
+    st.caption(_covmsg + ". Excluded rows are left out of every figure below.")
+
     # ── headline tiles ──────────────────────────────────────────────────
     avg_compa = round(priced["Compa-ratio"].mean(), 2) if len(priced) else 0
     below = int((res["Status"] == "Below range").sum())
@@ -1933,6 +1946,7 @@ def pay_equity_page(catalog, service):
                            "(the Directive also reports who receives variable components, not only their size).")
 
             # per-category gaps — the 5% trigger is per category of equal / equal-value work, not org-wide
+            SMALL_N = 5
             def _cat_gaps(keycol, label):
                 out = []
                 for key, grp in priced.groupby(keycol):
@@ -1941,25 +1955,33 @@ def pay_equity_page(catalog, service):
                         g = _gap(a[_basis].mean(), b[_basis].mean())
                         out.append({label: key, "M": len(a), "F": len(b),
                                     "M mean": round(a[_basis].mean()), "F mean": round(b[_basis].mean()),
-                                    "Gap %": g, "≥5%?": "⚠ yes" if (g is not None and abs(g) >= 5) else "no"})
+                                    "Gap %": g, "≥5%?": "⚠ yes" if (g is not None and abs(g) >= 5) else "no",
+                                    "Sample": "low n" if min(len(a), len(b)) < SMALL_N else "ok"})
                 return out
 
             role_gaps = _cat_gaps("Matched role", "Role (equal work)")
             grade_gaps = (_cat_gaps("Grade", "Grade (equal value)")
                           if "Grade" in priced.columns and priced["Grade"].notna().any() else [])
-            n_breach = sum(1 for x in role_gaps if str(x["≥5%?"]).startswith("⚠"))
+            _flagged = [x for x in role_gaps if str(x["≥5%?"]).startswith("⚠")]
+            n_breach = len(_flagged)
+            n_breach_robust = sum(1 for x in _flagged if x["Sample"] == "ok")
 
             _reason = [f"Overall median gap {raw_med:+.1f}% (mean {raw_mean:+.1f}%)."]
             if role_gaps:
                 _bcol = C["danger"] if n_breach else C["teal"]
+                _rob = (f" ({n_breach_robust} with a reliable sample of ≥{SMALL_N} per gender, "
+                        f"the rest small-sample)" if n_breach else "")
                 _reason.append(f'<b style="color:{_bcol}">{n_breach} of {len(role_gaps)}</b> role categories '
-                               f'(with both men and women) show a gap of 5% or more.')
+                               f'(with both men and women) show a gap of 5% or more{_rob}.')
             else:
                 _reason.append("No role category has both men and women yet — add more rows for category-level testing.")
             _reason.append('Under the Directive a gap of ≥5% <b>within a category of equal or equal-value work</b> '
                            'triggers a <b>joint pay assessment</b> — but only if it is <b>not justified</b> by '
                            'objective, gender-neutral criteria and <b>not remedied within 6 months</b>. '
                            'A high org-wide gap on its own is context, not a breach.')
+            _reason.append('<b>These gaps are unadjusted</b> — not controlled for tenure, performance, location or '
+                           'working hours, and small categories are noisy. Treat a flag as a prompt to investigate '
+                           'that category, not proof of an unjustified gap.')
             _rcol = C["danger"] if n_breach else C["teal"]
             st.markdown(
                 f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
@@ -1993,6 +2015,16 @@ def pay_equity_page(catalog, service):
                                  use_container_width=True, hide_index=True)
             except Exception:
                 pass
+        else:
+            st.info(f"A Gender column is present, but the gap needs both men and women with matched pay "
+                    f"(currently men n={len(gm)}, women n={len(gf)}). Add the missing group to compute the gender gap.")
+    else:
+        st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                    f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
+                    f'Gender pay gap &amp; equity reasoning</div>', unsafe_allow_html=True)
+        st.info("➕ Add a **Gender** column (M / F) to unlock the gender pay-gap analysis — mean & median "
+                "gaps on base and total pay, per-category testing against the 5% threshold, the pay-quartile "
+                "split and variable-pay coverage.")
 
     # ── workforce cost & remediation scenario (#4) ──────────────────────
     if len(priced):
