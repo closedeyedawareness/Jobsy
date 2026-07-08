@@ -2226,10 +2226,40 @@ def benefits_benchmarking_page(catalog, benefits_svc):
                    "an early step toward bringing Pay and Benefits Benchmarking together in one center.")
 
 
+def _require_password():
+    """Shared-password gate. Set `app_password` in Streamlit Secrets
+    (Settings → Secrets on Streamlit Cloud) or a JOBSY_PASSWORD env var.
+    Fail-closed: if no password is configured, the app stays locked."""
+    import os
+    if st.session_state.get("_auth_ok"):
+        return
+    try:
+        expected = st.secrets.get("app_password", None)
+    except Exception:
+        expected = None
+    if not expected:
+        expected = os.environ.get("JOBSY_PASSWORD")
+    st.markdown("### 🔒 Jobsy")
+    if not expected:
+        st.error("This app is password-protected, but no password is configured yet. "
+                 "Add **app_password** under Settings → Secrets (then Reboot), "
+                 "or set a JOBSY_PASSWORD environment variable for local use.")
+        st.stop()
+    st.caption("Enter the access password to continue.")
+    pw = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Password")
+    if not pw:
+        st.stop()
+    if pw != expected:
+        st.error("Incorrect password."); st.stop()
+    st.session_state["_auth_ok"] = True
+    (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+
+
 def main():
     st.set_page_config(page_title="Jobsy", page_icon="📊",
                        layout="centered", initial_sidebar_state="auto")
     apply_theme()
+    _require_password()
 
     # page navigation
     page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Assessment", "Skill Gap", "Job Family", "Pay Equity", "Benefits Benchmarking", "9-Box Grid", "Architecture Report", "Data Quality", "Organisation", "Organigram"], label_visibility="collapsed")
