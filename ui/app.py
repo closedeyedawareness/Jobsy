@@ -2622,8 +2622,10 @@ def main():
         st.caption("Only **CurrentTitle** is required for matching. **ActualSalary** + **Gender** feed the Pay Equity page from "
                    "this same file; all other columns are optional context, carried through to your results & exports.")
 
+        st.markdown("")
         upload = st.file_uploader("Upload CSV or Excel (.csv, .xls, .xlsx)",
-                                   type=["csv","xls","xlsx"])
+                                   type=["csv","xls","xlsx"],
+                                   key="matching_file_upload")
         if upload:
             try:
                 if upload.name.endswith(".csv"):
