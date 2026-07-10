@@ -91,6 +91,11 @@ LEVEL_C = {
 }
 GMIN, GMAX = 30000, 140000
 
+# ── fonts (centralised in ui/theme.py) ──
+FONT_SERIF = THEME_FONT["serif"]
+FONT_SANS  = THEME_FONT["sans"]
+FONT_MONO  = THEME_FONT["mono"]
+
 # ── font loader (link only — no <style> block) ─────────────────────────────
 
 # ── Learning pathway recommendations per skill category + gap size ─────────
@@ -414,10 +419,6 @@ def load_fonts():
         'family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">',
         unsafe_allow_html=True,
     )
-
-FONT_SERIF = THEME_FONT["serif"]
-FONT_SANS  = THEME_FONT["sans"]
-FONT_MONO  = THEME_FONT["mono"]
 
 # ── sample catalog ─────────────────────────────────────────────────────────
 class _SampleCatalog:
