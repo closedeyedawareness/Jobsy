@@ -1700,6 +1700,94 @@ def data_quality_page(catalog):
         st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None):
+    """
+    Option A — structural gender pay gap straight from a client's leveled grid
+    (Function + Level + Gender + Salary), with no job-title matching or bands.
+    Backed by services.pay_equity_service.analyze_gender_pay_gap.
+    """
+    import pandas as pd
+    try:
+        from services.pay_equity_service import analyze_gender_pay_gap, DIRECTIVE_THRESHOLD_PCT
+    except ImportError:
+        from jobsy.services.pay_equity_service import analyze_gender_pay_gap, DIRECTIVE_THRESHOLD_PCT
+
+    det = [("Function", function_col), ("Level", level_col), ("Gender", gender_col),
+           ("Salary", salary_col), ("FTE", fte_col)]
+    st.caption("Leveled-grid mode · " + " · ".join(f"{lab}: **{c}**" for lab, c in det if c))
+    if not salary_col:
+        st.error("No salary column found — include an annual salary column."); return
+    if not gender_col:
+        st.info("➕ Add a **Gender** column (M / F) to compute the gender pay gap."); return
+
+    r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
+                               gender_col=gender_col, salary_col=salary_col, fte_col=fte_col)
+    if not r.has_gap:
+        st.info(f"Need both men and women with pay to compute a gap (M n={r.n_m}, F n={r.n_f})."); return
+
+    def _col(v):
+        return C["danger"] if (v is not None and abs(v) >= DIRECTIVE_THRESHOLD_PCT) else C["teal"]
+
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:14px 0 6px">'
+                f'Gender pay gap · Function × Level</div>', unsafe_allow_html=True)
+    _xnote = f", other/unknown n={r.n_excluded} excluded" if r.n_excluded else ""
+    st.markdown(
+        f'<div style="font-size:14px;color:{C["ink"]}">'
+        f'Mean gap (M vs F): <b style="color:{_col(r.mean_gap_pct)}">{r.mean_gap_pct:+.1f}%</b> &nbsp;·&nbsp; '
+        f'Median gap: <b style="color:{_col(r.median_gap_pct)}">{r.median_gap_pct:+.1f}%</b> &nbsp;'
+        f'<span style="color:{C["muted"]}">(M n={r.n_m}, F n={r.n_f}{_xnote})</span></div>',
+        unsafe_allow_html=True)
+    st.caption("Positive = men paid more. " + ("Full-time-equivalent (base ÷ FTE)." if r.fte_normalised
+               else "⚠ No FTE column — part-time pay is not pro-rated, which tends to overstate the gap."))
+
+    if r.adjusted_gap_pct is not None:
+        ci = f" (95% CI {r.adjusted_ci[0]:+.1f}…{r.adjusted_ci[1]:+.1f}%)" if r.adjusted_ci else ""
+        sig = ("statistically significant" if r.adjusted_significant
+               else "not statistically significant" if r.adjusted_significant is False else "significance n/a")
+        direction = "less" if (r.adjusted_gap_pct or 0) >= 0 else "more"
+        st.markdown(
+            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
+            f'border-left:3px solid {_col(r.adjusted_gap_pct)};border-radius:10px;padding:12px 14px;'
+            f'margin:10px 0;font-size:13.5px;color:{C["ink"]};line-height:1.55">'
+            f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.1em;text-transform:uppercase;'
+            f'color:{C["muted"]};margin-bottom:4px">Adjusted — like-for-like</div>'
+            f'At the <b>same function and level</b>, women earn '
+            f'<b style="color:{_col(r.adjusted_gap_pct)}">{abs(r.adjusted_gap_pct):.1f}%</b> {direction} than men'
+            f'{ci} — {sig}. The residual "unexplained" gap after controlling for function and level.</div>',
+            unsafe_allow_html=True)
+
+    if r.n_cohorts_tested:
+        bcol = C["danger"] if r.n_cohorts_flagged else C["teal"]
+        st.markdown(
+            f'<div style="font-size:13.5px;color:{C["ink"]};margin:6px 0 4px">'
+            f'<b style="color:{bcol}">{r.n_cohorts_flagged} of {r.n_cohorts_tested}</b> Function×Level cohorts '
+            f'(with both men and women) show a gap ≥ {DIRECTIVE_THRESHOLD_PCT:.0f}% '
+            f'({r.n_cohorts_flagged_reliable} with a reliable ≥{5}-per-gender sample). Under the EU Directive a '
+            f'≥5% gap within a category of equal-value work triggers a joint pay assessment unless justified by '
+            f'objective, gender-neutral criteria.</div>', unsafe_allow_html=True)
+
+    if r.cohorts:
+        tbl = pd.DataFrame([{
+            "Function": c.function, "Level": c.level, "M": c.n_m, "F": c.n_f,
+            "M median": c.median_m, "F median": c.median_f, "Gap %": c.mean_gap_pct,
+            "≥5%?": "⚠ yes" if c.flagged else "no", "Sample": "ok" if c.reliable else "low n",
+        } for c in r.cohorts])
+        with st.expander(f"Per Function × Level cohort ({len(r.cohorts)} with both men and women)"):
+            st.dataframe(tbl, use_container_width=True, hide_index=True)
+
+    with st.expander("Representation — share of women by level and by function"):
+        st.caption("A headline gap is usually driven as much by where women sit as by unequal pay within a cohort.")
+        cA, cB = st.columns(2)
+        cA.dataframe(pd.DataFrame([{"Level": k, "% women": v} for k, v in r.women_by_level.items()]),
+                     use_container_width=True, hide_index=True)
+        cB.dataframe(pd.DataFrame([{"Function": k, "% women": v} for k, v in r.women_by_function.items()]),
+                     use_container_width=True, hide_index=True)
+
+    for note in r.notes:
+        st.caption("· " + note)
+
+
 def pay_equity_page(catalog, service):
     """Compa-ratio & pay-position analysis vs the role bands (EU pay transparency)."""
     import pandas as _pd, io as _io, re as _re
@@ -1751,6 +1839,31 @@ def pay_equity_page(catalog, service):
         st.warning("No usable data."); return
 
     cols = list(df.columns)
+    # ── Option A: leveled-grid path — client already provides Function + Level ──
+    # If both are present we can run the band-free structural gender pay gap
+    # directly (no job-title matching needed). Offer it as the primary mode.
+    _fun_col = _smart_detect(cols, {"function", "functie", "jobfamily", "job family", "family",
+                                    "functiefamilie", "discipline", "vakgebied"},
+                             ["function", "functie", "family", "discipline"])
+    _lvl_col = _smart_detect(cols, {"level", "niveau", "grade", "joblevel", "job level", "career level",
+                                    "functieniveau", "schaal", "salarisschaal"},
+                             ["level", "niveau", "grade", "schaal"])
+    if _fun_col and _lvl_col:
+        _mode = st.radio(
+            "This file is already leveled (Function + Level detected) — how should Pay Equity read it?",
+            ["Structural gender pay gap on Function × Level — no job titles or bands needed",
+             "Match job titles to salary bands (compa-ratio)"],
+            key="pe_mode",
+        )
+        if _mode.startswith("Structural"):
+            _lg_gender = _smart_detect(cols, {"gender", "geslacht", "sex", "m/v", "m/f"},
+                                       ["gender", "geslacht", "sex"])
+            _lg_fte = _smart_detect(cols, {"fte", "parttime", "part-time", "part time", "werkuren", "deeltijd",
+                                           "contract hours", "hours", "parttimefactor", "deeltijdfactor"},
+                                    ["fte", "parttime", "deeltijd"])
+            _render_leveled_gap(df, function_col=_fun_col, level_col=_lvl_col, gender_col=_lg_gender,
+                                salary_col=_smart_detect(cols, _salkeys, _salcont), fte_col=_lg_fte)
+            return
     title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",
                                      "functie", "functietitel", "role"}, ["title", "functie", "role"]) or cols[0]
     sal_col = _smart_detect(cols, _salkeys, _salcont)
