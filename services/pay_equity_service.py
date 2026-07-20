@@ -40,6 +40,25 @@ SMALL_N = 5
 DIRECTIVE_THRESHOLD_PCT = 5.0
 
 
+def flip_gap_sign(value: float | None) -> float | None:
+    """
+    Every gap_pct in this module is "positive = men paid more" (male_value
+    is the denominator). The NL wetsvoorstel's own definition of *loonkloof*
+    is the mirror image -- (vrouw - man) / man, i.e. positive = women paid
+    more -- so any UI or export reporting against that definition needs this
+    flip. Same magnitude, opposite sign; never call this twice on one value.
+    """
+    return None if value is None else round(-value, 1)
+
+
+def flip_gap_ci(ci: tuple[float, float] | None) -> tuple[float, float] | None:
+    """flip_gap_sign for a (low, high) CI -- negating also swaps which bound is low."""
+    if ci is None:
+        return None
+    lo, hi = ci
+    return flip_gap_sign(hi), flip_gap_sign(lo)
+
+
 def _gap_pct(male_value: float, female_value: float) -> float | None:
     """Gap as a % of men's pay. Positive = men paid more."""
     if not male_value:
