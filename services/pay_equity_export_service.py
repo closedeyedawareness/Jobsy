@@ -18,6 +18,12 @@ Workbook layout:
 
 The export is a static snapshot of one analysis run, so it holds values rather
 than formulas.
+
+Sign convention: PayGapResult itself reports gaps as "positive = men paid
+more" (matches what the live Jobsy UI shows). This export instead reports
+"positive = women paid more" -- (vrouw - man) / man -- to match the NL
+wetsvoorstel's own definition of "loonkloof", since that's the wording this
+report gets checked against. Same magnitude, opposite sign; see _flip_sign.
 """
 
 from __future__ import annotations
@@ -36,12 +42,26 @@ __all__ = ["PayEquityExportService"]
 _GAP_PCT_FMT = '+0.0"%";-0.0"%"'  # values are already 0-100 scale, not 0-1 -- no native '%' format
 
 
+def _flip_sign(value: float | None) -> float | None:
+    """PayGapResult's 'positive = men paid more' -> this report's
+    'positive = women paid more', per the wetsvoorstel's (vrouw-man)/man."""
+    return None if value is None else round(-value, 1)
+
+
+def _flip_ci(ci: tuple[float, float] | None) -> tuple[float | None, float | None]:
+    """Negating an interval also reverses which bound is the low one."""
+    if ci is None:
+        return None, None
+    lo, hi = ci
+    return _flip_sign(hi), _flip_sign(lo)
+
+
 class PayEquityExportService:
     """Renders a PayGapResult to a styled workbook."""
 
     # ------------------------------------------------------------- dataframes
     def summary_to_dataframe(self, r: PayGapResult) -> pd.DataFrame:
-        ci_lo, ci_hi = r.adjusted_ci if r.adjusted_ci else (None, None)
+        ci_lo, ci_hi = _flip_ci(r.adjusted_ci)
         rows = [
             ("Employees in scope", r.n),
             ("Men (M)", r.n_m),
@@ -49,10 +69,12 @@ class PayEquityExportService:
             ("Excluded (non-binary / unknown gender)", r.n_excluded),
             ("FTE-normalised", "Yes" if r.fte_normalised else "No"),
             (None, None),
-            ("Mean gap % — unadjusted (+ = men paid more)", r.mean_gap_pct),
-            ("Median gap % — unadjusted", r.median_gap_pct),
+            ("Mean gap % — unadjusted (+ = women paid more, per wetsvoorstel (vrouw-man)/man)",
+             _flip_sign(r.mean_gap_pct)),
+            ("Median gap % — unadjusted (+ = women paid more)", _flip_sign(r.median_gap_pct)),
             (None, None),
-            ("Adjusted gap % (controls for function + level)", r.adjusted_gap_pct),
+            ("Adjusted gap % (controls for function + level; + = women paid more)",
+             _flip_sign(r.adjusted_gap_pct)),
             ("Adjusted 95% CI — low", ci_lo),
             ("Adjusted 95% CI — high", ci_hi),
             ("Adjusted gap statistically significant",
@@ -61,6 +83,8 @@ class PayEquityExportService:
             ("Cohorts tested (Function x Level, both genders)", r.n_cohorts_tested),
             (f"Cohorts flagged (|gap| >= {DIRECTIVE_THRESHOLD_PCT:.0f}%)", r.n_cohorts_flagged),
             ("  ...of which reliable (n >= 5 each gender)", r.n_cohorts_flagged_reliable),
+            ("Cohorts below the n>=5-per-gender reliability threshold (low-n, indicative only)",
+             sum(1 for c in r.cohorts if not c.reliable)),
             (None, None),
             ("% women overall", r.pct_women_overall),
         ]
@@ -72,7 +96,8 @@ class PayEquityExportService:
             "n Male": c.n_m, "n Female": c.n_f,
             "Mean M": c.mean_m, "Mean F": c.mean_f,
             "Median M": c.median_m, "Median F": c.median_f,
-            "Mean gap %": c.mean_gap_pct, "Median gap %": c.median_gap_pct,
+            "Mean gap % (+ = women paid more)": _flip_sign(c.mean_gap_pct),
+            "Median gap % (+ = women paid more)": _flip_sign(c.median_gap_pct),
             f"Flagged (>= {DIRECTIVE_THRESHOLD_PCT:.0f}%)": "Yes" if c.flagged else "No",
             "Reliable (n>=5 each)": "Yes" if c.reliable else "No",
         } for c in r.cohorts]
@@ -85,7 +110,11 @@ class PayEquityExportService:
         return pd.DataFrame(rows, columns=[label, "% women"])
 
     def notes_to_dataframe(self, r: PayGapResult) -> pd.DataFrame:
-        return pd.DataFrame({"Notes": list(r.notes)})
+        sign_note = ("Sign convention: figures in this report are (vrouw - man) / man, i.e. "
+                     "positive = women paid more -- matching the NL wetsvoorstel's definition of "
+                     "'loonkloof'. The live Jobsy screen instead shows (man - vrouw) / man "
+                     "(positive = men paid more); same magnitude, opposite sign.")
+        return pd.DataFrame({"Notes": [sign_note, *r.notes]})
 
     # --------------------------------------------------------------- exporters
     def to_workbook_bytes(self, result: PayGapResult) -> bytes:

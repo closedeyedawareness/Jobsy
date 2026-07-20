@@ -46,14 +46,42 @@ def test_workbook_has_expected_sheets():
 
 
 def test_summary_sheet_carries_headline_numbers():
+    # Women earn 0.90x men's pay -> PayGapResult.mean_gap_pct (men-paid-more
+    # convention) is positive ~10%; the export flips sign to the wetsvoorstel's
+    # (vrouw-man)/man convention, so the exported value should be negative.
     r = _analyze(_grid(0.90))
     data = PayEquityExportService().to_workbook_bytes(r)
     sm = _sheets(data)["Summary"]
     metrics = dict(zip(sm["Metric"], sm["Value"]))
     assert metrics["Men (M)"] == r.n_m
     assert metrics["Women (F)"] == r.n_f
-    assert metrics["Mean gap % — unadjusted (+ = men paid more)"] == pytest.approx(r.mean_gap_pct)
-    assert metrics["Adjusted gap % (controls for function + level)"] == pytest.approx(r.adjusted_gap_pct)
+    assert r.mean_gap_pct > 0  # sanity: source result uses the other sign
+    assert metrics["Mean gap % — unadjusted (+ = women paid more, per wetsvoorstel (vrouw-man)/man)"] \
+        == pytest.approx(-r.mean_gap_pct)
+    assert metrics["Median gap % — unadjusted (+ = women paid more)"] == pytest.approx(-r.median_gap_pct)
+    assert metrics["Adjusted gap % (controls for function + level; + = women paid more)"] \
+        == pytest.approx(-r.adjusted_gap_pct)
+
+
+def test_adjusted_ci_is_flipped_and_reordered():
+    r = _analyze(_grid(0.90))
+    assert r.adjusted_ci is not None and r.adjusted_ci[0] < r.adjusted_ci[1]
+    data = PayEquityExportService().to_workbook_bytes(r)
+    sm = _sheets(data)["Summary"]
+    metrics = dict(zip(sm["Metric"], sm["Value"]))
+    lo, hi = metrics["Adjusted 95% CI — low"], metrics["Adjusted 95% CI — high"]
+    assert lo < hi
+    assert lo == pytest.approx(-r.adjusted_ci[1])
+    assert hi == pytest.approx(-r.adjusted_ci[0])
+
+
+def test_low_n_cohort_count_in_summary():
+    r = _analyze(_grid(0.90))
+    data = PayEquityExportService().to_workbook_bytes(r)
+    sm = _sheets(data)["Summary"]
+    metrics = dict(zip(sm["Metric"], sm["Value"]))
+    expected = sum(1 for c in r.cohorts if not c.reliable)
+    assert metrics["Cohorts below the n>=5-per-gender reliability threshold (low-n, indicative only)"] == expected
 
 
 def test_cohorts_sheet_matches_result_cohorts():
@@ -63,6 +91,10 @@ def test_cohorts_sheet_matches_result_cohorts():
     assert len(tbl) == len(r.cohorts) == r.n_cohorts_tested
     assert set(tbl["Function"]) == {"B", "P"}
     assert (tbl["Flagged (>= 5%)"] == "Yes").all()  # every cohort has a 10% gap in this fixture
+    # every cohort in this fixture has men paid more -> exported (women-paid-more) sign is negative
+    assert (tbl["Mean gap % (+ = women paid more)"] < 0).all()
+    for c, exported in zip(r.cohorts, tbl["Mean gap % (+ = women paid more)"]):
+        assert exported == pytest.approx(-c.mean_gap_pct)
 
 
 def test_representation_sheet_has_both_tables():
@@ -83,8 +115,10 @@ def test_representation_sheet_has_both_tables():
 def test_notes_sheet_roundtrip():
     r = _analyze(_grid(0.90))
     data = PayEquityExportService().to_workbook_bytes(r)
-    notes = _sheets(data)["Notes"]
-    assert list(notes["Notes"]) == r.notes
+    notes = list(_sheets(data)["Notes"]["Notes"])
+    # the export prepends a sign-convention disclaimer ahead of the analysis's own notes
+    assert notes[1:] == r.notes
+    assert "wetsvoorstel" in notes[0] and "vrouw" in notes[0]
 
 
 def test_export_handles_a_result_with_no_reliable_cohorts():
