@@ -1787,6 +1787,18 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     for note in r.notes:
         st.caption("· " + note)
 
+    try:
+        from services.pay_equity_export_service import PayEquityExportService
+    except ImportError:
+        from jobsy.services.pay_equity_export_service import PayEquityExportService
+    _report_bytes = PayEquityExportService().to_workbook_bytes(r)
+    st.download_button(
+        "⬇ Download pay equity report (.xlsx)",
+        _report_bytes,
+        file_name="jobsy_pay_equity_report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
 
 def pay_equity_page(catalog, service):
     """Compa-ratio & pay-position analysis vs the role bands (EU pay transparency)."""
