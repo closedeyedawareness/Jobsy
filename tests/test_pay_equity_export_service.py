@@ -40,15 +40,18 @@ def _sheets(data: bytes) -> dict:
 
 
 def test_workbook_has_expected_sheets():
+    # "2.0" layout: Notes and Representation are folded onto Summary, not their own tabs.
     r = _analyze(_grid(0.90))
     data = PayEquityExportService().to_workbook_bytes(r)
-    assert set(_sheets(data)) == {"Summary", "Cohorts", "Representation", "Notes"}
+    assert set(_sheets(data)) == {"Summary", "Cohorts"}
 
 
 def test_summary_sheet_carries_headline_numbers():
     # Women earn 0.90x men's pay -> PayGapResult.mean_gap_pct (men-paid-more
     # convention) is positive ~10%; the export flips sign to the wetsvoorstel's
     # (vrouw-man)/man convention, so the exported value should be negative.
+    # Metrics live in columns B/C now (A is a blank left margin); pandas still
+    # finds them by header name regardless, so this reads the same as before.
     r = _analyze(_grid(0.90))
     data = PayEquityExportService().to_workbook_bytes(r)
     sm = _sheets(data)["Summary"]
@@ -97,28 +100,44 @@ def test_cohorts_sheet_matches_result_cohorts():
         assert exported == pytest.approx(-c.mean_gap_pct)
 
 
-def test_representation_sheet_has_both_tables():
+def _find_header_row(ws, col: int, text: str) -> int:
+    return next(row for row in range(1, ws.max_row + 1) if ws.cell(row, col).value == text)
+
+
+def test_representation_tables_are_inline_on_summary():
+    # By-level (I:J) and by-function (K:L) now sit side by side on Summary,
+    # sharing the dashboard header row with Notes and the reliable-cohorts table.
     r = _analyze(_grid(0.90))
     data = PayEquityExportService().to_workbook_bytes(r)
-    # both the level-keyed and function-keyed tables are stacked in one sheet;
-    # read the raw sheet rather than pd.read_excel so the second header survives.
     from openpyxl import load_workbook
-    wb = load_workbook(BytesIO(data))
-    ws = wb["Representation"]
-    values = [[c.value for c in row] for row in ws.iter_rows()]
-    assert values[0] == ["Level", "% women"]
-    n_levels = len(r.women_by_level)
-    # by_level occupies rows 0..n_levels (header + data), then one blank spacer row
-    assert values[n_levels + 2] == ["Function", "% women"]
+    ws = load_workbook(BytesIO(data))["Summary"]
+
+    level_header_row = _find_header_row(ws, 9, "Level")
+    assert ws.cell(level_header_row, 10).value == "% women"
+    by_level = {ws.cell(level_header_row + 1 + i, 9).value: ws.cell(level_header_row + 1 + i, 10).value
+                for i in range(len(r.women_by_level))}
+    assert by_level == r.women_by_level
+
+    function_header_row = _find_header_row(ws, 11, "Function")
+    assert function_header_row == level_header_row  # same shared dashboard header row
+    assert ws.cell(function_header_row, 12).value == "% women"
+    by_function = {ws.cell(function_header_row + 1 + i, 11).value: ws.cell(function_header_row + 1 + i, 12).value
+                   for i in range(len(r.women_by_function))}
+    assert by_function == r.women_by_function
 
 
-def test_notes_sheet_roundtrip():
+def test_notes_are_inline_on_summary():
+    # Notes now live in column B, one per row, below the shared dashboard header.
     r = _analyze(_grid(0.90))
     data = PayEquityExportService().to_workbook_bytes(r)
-    notes = list(_sheets(data)["Notes"]["Notes"])
-    # the export prepends a sign-convention disclaimer ahead of the analysis's own notes
-    assert notes[1:] == r.notes
-    assert "wetsvoorstel" in notes[0] and "vrouw" in notes[0]
+    from openpyxl import load_workbook
+    ws = load_workbook(BytesIO(data))["Summary"]
+
+    header_row = _find_header_row(ws, 2, "Notes")
+    expected = PayEquityExportService().notes_list(r)
+    actual = [ws.cell(header_row + 1 + i, 2).value for i in range(len(expected))]
+    assert actual == expected
+    assert "wetsvoorstel" in actual[0] and "vrouw" in actual[0]
 
 
 def test_export_handles_a_result_with_no_reliable_cohorts():
@@ -151,15 +170,12 @@ def test_reliable_cohorts_minitable_matches_source_means():
     r = _analyze(_grid(0.90))
     data = PayEquityExportService().to_workbook_bytes(r)
     from openpyxl import load_workbook
-    wb = load_workbook(BytesIO(data))
-    ws = wb["Summary"]
-    # locate the mini-table header row written by _add_reliable_chart
-    header_row = next(
-        row for row in range(1, ws.max_row + 1)
-        if ws.cell(row, 1).value == "Function x Level"
-    )
+    ws = load_workbook(BytesIO(data))["Summary"]
+    header_row = _find_header_row(ws, 5, "Function x Level")
+    assert ws.cell(header_row, 6).value == "Mean M"
+    assert ws.cell(header_row, 7).value == "Mean F"
     rows = {
-        ws.cell(r_, 1).value: (ws.cell(r_, 2).value, ws.cell(r_, 3).value)
+        ws.cell(r_, 5).value: (ws.cell(r_, 6).value, ws.cell(r_, 7).value)
         for r_ in range(header_row + 1, header_row + 1 + len(r.cohorts))
     }
     for c in r.cohorts:
@@ -178,8 +194,8 @@ def test_no_chart_when_no_cohort_is_reliable():
     wb = load_workbook(BytesIO(data))
     ws = wb["Summary"]
     assert len(ws._charts) == 0
-    assert any("No cohort has a reliable" in str(row[0].value)
-               for row in ws.iter_rows() if row[0].value)
+    assert any("No cohort has a reliable" in str(cell.value)
+               for row in ws.iter_rows() for cell in row if cell.value)
 
 
 def test_brand_colours_are_applied():
@@ -189,15 +205,15 @@ def test_brand_colours_are_applied():
     wb = load_workbook(BytesIO(data))
 
     sm = wb["Summary"]
-    assert sm["A1"].fill.fgColor.rgb[-6:] == "6F3CFF"  # header = Jobsy primary purple
+    assert sm["B1"].fill.fgColor.rgb[-6:] == "53037F"  # header = Jobsy deep purple
 
     # women earn 10% less in this fixture -> exported mean/median gap is negative
     # and >= the 5% threshold in magnitude, so it should render in the "danger" colour.
     mean_gap_row = next(
         row for row in range(2, sm.max_row + 1)
-        if str(sm.cell(row, 1).value).startswith("Mean gap")
+        if str(sm.cell(row, 2).value).startswith("Mean gap")
     )
-    assert sm.cell(mean_gap_row, 2).font.color.rgb[-6:] == "FF5A7A"
+    assert sm.cell(mean_gap_row, 3).font.color.rgb[-6:] == "FF5A7A"
 
     coh = wb["Cohorts"]
     gap_col = next(

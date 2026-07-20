@@ -11,11 +11,12 @@ Two entry points:
     to_workbook_bytes(result) -> bytes   (for Streamlit download_button)
     write_workbook(result, path) -> Path (to disk)
 
-Workbook layout:
-    Summary         headline mean/median/adjusted gap, representation, notes,
-                     a reliable-cohorts mini-table and a Male-vs-Female bar chart
-    Cohorts         every Function x Level cohort with both men and women
-    Representation  % women by level and by function
+Workbook layout ("2.0" -- consolidated onto one page rather than four tabs,
+per client feedback on the earlier per-sheet version):
+    Summary   headline metrics, notes, a reliable-cohorts mean-pay mini-table
+              feeding a Male-vs-Female bar chart, and both representation
+              tables (by level, by function) -- all on one sheet, side by side
+    Cohorts   every Function x Level cohort with both men and women
 
 The export is a static snapshot of one analysis run, so it holds values rather
 than formulas.
@@ -27,12 +28,11 @@ that's the wording this report gets checked against. The live Jobsy screen
 applies the same flip (see ui/app.py::_render_leveled_gap) so the two never
 disagree; see services.pay_equity_service.flip_gap_sign / flip_gap_ci.
 
-Styling is deliberately on-brand: header fill and chart series use the same
-hex values as ui/theme.py's COLORS (copied here as literals rather than
-imported, so this module -- pure pandas/openpyxl -- never needs streamlit
-importable; keep the two in sync by hand if the Jobsy palette changes), and
-gap values are colour-coded with the same danger/teal threshold logic as
-_render_leveled_gap's on-screen _col().
+Styling is on-brand: header fill is Jobsy's deep purple, and gap values are
+colour-coded with the same danger/teal threshold logic as _render_leveled_gap's
+on-screen _col(). Colours are literal hex here (not imported from ui/theme.py)
+so this module -- pure pandas/openpyxl -- never needs streamlit importable;
+keep the two in sync by hand if the Jobsy palette changes.
 """
 
 from __future__ import annotations
@@ -50,14 +50,16 @@ __all__ = ["PayEquityExportService"]
 
 _GAP_PCT_FMT = '+0.0"%";-0.0"%"'  # values are already 0-100 scale, not 0-1 -- no native '%' format
 
-# Jobsy brand palette (ui/theme.py COLORS) -- hex without the '#', as openpyxl wants it.
-_PURPLE = "6F3CFF"    # primary -- header fill, Male chart series
+# Jobsy brand palette -- hex without the '#', as openpyxl wants it.
+_PURPLE = "53037F"    # header fill (deep purple; darker than ui/theme.py's on-screen primary,
+                       # chosen for print/spreadsheet contrast)
 _PINK = "FF73D0"      # accent -- Female chart series
 _TEAL = "34B5FF"      # secondary -- on-screen "fine" gap colour
 _DANGER = "FF5A7A"    # clay -- on-screen "flagged" gap colour
 _DANGER_SOFT = "FDE3E9"
 _TEAL_SOFT = "E2F2FF"
-_INK = "1A1A2E"
+
+_FONT = "Arial"
 
 
 class PayEquityExportService:
@@ -113,41 +115,29 @@ class PayEquityExportService:
         rows = [{label: k, "% women": v} for k, v in data.items()]
         return pd.DataFrame(rows, columns=[label, "% women"])
 
-    def notes_to_dataframe(self, r: PayGapResult) -> pd.DataFrame:
+    def notes_list(self, r: PayGapResult) -> list[str]:
         sign_note = ("Sign convention: figures in this report are (vrouw - man) / man, i.e. "
                      "positive = women paid more -- matching the NL wetsvoorstel's definition of "
                      "'loonkloof'. The live Jobsy screen uses the same convention.")
-        return pd.DataFrame({"Notes": [sign_note, *r.notes]})
+        return [sign_note, *r.notes]
 
     # --------------------------------------------------------------- exporters
     def to_workbook_bytes(self, result: PayGapResult) -> bytes:
         summary = self.summary_to_dataframe(result)
         cohorts = self.cohorts_to_dataframe(result)
-        by_level = self.representation_to_dataframe(result, "level")
-        by_function = self.representation_to_dataframe(result, "function")
-        notes = self.notes_to_dataframe(result)
 
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            summary.to_excel(writer, sheet_name="Summary", index=False)
+            # startcol=1 leaves column A as a narrow left margin, matching the rest of the sheet
+            summary.to_excel(writer, sheet_name="Summary", index=False, startcol=1)
             if not cohorts.empty:
                 cohorts.to_excel(writer, sheet_name="Cohorts", index=False)
-            rep_split_row = None
-            if not by_level.empty or not by_function.empty:
-                by_level.to_excel(writer, sheet_name="Representation", index=False, startrow=0)
-                rep_split_row = len(by_level) + 2  # 0-indexed row the second table's header lands on
-                by_function.to_excel(writer, sheet_name="Representation", index=False, startrow=rep_split_row)
-            if not notes.empty:
-                notes.to_excel(writer, sheet_name="Notes", index=False)
             try:
-                self._format_summary_sheet(writer.sheets["Summary"])
-                self._add_reliable_chart(writer.sheets["Summary"], result, start_row=len(summary) + 3)
+                ws = writer.sheets["Summary"]
+                self._format_summary_metrics(ws, len(summary))
+                self._add_dashboard_section(ws, result, dashboard_row=len(summary) + 4)
                 if not cohorts.empty:
                     self._format_data_sheet(writer.sheets["Cohorts"], cohorts)
-                if "Representation" in writer.sheets:
-                    self._format_representation_sheet(writer.sheets["Representation"], rep_split_row)
-                if "Notes" in writer.sheets:
-                    self._format_data_sheet(writer.sheets["Notes"], notes)
             except Exception as exc:  # formatting must never break the export
                 logger.warning("Pay-equity workbook formatting skipped: %s", exc)
 
@@ -172,78 +162,114 @@ class PayEquityExportService:
             return _TEAL
         return _DANGER if abs(value) >= DIRECTIVE_THRESHOLD_PCT else _TEAL
 
-    def _header_row_style(self, ws, row: int = 1):
+    def _style_header_cells(self, cells) -> None:
         from openpyxl.styles import Alignment, Font, PatternFill
-        header_font = Font(name="Arial", bold=True, color="FFFFFF")
-        header_fill = PatternFill("solid", fgColor=_PURPLE)
+        font = Font(name=_FONT, bold=True, color="FFFFFF")
+        fill = PatternFill("solid", fgColor=_PURPLE)
         center = Alignment(horizontal="center", vertical="center")
-        for cell in ws[row]:
-            cell.font = header_font
-            cell.fill = header_fill
+        for cell in cells:
+            cell.font = font
+            cell.fill = fill
             cell.alignment = center
 
-    def _format_summary_sheet(self, ws) -> None:
+    def _header_row_style(self, ws, row: int = 1):
+        self._style_header_cells(ws[row])
+
+    def _format_summary_metrics(self, ws, n_metric_rows: int) -> None:
+        """Metrics live in columns B (Metric) / C (Value); column A is a left margin."""
         from openpyxl.styles import Font
-        self._header_row_style(ws)
+        self._style_header_cells((ws.cell(1, 2), ws.cell(1, 3)))
         ws.freeze_panes = "A2"
-        ws.column_dimensions["A"].width = 48
-        ws.column_dimensions["B"].width = 16
-        bold = Font(name="Arial", bold=True)
-        for row in range(2, ws.max_row + 1):
-            label_cell = ws.cell(row=row, column=1)
+        ws.column_dimensions["A"].width = 4.5
+        ws.column_dimensions["B"].width = 70
+        ws.column_dimensions["C"].width = 16
+        for row in range(2, n_metric_rows + 2):
+            label_cell = ws.cell(row=row, column=2)
             label = label_cell.value
             if label is None:
                 continue
-            value_cell = ws.cell(row=row, column=2)
+            value_cell = ws.cell(row=row, column=3)
             if "gap %" in str(label).lower() or "% women" in str(label).lower():
                 value_cell.number_format = _GAP_PCT_FMT
             if str(label).startswith(("Mean gap", "Median gap", "Adjusted gap %")):
-                colour = self._gap_color(value_cell.value)
-                label_cell.font = Font(name="Arial", bold=True)
-                value_cell.font = Font(name="Arial", bold=True, color=colour)
+                value_cell.font = Font(name=_FONT, bold=True, color=self._gap_color(value_cell.value))
 
-    def _add_reliable_chart(self, ws, r: PayGapResult, start_row: int) -> None:
-        """A small Function-x-Level table (reliable cohorts only, n>=5 each gender)
-        feeding a clustered Male-vs-Female bar chart, in Jobsy's brand colours."""
-        from openpyxl.chart import BarChart, Reference
-        from openpyxl.styles import Font, PatternFill
+    def _add_dashboard_section(self, ws, r: PayGapResult, dashboard_row: int) -> None:
+        """Below the metrics: a title row, then one shared header row for four
+        side-by-side blocks -- Notes (B), reliable-cohorts mean-pay mini-table
+        feeding a bar chart (E:G), representation by level (I:J), representation
+        by function (K:L) -- each sized to its own content."""
+        from openpyxl.styles import Font
+
+        title_cell = ws.cell(dashboard_row, 2, "Reliable cohorts — mean pay by gender (n>=5 each)")
+        title_cell.font = Font(name=_FONT, bold=True)
+
+        header_row = dashboard_row + 1
+        data_row = header_row + 1
+
+        headers = {2: "Notes", 5: "Function x Level", 6: "Mean M", 7: "Mean F",
+                   9: "Level", 10: "% women", 11: "Function", 12: "% women"}
+        for col, label in headers.items():
+            ws.cell(header_row, col, label)
+        self._style_header_cells([ws.cell(header_row, col) for col in headers])
+
+        notes = self.notes_list(r)
+        for i, note in enumerate(notes):
+            ws.cell(data_row + i, 2, note)
 
         reliable = [c for c in r.cohorts if c.reliable]
-        if not reliable:
-            ws.cell(start_row, 1, "No cohort has a reliable (n>=5 each gender) sample -- no chart to show.")
-            ws.cell(start_row, 1).font = Font(name="Arial", italic=True, color="6B7684")
-            return
+        if reliable:
+            for i, c in enumerate(reliable):
+                row = data_row + i
+                ws.cell(row, 5, f"{c.function}-{c.level}")
+                ws.cell(row, 6, c.mean_m).number_format = "#,##0"
+                ws.cell(row, 7, c.mean_f).number_format = "#,##0"
+            self._add_reliable_chart(ws, header_row=header_row, n_reliable=len(reliable))
+        else:
+            note_cell = ws.cell(data_row, 5, "No cohort has a reliable (n>=5 each gender) sample -- no chart to show.")
+            note_cell.font = Font(name=_FONT, italic=True, color="6B7684")
 
-        ws.cell(start_row, 1, "Reliable cohorts — mean pay by gender (n>=5 each)")
-        ws.cell(start_row, 1).font = Font(name="Arial", bold=True)
+        by_level = self.representation_to_dataframe(r, "level")
+        for i, row in enumerate(by_level.itertuples(index=False)):
+            ws.cell(data_row + i, 9, row[0])
+            ws.cell(data_row + i, 10, row[1])
 
-        hdr_row = start_row + 1
-        for col, label in enumerate(["Function x Level", "Mean M", "Mean F"], start=1):
-            cell = ws.cell(hdr_row, col, label)
-            cell.font = Font(name="Arial", bold=True, color="FFFFFF")
-            cell.fill = PatternFill("solid", fgColor=_PURPLE)
+        by_function = self.representation_to_dataframe(r, "function")
+        for i, row in enumerate(by_function.itertuples(index=False)):
+            ws.cell(data_row + i, 11, row[0])
+            ws.cell(data_row + i, 12, row[1])
 
-        for i, c in enumerate(reliable):
-            row = hdr_row + 1 + i
-            ws.cell(row, 1, f"{c.function}-{c.level}")
-            ws.cell(row, 2, c.mean_m).number_format = "#,##0"
-            ws.cell(row, 3, c.mean_f).number_format = "#,##0"
-        last_row = hdr_row + len(reliable)
+        ws.column_dimensions["D"].width = 3.5
+        ws.column_dimensions["E"].width = 15
+        ws.column_dimensions["F"].width = 14
+        ws.column_dimensions["G"].width = 14
+        ws.column_dimensions["H"].width = 3.5
+        ws.column_dimensions["I"].width = 9
+        ws.column_dimensions["J"].width = 10
+        ws.column_dimensions["K"].width = 10
+        ws.column_dimensions["L"].width = 10
 
+    def _add_reliable_chart(self, ws, *, header_row: int, n_reliable: int) -> None:
+        """Clustered Male-vs-Female bar chart, sourced from the mini-table this
+        method assumes is already written at columns E:G starting at header_row,
+        anchored near the top of the sheet beside the headline metrics."""
+        from openpyxl.chart import BarChart, Reference
+
+        last_row = header_row + n_reliable
         chart = BarChart()
         chart.type = "col"
         chart.grouping = "clustered"
         chart.title = "Mean pay by cohort, Male vs Female (reliable cohorts only)"
         chart.y_axis.title = "Salary"
         chart.x_axis.title = "Function x Level"
-        chart.height, chart.width = 8, 16
-        cats = Reference(ws, min_col=1, min_row=hdr_row + 1, max_row=last_row)
-        data = Reference(ws, min_col=2, max_col=3, min_row=hdr_row, max_row=last_row)
+        chart.height, chart.width = 9, 17
+        cats = Reference(ws, min_col=5, min_row=header_row + 1, max_row=last_row)
+        data = Reference(ws, min_col=6, max_col=7, min_row=header_row, max_row=last_row)
         chart.add_data(data, titles_from_data=True)
         chart.set_categories(cats)
         chart.series[0].graphicalProperties.solidFill = _PURPLE  # Mean M
         chart.series[1].graphicalProperties.solidFill = _PINK    # Mean F
-        ws.add_chart(chart, f"E{start_row}")
+        ws.add_chart(chart, "E2")
 
     def _format_data_sheet(self, ws, df: pd.DataFrame) -> None:
         from openpyxl.styles import Font, PatternFill
@@ -266,17 +292,8 @@ class PayEquityExportService:
                 for row in range(2, ws.max_row + 1):
                     cell = ws.cell(row=row, column=idx)
                     cell.number_format = _GAP_PCT_FMT
-                    cell.font = Font(name="Arial", color=self._gap_color(cell.value))
+                    cell.font = Font(name=_FONT, color=self._gap_color(cell.value))
             elif header_l.startswith("flagged"):
                 for row in range(2, ws.max_row + 1):
                     cell = ws.cell(row=row, column=idx)
                     cell.fill = status_fill.get(cell.value, status_fill["No"])
-
-    def _format_representation_sheet(self, ws, second_header_row: int | None) -> None:
-        self._header_row_style(ws, row=1)
-        ws.column_dimensions["A"].width = 22
-        ws.column_dimensions["B"].width = 12
-        if second_header_row is not None:
-            # startrow is 0-indexed and counts from the top of the sheet; the
-            # openpyxl row housing that header is 1-indexed, hence the +1.
-            self._header_row_style(ws, row=second_header_row + 1)
