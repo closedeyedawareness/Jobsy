@@ -166,6 +166,28 @@ def test_summary_sheet_has_a_reliable_cohorts_chart():
     assert len(chart.series) == 2  # Mean M, Mean F
 
 
+def test_chart_shows_data_labels_bottom_legend_and_is_sized_to_not_overlap():
+    # Matches the client's own template: value labels on each bar, legend
+    # below the plot, and a size (~18 x 10.3cm) small enough that, anchored
+    # near the top of the sheet, it doesn't run down into the dashboard
+    # section (Notes / mini-table / representation) that starts a good deal
+    # further down.
+    r = _analyze(_grid(0.90))
+    data = PayEquityExportService().to_workbook_bytes(r)
+    from openpyxl import load_workbook
+    ws = load_workbook(BytesIO(data))["Summary"]
+    chart = ws._charts[0]
+    assert chart.dataLabels is not None and chart.dataLabels.showVal is True
+    assert chart.legend.position == "b"
+    # height/width aren't round-tripped onto the Chart object on load (they only
+    # drive the anchor's extent at save time) -- read the actual saved size back
+    # off the anchor itself, in EMU (914400 per inch, 360000 per cm).
+    anchor = chart.anchor
+    assert anchor._from.col == 3 and anchor._from.row == 1  # column D, row 2
+    assert anchor.ext.cx / 360000 == pytest.approx(18, abs=0.1)
+    assert anchor.ext.cy / 360000 == pytest.approx(10.3, abs=0.1)
+
+
 def test_reliable_cohorts_minitable_matches_source_means():
     r = _analyze(_grid(0.90))
     data = PayEquityExportService().to_workbook_bytes(r)

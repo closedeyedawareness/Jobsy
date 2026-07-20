@@ -252,8 +252,11 @@ class PayEquityExportService:
     def _add_reliable_chart(self, ws, *, header_row: int, n_reliable: int) -> None:
         """Clustered Male-vs-Female bar chart, sourced from the mini-table this
         method assumes is already written at columns E:G starting at header_row,
-        anchored near the top of the sheet beside the headline metrics."""
+        anchored near the top of the sheet beside the headline metrics. Sized and
+        positioned to match the client's own template (~18 x 10.3cm at D2) so it
+        doesn't run down into the dashboard section below."""
         from openpyxl.chart import BarChart, Reference
+        from openpyxl.chart.label import DataLabelList
 
         last_row = header_row + n_reliable
         chart = BarChart()
@@ -262,14 +265,18 @@ class PayEquityExportService:
         chart.title = "Mean pay by cohort, Male vs Female (reliable cohorts only)"
         chart.y_axis.title = "Salary"
         chart.x_axis.title = "Function x Level"
-        chart.height, chart.width = 9, 17
+        chart.height, chart.width = 10.3, 18
+        chart.legend.position = "b"
         cats = Reference(ws, min_col=5, min_row=header_row + 1, max_row=last_row)
         data = Reference(ws, min_col=6, max_col=7, min_row=header_row, max_row=last_row)
         chart.add_data(data, titles_from_data=True)
         chart.set_categories(cats)
         chart.series[0].graphicalProperties.solidFill = _PURPLE  # Mean M
         chart.series[1].graphicalProperties.solidFill = _PINK    # Mean F
-        ws.add_chart(chart, "E2")
+        chart.dataLabels = DataLabelList()
+        chart.dataLabels.showVal = True
+        chart.dataLabels.numFmt = "#,##0"
+        ws.add_chart(chart, "D2")
 
     def _format_data_sheet(self, ws, df: pd.DataFrame) -> None:
         from openpyxl.styles import Font, PatternFill
