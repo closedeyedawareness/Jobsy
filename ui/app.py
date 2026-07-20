@@ -1708,9 +1708,11 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     """
     import pandas as pd
     try:
-        from services.pay_equity_service import analyze_gender_pay_gap, DIRECTIVE_THRESHOLD_PCT
+        from services.pay_equity_service import (
+            analyze_gender_pay_gap, DIRECTIVE_THRESHOLD_PCT, flip_gap_sign, flip_gap_ci)
     except ImportError:
-        from jobsy.services.pay_equity_service import analyze_gender_pay_gap, DIRECTIVE_THRESHOLD_PCT
+        from jobsy.services.pay_equity_service import (
+            analyze_gender_pay_gap, DIRECTIVE_THRESHOLD_PCT, flip_gap_sign, flip_gap_ci)
 
     det = [("Function", function_col), ("Level", level_col), ("Gender", gender_col),
            ("Salary", salary_col), ("FTE", fte_col)]
@@ -1725,6 +1727,15 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     if not r.has_gap:
         st.info(f"Need both men and women with pay to compute a gap (M n={r.n_m}, F n={r.n_f})."); return
 
+    # Display in the wetsvoorstel's own sign convention -- (vrouw-man)/man, positive
+    # = women paid more -- rather than PayGapResult's internal "men paid more" one,
+    # so this screen always matches the downloaded report (PayEquityExportService
+    # applies the same flip).
+    mean_gap = flip_gap_sign(r.mean_gap_pct)
+    median_gap = flip_gap_sign(r.median_gap_pct)
+    adjusted_gap = flip_gap_sign(r.adjusted_gap_pct)
+    adjusted_ci = flip_gap_ci(r.adjusted_ci)
+
     def _col(v):
         return C["danger"] if (v is not None and abs(v) >= DIRECTIVE_THRESHOLD_PCT) else C["teal"]
 
@@ -1734,26 +1745,27 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     _xnote = f", other/unknown n={r.n_excluded} excluded" if r.n_excluded else ""
     st.markdown(
         f'<div style="font-size:14px;color:{C["ink"]}">'
-        f'Mean gap (M vs F): <b style="color:{_col(r.mean_gap_pct)}">{r.mean_gap_pct:+.1f}%</b> &nbsp;·&nbsp; '
-        f'Median gap: <b style="color:{_col(r.median_gap_pct)}">{r.median_gap_pct:+.1f}%</b> &nbsp;'
+        f'Mean gap (F vs M): <b style="color:{_col(mean_gap)}">{mean_gap:+.1f}%</b> &nbsp;·&nbsp; '
+        f'Median gap: <b style="color:{_col(median_gap)}">{median_gap:+.1f}%</b> &nbsp;'
         f'<span style="color:{C["muted"]}">(M n={r.n_m}, F n={r.n_f}{_xnote})</span></div>',
         unsafe_allow_html=True)
-    st.caption("Positive = men paid more. " + ("Full-time-equivalent (base ÷ FTE)." if r.fte_normalised
+    st.caption("Positive = women paid more (NL wetsvoorstel: (vrouw-man)/man). " +
+               ("Full-time-equivalent (base ÷ FTE)." if r.fte_normalised
                else "⚠ No FTE column — part-time pay is not pro-rated, which tends to overstate the gap."))
 
-    if r.adjusted_gap_pct is not None:
-        ci = f" (95% CI {r.adjusted_ci[0]:+.1f}…{r.adjusted_ci[1]:+.1f}%)" if r.adjusted_ci else ""
+    if adjusted_gap is not None:
+        ci = f" (95% CI {adjusted_ci[0]:+.1f}…{adjusted_ci[1]:+.1f}%)" if adjusted_ci else ""
         sig = ("statistically significant" if r.adjusted_significant
                else "not statistically significant" if r.adjusted_significant is False else "significance n/a")
-        direction = "less" if (r.adjusted_gap_pct or 0) >= 0 else "more"
+        direction = "more" if (adjusted_gap or 0) >= 0 else "less"
         st.markdown(
             f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
-            f'border-left:3px solid {_col(r.adjusted_gap_pct)};border-radius:10px;padding:12px 14px;'
+            f'border-left:3px solid {_col(adjusted_gap)};border-radius:10px;padding:12px 14px;'
             f'margin:10px 0;font-size:13.5px;color:{C["ink"]};line-height:1.55">'
             f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.1em;text-transform:uppercase;'
             f'color:{C["muted"]};margin-bottom:4px">Adjusted — like-for-like</div>'
             f'At the <b>same function and level</b>, women earn '
-            f'<b style="color:{_col(r.adjusted_gap_pct)}">{abs(r.adjusted_gap_pct):.1f}%</b> {direction} than men'
+            f'<b style="color:{_col(adjusted_gap)}">{abs(adjusted_gap):.1f}%</b> {direction} than men'
             f'{ci} — {sig}. The residual "unexplained" gap after controlling for function and level.</div>',
             unsafe_allow_html=True)
 
@@ -1770,7 +1782,7 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     if r.cohorts:
         tbl = pd.DataFrame([{
             "Function": c.function, "Level": c.level, "M": c.n_m, "F": c.n_f,
-            "M median": c.median_m, "F median": c.median_f, "Gap %": c.mean_gap_pct,
+            "M median": c.median_m, "F median": c.median_f, "Gap %": flip_gap_sign(c.mean_gap_pct),
             "≥5%?": "⚠ yes" if c.flagged else "no", "Sample": "ok" if c.reliable else "low n",
         } for c in r.cohorts])
         with st.expander(f"Per Function × Level cohort ({len(r.cohorts)} with both men and women)"):

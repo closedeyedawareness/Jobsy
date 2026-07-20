@@ -8,6 +8,8 @@ import pytest
 from services.pay_equity_service import (
     SMALL_N,
     analyze_gender_pay_gap,
+    flip_gap_sign,
+    flip_gap_ci,
 )
 
 
@@ -117,3 +119,32 @@ def test_gap_needs_both_genders():
     assert r.has_gap is False
     assert r.mean_gap_pct is None
     assert r.adjusted_gap_pct is None
+
+
+def test_flip_gap_sign_negates_and_passes_through_none():
+    assert flip_gap_sign(20.9) == -20.9
+    assert flip_gap_sign(-1.4) == 1.4
+    assert flip_gap_sign(0.0) == 0.0
+    assert flip_gap_sign(None) is None
+
+
+def test_flip_gap_sign_is_its_own_inverse():
+    # values at the function's own 1-decimal precision -- 5.55 would itself get
+    # rounded away by the first flip, which isn't what this test is checking.
+    for v in (20.9, -1.4, 0.0, 5.5):
+        assert flip_gap_sign(flip_gap_sign(v)) == pytest.approx(v)
+
+
+def test_flip_gap_ci_negates_and_reorders():
+    # a men-paid-more-convention CI of (-7.2, 4.1) becomes (-4.1, 7.2)
+    assert flip_gap_ci((-7.2, 4.1)) == (-4.1, 7.2)
+    assert flip_gap_ci(None) is None
+
+
+def test_flip_gap_ci_matches_flip_gap_sign_on_a_real_result():
+    r = _analyze(_grid(0.90))
+    assert r.adjusted_ci is not None
+    lo, hi = flip_gap_ci(r.adjusted_ci)
+    assert lo == flip_gap_sign(r.adjusted_ci[1])
+    assert hi == flip_gap_sign(r.adjusted_ci[0])
+    assert lo < hi
