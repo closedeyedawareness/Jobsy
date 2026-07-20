@@ -134,6 +134,79 @@ def test_export_handles_a_result_with_no_reliable_cohorts():
     assert len(sheets["Cohorts"]) == 1
 
 
+def test_summary_sheet_has_a_reliable_cohorts_chart():
+    # _grid(0.90) with the default per_gender=6 makes all 6 B/P x 1-3 cohorts reliable.
+    r = _analyze(_grid(0.90))
+    assert all(c.reliable for c in r.cohorts) and len(r.cohorts) == 6
+    data = PayEquityExportService().to_workbook_bytes(r)
+    from openpyxl import load_workbook
+    wb = load_workbook(BytesIO(data))
+    ws = wb["Summary"]
+    assert len(ws._charts) == 1
+    chart = ws._charts[0]
+    assert len(chart.series) == 2  # Mean M, Mean F
+
+
+def test_reliable_cohorts_minitable_matches_source_means():
+    r = _analyze(_grid(0.90))
+    data = PayEquityExportService().to_workbook_bytes(r)
+    from openpyxl import load_workbook
+    wb = load_workbook(BytesIO(data))
+    ws = wb["Summary"]
+    # locate the mini-table header row written by _add_reliable_chart
+    header_row = next(
+        row for row in range(1, ws.max_row + 1)
+        if ws.cell(row, 1).value == "Function x Level"
+    )
+    rows = {
+        ws.cell(r_, 1).value: (ws.cell(r_, 2).value, ws.cell(r_, 3).value)
+        for r_ in range(header_row + 1, header_row + 1 + len(r.cohorts))
+    }
+    for c in r.cohorts:
+        assert rows[f"{c.function}-{c.level}"] == (c.mean_m, c.mean_f)
+
+
+def test_no_chart_when_no_cohort_is_reliable():
+    df = pd.DataFrame([
+        {"Function": "B", "Level": "1", "Gender": "M", "Salary": 40000},
+        {"Function": "B", "Level": "1", "Gender": "F", "Salary": 30000},
+    ])
+    r = _analyze(df)
+    assert not any(c.reliable for c in r.cohorts)
+    data = PayEquityExportService().to_workbook_bytes(r)
+    from openpyxl import load_workbook
+    wb = load_workbook(BytesIO(data))
+    ws = wb["Summary"]
+    assert len(ws._charts) == 0
+    assert any("No cohort has a reliable" in str(row[0].value)
+               for row in ws.iter_rows() if row[0].value)
+
+
+def test_brand_colours_are_applied():
+    from openpyxl import load_workbook
+    r = _analyze(_grid(0.90))
+    data = PayEquityExportService().to_workbook_bytes(r)
+    wb = load_workbook(BytesIO(data))
+
+    sm = wb["Summary"]
+    assert sm["A1"].fill.fgColor.rgb[-6:] == "6F3CFF"  # header = Jobsy primary purple
+
+    # women earn 10% less in this fixture -> exported mean/median gap is negative
+    # and >= the 5% threshold in magnitude, so it should render in the "danger" colour.
+    mean_gap_row = next(
+        row for row in range(2, sm.max_row + 1)
+        if str(sm.cell(row, 1).value).startswith("Mean gap")
+    )
+    assert sm.cell(mean_gap_row, 2).font.color.rgb[-6:] == "FF5A7A"
+
+    coh = wb["Cohorts"]
+    gap_col = next(
+        c for c in range(1, coh.max_column + 1)
+        if str(coh.cell(1, c).value).startswith("Mean gap")
+    )
+    assert coh.cell(2, gap_col).font.color.rgb[-6:] == "FF5A7A"
+
+
 def test_write_workbook_to_disk():
     import tempfile
     from pathlib import Path
