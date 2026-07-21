@@ -86,6 +86,14 @@ class PayEquityExportService:
             ("Adjusted gap statistically significant",
              None if r.adjusted_significant is None else ("Yes" if r.adjusted_significant else "No")),
             (None, None),
+            ("Grade-assignment gap, in LEVELS not % (does gender predict the level itself, "
+             "not just pay within it; + = women sit at a higher level)",
+             flip_gap_sign(r.grade_gap_levels)),
+            ("Grade-assignment 95% CI — low", (flip_gap_ci(r.grade_gap_ci) or (None, None))[0]),
+            ("Grade-assignment 95% CI — high", (flip_gap_ci(r.grade_gap_ci) or (None, None))[1]),
+            ("Grade-assignment gap statistically significant",
+             None if r.grade_gap_significant is None else ("Yes" if r.grade_gap_significant else "No")),
+            (None, None),
             ("Cohorts tested (Function x Level, both genders)", r.n_cohorts_tested),
             (f"Cohorts flagged (|gap| >= {DIRECTIVE_THRESHOLD_PCT:.0f}%)", r.n_cohorts_flagged),
             ("  ...of which reliable (n >= 5 each gender)", r.n_cohorts_flagged_reliable),
@@ -134,7 +142,7 @@ class PayEquityExportService:
                 cohorts.to_excel(writer, sheet_name="Cohorts", index=False)
             try:
                 ws = writer.sheets["Summary"]
-                self._format_summary_metrics(ws, len(summary))
+                self._format_summary_metrics(ws, len(summary), result)
                 self._add_dashboard_section(ws, result, dashboard_row=len(summary) + 4)
                 if not cohorts.empty:
                     self._format_data_sheet(writer.sheets["Cohorts"], cohorts)
@@ -175,7 +183,7 @@ class PayEquityExportService:
     def _header_row_style(self, ws, row: int = 1):
         self._style_header_cells(ws[row])
 
-    def _format_summary_metrics(self, ws, n_metric_rows: int) -> None:
+    def _format_summary_metrics(self, ws, n_metric_rows: int, r: PayGapResult | None = None) -> None:
         """Metrics live in columns B (Metric) / C (Value); column A is a left margin."""
         from openpyxl.styles import Font
         self._style_header_cells((ws.cell(1, 2), ws.cell(1, 3)))
@@ -183,6 +191,10 @@ class PayEquityExportService:
         ws.column_dimensions["A"].width = 4.5
         ws.column_dimensions["B"].width = 70
         ws.column_dimensions["C"].width = 16
+        # Grade-assignment gap is in LEVELS, not %, and its own threshold is
+        # statistical significance (not the 5% pct-gap trigger _gap_color uses),
+        # so it gets a distinct colour decision rather than reusing that logic.
+        grade_gap_color = _DANGER if (r is not None and r.grade_gap_significant) else _TEAL
         for row in range(2, n_metric_rows + 2):
             label_cell = ws.cell(row=row, column=2)
             label = label_cell.value
@@ -193,6 +205,9 @@ class PayEquityExportService:
                 value_cell.number_format = _GAP_PCT_FMT
             if str(label).startswith(("Mean gap", "Median gap", "Adjusted gap %")):
                 value_cell.font = Font(name=_FONT, bold=True, color=self._gap_color(value_cell.value))
+            elif str(label).startswith("Grade-assignment gap, in LEVELS"):
+                value_cell.number_format = '+0.00;-0.00'
+                value_cell.font = Font(name=_FONT, bold=True, color=grade_gap_color)
 
     def _add_dashboard_section(self, ws, r: PayGapResult, dashboard_row: int) -> None:
         """Below the metrics: a title row, then one shared header row for four

@@ -264,3 +264,41 @@ def test_write_workbook_to_disk():
     target = Path(tempfile.gettempdir()) / "jobsy_test_pay_equity_out.xlsx"
     path = PayEquityExportService().write_workbook(r, target)
     assert path.exists() and path.stat().st_size > 0
+
+
+def _grade_biased_grid(level_shift: float, per_gender: int = 10) -> pd.DataFrame:
+    """Same fixture as test_pay_equity_service._grade_biased_grid: pay is fair
+    for the level you're at, but women sit `level_shift` levels below an
+    equivalent man in the same function -- the grading itself is skewed."""
+    funcs = ["B", "P", "M", "S"]
+    rows = []
+    for fn in funcs:
+        for i in range(per_gender):
+            base_lv = 3 + (i % 4)
+            rows.append({"Function": fn, "Level": str(base_lv), "Gender": "M",
+                         "Salary": 30000 + 5000 * base_lv})
+            f_lv = base_lv - level_shift
+            rows.append({"Function": fn, "Level": str(f_lv), "Gender": "F",
+                         "Salary": 30000 + 5000 * f_lv})
+    return pd.DataFrame(rows)
+
+
+def test_summary_sheet_carries_the_grade_assignment_gap():
+    r = _analyze(_grade_biased_grid(1.5))
+    assert r.grade_gap_significant is True
+    data = PayEquityExportService().to_workbook_bytes(r)
+    sm = _sheets(data)["Summary"]
+    row = sm[sm["Metric"].astype(str).str.startswith("Grade-assignment gap, in LEVELS", na=False)]
+    assert len(row) == 1
+    # Sign-flipped for the wetsvoorstel convention, like every other gap figure in this export.
+    from services.pay_equity_service import flip_gap_sign
+    assert row.iloc[0]["Value"] == pytest.approx(flip_gap_sign(r.grade_gap_levels), abs=0.01)
+
+    from openpyxl import load_workbook
+    sm_ws = load_workbook(BytesIO(data))["Summary"]
+    gg_row = next(
+        row for row in range(1, sm_ws.max_row + 1)
+        if str(sm_ws.cell(row, 2).value).startswith("Grade-assignment gap, in LEVELS")
+    )
+    # Significant -> coloured as danger, same red used for a flagged pct gap elsewhere in this sheet.
+    assert sm_ws.cell(gg_row, 3).font.color.rgb[-6:] == "FF5A7A"
