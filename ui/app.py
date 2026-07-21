@@ -1849,6 +1849,19 @@ def pay_equity_page(catalog, service):
         f'Below-range pay is flagged.</p>',
         unsafe_allow_html=True,
     )
+    st.markdown(
+        f'<div style="background:{C["surface"]};border:1px solid {C["line"]};border-left:3px solid {C["amber"]};'
+        f'border-radius:10px;padding:12px 14px;margin:0 0 16px;font-size:13px;color:{C["muted"]};line-height:1.55">'
+        f'<b style="color:{C["ink"]}">Where this stands legally right now:</b> Dutch implementing legislation for '
+        f'the Directive is not yet in force — the bill was only submitted to the Tweede Kamer in May 2026, '
+        f'targeted for 1 January 2027 (later than the original June 2026 EU deadline, which the European '
+        f'Commission declined to extend). Once live, the formal reporting duty that starts the Directive\'s '
+        f'6-month remediation clock is phased by employer size: <b>150+ employees</b> first report 7 June 2028 '
+        f'(annually after); <b>100–149</b> first report 7 June 2031 (every 3 years); <b>under 100</b> has no '
+        f'reporting duty under this mechanism at all. Read everything below as getting ahead of the law, not '
+        f'as a live compliance deadline — unless the client is already at 150+ employees.</div>',
+        unsafe_allow_html=True,
+    )
     # template
     tmpl = _pd.DataFrame([
         {"EmployeeID": "E1001", "Name": "Alex de Vries", "JobTitle": "Software Engineer", "ActualSalary": 68000, "Gender": "F"},
@@ -2103,6 +2116,22 @@ def pay_equity_page(catalog, service):
                         f'median <b style="color:{_c(tp_med)}">{tp_med:+.1f}%</b> &nbsp;'
                         f'<span style="color:{C["muted"]}">({_d:+.1f} pts vs base — variable pay {_w} the gap)</span>'
                         f'</div>', unsafe_allow_html=True)
+                # Isolated variable-pay gap (Bonus+Allowances+LTI alone, not folded into
+                # total pay) -- the Directive requires this as its OWN reported metric,
+                # separate from the base gap and the combined total-pay gap above.
+                _varamt_col = "_var_amt"
+                priced[_varamt_col] = priced["Bonus"].fillna(0) + priced["Allowances"].fillna(0) + priced["LTI"].fillna(0)
+                vp_mean = _gap(gm[_varamt_col].mean(), gf[_varamt_col].mean())
+                vp_med = _gap(gm[_varamt_col].median(), gf[_varamt_col].median())
+                if vp_mean is not None:
+                    st.markdown(
+                        f'<div style="font-size:14px;color:{C["ink"]};margin-top:4px">'
+                        f'Variable-pay gap (bonus + allowances + LTI only): '
+                        f'mean <b style="color:{_c(vp_mean)}">{vp_mean:+.1f}%</b> &nbsp;·&nbsp; '
+                        f'median <b style="color:{_c(vp_med)}">{vp_med:+.1f}%</b></div>', unsafe_allow_html=True)
+                    st.caption("Reported on the variable amounts themselves (zero for anyone who receives none), "
+                               "as its own figure — the Directive requires this separately from the base and "
+                               "total-pay gaps above, since a gap can hide entirely inside who gets a bonus and how much.")
                 _var = (priced["Bonus"].fillna(0) + priced["Allowances"].fillna(0) + priced["LTI"].fillna(0)) > 0
                 pm = round(100 * _var[priced["Gender"] == "M"].mean()) if len(gm) else 0
                 pf = round(100 * _var[priced["Gender"] == "F"].mean()) if len(gf) else 0
@@ -2146,6 +2175,14 @@ def pay_equity_page(catalog, service):
             _reason.append('<b>These gaps are unadjusted</b> — not controlled for tenure, performance, location or '
                            'working hours, and small categories are noisy. Treat a flag as a prompt to investigate '
                            'that category, not proof of an unjustified gap.')
+            _reason.append('Role and Grade are used here as the “equal work” / “equal value” '
+                           'groupings. The Directive (Art. 4) requires these groupings to come from a '
+                           '<b>gender-neutral job evaluation and classification system</b> — built on skills, '
+                           'effort, responsibility and working conditions. This tool does not verify that the '
+                           'client’s own role/grade structure meets that standard; if the structure itself '
+                           'carries bias, a gap analysis on top of it can understate the true picture. (The '
+                           'Structural gender pay gap mode on Function×Level runs a statistical grade-assignment '
+                           'check for this — worth using alongside this compa-ratio view.)')
             _rcol = C["danger"] if n_breach else C["teal"]
             st.markdown(
                 f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
