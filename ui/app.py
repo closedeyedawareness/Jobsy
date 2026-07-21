@@ -1818,6 +1818,71 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
         cB.dataframe(pd.DataFrame([{"Function": k, "% women": v} for k, v in r.women_by_function.items()]),
                      use_container_width=True, hide_index=True)
 
+    # ── CAO crosswalk (ISF / CATS®, indicative, public bands only) ─────────
+    # This mode has no job titles/reference-library ladder to draw on -- the
+    # grade range is this file's own numeric Level column, not an org-wide
+    # JobGrade ladder (see the compa-ratio path's version of this for that
+    # richer case). No skill/description context here either, by design --
+    # this mode doesn't collect that data.
+    _lvl_num = pd.to_numeric(df[level_col], errors="coerce")
+    if _lvl_num.notna().mean() > 0.9:
+        try:
+            from services.cao_crosswalk_service import (
+                crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
+        except ImportError:
+            from jobsy.services.cao_crosswalk_service import (
+                crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
+
+        st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                    f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
+                    f'CAO crosswalk — ISF / CATS® (indicative)</div>', unsafe_allow_html=True)
+        st.caption("Positions this file's own Level column against the PUBLIC salary-group structure "
+                   "of a sector CAO — never a reproduced ISF/CATS® scoring method (FME's / De Leeuw "
+                   "Consult's protected IP; see docs/cao-metalektro-isf-reference.md). Always "
+                   "indicative — official classification needs a certified weging.")
+
+        lg_min, lg_max = float(_lvl_num.min()), float(_lvl_num.max())
+        st.caption(f"Rank-positioned against this file's own Level range: {lg_min:g}–{lg_max:g} "
+                   "(no reference-library grade ladder available in this mode).")
+
+        _lsys = st.radio("CAO systeem", ["ISF (Metalektro)", "CATS® (kies sector)"],
+                         key="lg_cao_system", horizontal=True)
+        cw = pd.DataFrame({function_col: df[function_col], level_col: df[level_col], "_lvl_num": _lvl_num})
+        cw = cw[cw["_lvl_num"].notna()]
+
+        if _lsys.startswith("ISF"):
+            def _isf_row(lv):
+                res = crosswalk_to_isf(lv, lg_min, lg_max)
+                return (res.salarisgroep, f"{res.isf_point_range[0]}–{res.isf_point_range[1]}",
+                        (f"€{res.monthly_scale[0]:,.0f}–€{res.monthly_scale[1]:,.0f}".replace(",", ".")
+                         if res.monthly_scale else "— (Hoger Personeel, geen vaste schaal)")) if res else (None, None, None)
+            cw[["Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]] = cw["_lvl_num"].apply(
+                lambda v: pd.Series(_isf_row(v)))
+            _groups = sorted(g for g in cw["Salarisgroep"].dropna().unique())
+            _pick = st.multiselect("Filter op salarisgroep", _groups, default=_groups, key="lg_isf_group_filter")
+            _shown = cw[cw["Salarisgroep"].isin(_pick)]
+            st.dataframe(_shown[[function_col, level_col, "Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]],
+                        use_container_width=True, hide_index=True)
+            st.caption("Indicatief: positionering binnen de publieke ISF-bandbreedtes — geen berekende "
+                       "ISF-score. Officiële ISF-indeling vereist een gecertificeerde weging.")
+        else:
+            _sector = st.selectbox("Sector (CATS® handboek)", known_cats_sectors(), key="lg_cats_sector")
+            def _cats_row(lv):
+                res = crosswalk_to_cats(lv, lg_min, lg_max, sector=_sector)
+                return (res.functiegroep, res.salarisgroep)
+            cw[["Functiegroep", "Salarisgroep"]] = cw["_lvl_num"].apply(lambda v: pd.Series(_cats_row(v)))
+            _groups = sorted(g for g in cw["Salarisgroep"].dropna().unique())
+            _pick = st.multiselect("Filter op salarisgroep", _groups, default=_groups, key="lg_cats_group_filter")
+            _shown = cw[cw["Salarisgroep"].isin(_pick)]
+            st.dataframe(_shown[[function_col, level_col, "Functiegroep", "Salarisgroep"]],
+                        use_container_width=True, hide_index=True)
+            st.caption(f"Label alignment only, {_sector} — CATS® has no public point-range table to "
+                       "position against (unlike ISF). Official classification requires reading the "
+                       "sector's niveaublad for the relevant functiefamilie, done by a certified CATS® user.")
+    else:
+        st.caption("CAO crosswalk skipped — Level column isn't numeric/ordinal enough to position "
+                   "(need e.g. 1-12, not free-text grades).")
+
     for note in r.notes:
         st.caption("· " + note)
 
