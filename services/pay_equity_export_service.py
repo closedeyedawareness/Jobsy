@@ -69,10 +69,14 @@ class PayEquityExportService:
     def summary_to_dataframe(self, r: PayGapResult) -> pd.DataFrame:
         ci_lo, ci_hi = flip_gap_ci(r.adjusted_ci) or (None, None)
         rows = [
+            ("Rows received (before any exclusion)", r.n_input or r.n),
+            ("  dropped — missing/zero salary or blank function/level", r.n_dropped_invalid),
             ("Employees in scope", r.n),
             ("Men (M)", r.n_m),
             ("Women (F)", r.n_f),
-            ("Excluded (non-binary / unknown gender)", r.n_excluded),
+            ("Excluded from binary gap (non-binary / unknown gender)", r.n_excluded),
+            ("Reconciliation: received − dropped = in scope",
+             "OK" if (r.n_input or r.n) - r.n_dropped_invalid == r.n else "MISMATCH — investigate"),
             ("FTE-normalised", "Yes" if r.fte_normalised else "No"),
             (None, None),
             ("Mean gap % — unadjusted (+ = women paid more, per wetsvoorstel (vrouw-man)/man)",
@@ -99,6 +103,11 @@ class PayEquityExportService:
             ("  ...of which reliable (n >= 5 each gender)", r.n_cohorts_flagged_reliable),
             ("Cohorts below the n>=5-per-gender reliability threshold (low-n, indicative only)",
              sum(1 for c in r.cohorts if not c.reliable)),
+            ("Levels 100% one gender (no computable gap — absent from Cohorts; "
+             "a segregation signal in its own right)",
+             ", ".join(f"{lvl} ({g}, n={n})" for lvl, (g, n) in sorted(
+                 r.single_gender_levels.items(), key=lambda kv: str(kv[0])))
+             if r.single_gender_levels else "None"),
             (None, None),
             ("% women overall", r.pct_women_overall),
         ]

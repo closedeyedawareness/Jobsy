@@ -96,6 +96,8 @@ class PayGapResult:
     n_m: int
     n_f: int
     n_excluded: int                  # rows with a non-binary / unknown gender
+    n_input: int                     # rows received BEFORE any dropping -- n_input - n_dropped_invalid == n
+    n_dropped_invalid: int           # rows dropped for missing/zero salary or blank function/level
 
     # Unadjusted (headline)
     mean_gap_pct: float | None
@@ -125,6 +127,11 @@ class PayGapResult:
     women_by_function: dict[str, float]
 
     fte_normalised: bool
+    # Levels where every worker is one gender: no gap is computable, so they
+    # never appear in the cohort table -- but 100%-one-gender levels are
+    # themselves a segregation signal, so they must be visible, not silent.
+    # {level: (gender_label, n)}
+    single_gender_levels: dict[str, tuple[str, int]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -287,7 +294,19 @@ def analyze_gender_pay_gap(
     if tenure_col:
         d["_ten"] = pd.to_numeric(d[tenure_col], errors="coerce")
 
-    d = d[d["_sal"].notna() & (d["_sal"] > 0) & (d["_fun"] != "") & (d["_lvl"] != "")]
+    n_input = len(d)
+    _valid = d["_sal"].notna() & (d["_sal"] > 0) & (d["_fun"] != "") & (d["_lvl"] != "")
+    n_dropped_invalid = int((~_valid).sum())
+    if n_dropped_invalid:
+        _dropped = d[~_valid]
+        _drop_m = int((_dropped["_g"] == male_label.strip().upper()[:1]).sum())
+        _drop_f = int((_dropped["_g"] == female_label.strip().upper()[:1]).sum())
+        notes.append(f"EXCLUSIONS: {n_dropped_invalid} of {n_input} input row(s) were dropped for a "
+                     f"missing/zero salary or a blank function/level ({_drop_m} male, {_drop_f} female, "
+                     f"{n_dropped_invalid - _drop_m - _drop_f} other/unknown). Every figure in this "
+                     "analysis covers only the remaining rows — reconcile these exclusions against the "
+                     "source before treating any number as complete.")
+    d = d[_valid]
 
     m_lab = male_label.strip().upper()[:1]
     f_lab = female_label.strip().upper()[:1]
@@ -356,6 +375,21 @@ def analyze_gender_pay_gap(
 
     pct_women_overall = float(round(100 * n_f / (n_m + n_f), 1)) if (n_m + n_f) else 0.0
 
+    # Single-gender levels: no gap computable, so they'd otherwise be invisible
+    # in the cohort table -- but a 100%-one-gender level is itself a segregation
+    # signal worth reporting explicitly.
+    single_gender_levels: dict[str, tuple[str, int]] = {}
+    for lvl, grp in binary.groupby("_lvl", sort=True):
+        nm_ = int((grp["_g"] == m_lab).sum())
+        nf_ = int((grp["_g"] == f_lab).sum())
+        if (nm_ == 0) != (nf_ == 0):   # exactly one gender present
+            single_gender_levels[lvl] = ((m_lab if nm_ else f_lab), nm_ or nf_)
+    if single_gender_levels:
+        notes.append(f"{len(single_gender_levels)} level(s) are 100% one gender and therefore have no "
+                     "computable gap and do NOT appear in the cohort table — see the single-gender "
+                     "levels list. Fully one-gender levels are a segregation signal in their own right; "
+                     "absence from the cohort table must not read as absence of an issue.")
+
     if any(not c.reliable for c in cohorts):
         notes.append(f"Cohorts with fewer than {SMALL_N} of either gender are marked "
                      "low-sample — treat their gaps as indicative only.")
@@ -380,6 +414,7 @@ def analyze_gender_pay_gap(
 
     return PayGapResult(
         n=n_total, n_m=n_m, n_f=n_f, n_excluded=n_excluded,
+        n_input=n_input, n_dropped_invalid=n_dropped_invalid,
         mean_gap_pct=mean_gap, median_gap_pct=median_gap,
         adjusted_gap_pct=adj_gap, adjusted_ci=adj_ci, adjusted_significant=adj_sig,
         grade_gap_levels=grade_gap, grade_gap_ci=grade_gap_ci, grade_gap_significant=grade_gap_sig,
@@ -387,5 +422,5 @@ def analyze_gender_pay_gap(
         n_cohorts_flagged=n_flagged, n_cohorts_flagged_reliable=n_flagged_reliable,
         pct_women_overall=pct_women_overall,
         women_by_level=_pct_women("_lvl"), women_by_function=_pct_women("_fun"),
-        fte_normalised=fte_normalised, notes=notes,
+        fte_normalised=fte_normalised, single_gender_levels=single_gender_levels, notes=notes,
     )

@@ -100,6 +100,36 @@ def test_grade_gap_needs_numeric_levels():
     assert any("numeric/ordinal" in n for n in r.notes)
 
 
+def test_dropped_rows_are_counted_and_reconciled():
+    df = _grid(0.90, per_gender=6)
+    import pandas as _pd
+    df = _pd.concat([df, _pd.DataFrame([
+        {"Function": "B", "Level": "1", "Gender": "F", "Salary": 0},      # zero salary
+        {"Function": "B", "Level": "1", "Gender": "M", "Salary": None},   # missing salary
+        {"Function": "", "Level": "1", "Gender": "M", "Salary": 40000},   # blank function
+    ])], ignore_index=True)
+    r = _analyze(df)
+    assert r.n_input == len(df)
+    assert r.n_dropped_invalid == 3
+    assert r.n_input - r.n_dropped_invalid == r.n          # reconciliation holds
+    assert any("EXCLUSIONS: 3 of" in n for n in r.notes)
+
+
+def test_single_gender_levels_are_reported_not_silent():
+    import pandas as _pd
+    df = _pd.concat([_grid(1.00, per_gender=6), _pd.DataFrame([
+        {"Function": "B", "Level": "99", "Gender": "M", "Salary": 90000},
+        {"Function": "B", "Level": "99", "Gender": "M", "Salary": 91000},
+    ])], ignore_index=True)
+    r = _analyze(df)
+    assert "99" in r.single_gender_levels
+    g, n = r.single_gender_levels["99"]
+    assert g == "M" and n == 2
+    # and it never shows up as a cohort (no computable gap)
+    assert not any(c.level == "99" for c in r.cohorts)
+    assert any("100% one gender" in note for note in r.notes)
+
+
 def test_grade_gap_tenure_note_only_appears_without_a_tenure_column():
     without_tenure = _analyze(_grade_biased_grid(1.0))
     assert any("Supply a tenure" in n for n in without_tenure.notes)
