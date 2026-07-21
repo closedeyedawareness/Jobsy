@@ -1,0 +1,82 @@
+﻿job_id,standard_title,current_grade,current_level
+J-CS-01,Customer Support Specialist,4,Medior
+J-CS-02,Customer Success Manager,7,Senior
+J-CS-03,Senior Customer Success Manager,7,Senior
+J-CS-04,Head of Customer Success,11,Lead
+J-DAT-01,Data Analyst,5,Medior
+J-DAT-02,Senior Data Analyst,9,Senior
+J-DAT-03,Data Engineer,9,Senior
+J-DAT-04,Data Scientist,9,Senior
+J-DAT-05,Head of Data,13,Lead
+J-ENG-01,Junior Software Engineer,3,Junior
+J-ENG-02,Software Engineer,6,Medior
+J-ENG-03,Senior Software Engineer,10,Senior
+J-ENG-04,Engineering Lead,13,Lead
+J-ENG-05,DevOps Engineer,6,Medior
+J-ENG-06,QA Engineer,6,Medior
+J-ENG-07,Frontend Engineer,6,Medior
+J-EXEC-01,Chief Executive Officer,14,Lead
+J-EXEC-02,Chief Technology Officer,13,Lead
+J-EXEC-03,Chief Operating Officer,13,Lead
+J-EXEC-04,Chief Financial Officer,13,Lead
+J-EXEC-05,Chief Human Resources Officer,13,Lead
+J-EXEC-06,Chief Marketing Officer,13,Lead
+J-EXEC-07,Chief Commercial Officer,13,Lead
+J-EXEC-08,Chief Product Officer,13,Lead
+J-EXEC-09,Chief Data Officer,13,Lead
+J-EXEC-10,Chief Information Officer,13,Lead
+J-EXEC-11,Chief Legal Officer,13,Lead
+J-FAC-01,Receptionist,2,Junior
+J-FAC-02,Facilities Coordinator,4,Medior
+J-FAC-03,Office Manager,5,Medior
+J-FAC-04,Facility Manager,7,Senior
+J-FIN-01,Finance Assistant,3,Junior
+J-FIN-02,Accountant,6,Medior
+J-FIN-03,Financial Analyst,6,Medior
+J-FIN-04,Financial Controller,10,Senior
+J-FIN-05,Finance Manager,10,Senior
+J-FIN-06,Head of Finance,14,Lead
+J-HR-01,HR Assistant,2,Junior
+J-HR-02,HR Advisor,4,Medior
+J-HR-03,HR Business Partner,8,Senior
+J-HR-04,HR Manager,8,Senior
+J-HR-05,Head of HR,11,Lead
+J-HR-06,Recruiter,4,Medior
+J-HR-07,Senior Recruiter,8,Senior
+J-IT-01,IT Support Specialist,4,Medior
+J-IT-02,System Administrator,6,Medior
+J-IT-03,Network Engineer,8,Senior
+J-IT-04,Security Engineer,9,Senior
+J-IT-05,IT Manager,11,Lead
+J-LEG-01,Legal Counsel,10,Senior
+J-LEG-02,Compliance Officer,6,Medior
+J-LEG-03,General Counsel,13,Lead
+J-MKT-01,Marketing Coordinator,4,Medior
+J-MKT-02,Digital Marketing Specialist,4,Medior
+J-MKT-03,Marketing Manager,8,Senior
+J-MKT-04,Content Manager,4,Medior
+J-MKT-05,Head of Marketing,11,Lead
+J-OPS-01,Operations Coordinator,5,Medior
+J-OPS-02,Project Manager,8,Senior
+J-OPS-03,Operations Manager,8,Senior
+J-OPS-04,Program Manager,8,Senior
+J-OPS-05,Head of Operations,12,Lead
+J-OPS-06,Warehouse Manager,8,Senior
+J-OPS-07,Supply Chain Manager,9,Senior
+J-PRD-01,Associate Product Manager,3,Junior
+J-PRD-02,Product Manager,9,Senior
+J-PRD-03,Senior Product Manager,9,Senior
+J-PRD-04,Head of Product,12,Lead
+J-PRD-05,Product Designer,6,Medior
+J-PRD-06,Senior Product Designer,9,Senior
+J-PRD-07,UX Researcher,6,Medior
+J-PRO-01,Buyer,5,Medior
+J-PRO-02,Procurement Specialist,7,Senior
+J-PRO-03,Category Manager,8,Senior
+J-PRO-04,Procurement Manager,9,Senior
+J-PRO-05,Head of Procurement,12,Lead
+J-SAL-01,Sales Development Representative,2,Junior
+J-SAL-02,Account Manager,5,Medior
+J-SAL-03,Senior Account Manager,8,Senior
+J-SAL-04,Business Development Manager,8,Senior
+J-SAL-05,Head of Sales,12,Lead
