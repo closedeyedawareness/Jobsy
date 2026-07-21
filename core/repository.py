@@ -26,16 +26,19 @@ from __future__ import annotations
 
 from typing import Optional
 
+import re
+
 import pandas as pd
 
 import logging
 logger = logging.getLogger('jobsy')
 from core.models import (BenefitCatalogItem, BenefitObservation, CareerStep, CompetencyLevel,
     Employee, Industry, IndustrySalaryFactor, IndustrySkill, Job, JobGrade, JobProfile,
-    LevelBenefitFactor, RoleSkillRequirement, SalaryBand, SeniorityLevel, Skill)
+    LevelBenefitFactor, RoleSkillRequirement, SalaryBand, SeniorityLevel, Skill, SkillAssessment)
 from core.search_index import SearchIndex
 from core.utils import normalize_title
 from core.validator import Validator
+from core.constants import parse_skill_proficiency, SOURCE_CONFIDENCE
 
 __all__ = ["Repository"]
 
@@ -84,6 +87,9 @@ class Repository:
         self.skills: dict[str, Skill] = {}
         self.competency_levels: dict[int, CompetencyLevel] = {}
         self.role_skill_map: dict[str, list[RoleSkillRequirement]] = {}
+        self.skill_by_norm: dict[str, str] = {}                          # normalized skill_name -> skill_id
+        self.skill_assessments: dict[str, list[SkillAssessment]] = {}    # employee_id -> [assessment]
+        self.skill_assessment_resolution: dict = {}                      # how well declarations mapped to the catalogue
         self.job_grades: dict[int, JobGrade] = {}
         self.industries: dict[str, Industry] = {}
         self.industry_factors: dict[tuple, float] = {}
@@ -111,6 +117,7 @@ class Repository:
             return None
 
         self._build_skills(data.get("skills"))
+        self._build_skill_assessments(data.get("employees"))
         self._build_competency_levels(_get(data, "competencylevels", "CompetencyLevels", "competency_levels"))
         self._build_role_skill_map(_get(data, "roleskillmap", "RoleSkillMap", "role_skill_map"))
         self._build_job_grades(_get(data, "jobgrades", "JobGrades", "job_grades"))
@@ -263,12 +270,86 @@ class Repository:
             sid = _val(row, "SkillID", "skill_id")
             if not sid:
                 continue
+            name = _val(row, "SkillName", "skill_name") or ""
             self.skills[sid] = Skill(
                 skill_id=sid,
-                skill_name=_val(row, "SkillName", "skill_name") or "",
+                skill_name=name,
                 category=_val(row, "Category", "category") or "",
                 definition=_val(row, "Definition", "definition") or "",
             )
+            if name:
+                self.skill_by_norm[name.strip().lower()] = sid
+
+    def resolve_skill(self, name: str) -> Optional[str]:
+        """Map a free-text skill name to a canonical SkillID (normalized match)."""
+        if not name:
+            return None
+        return self.skill_by_norm.get(str(name).strip().lower())
+
+    def _build_skill_assessments(self, df) -> None:
+        """Phase 1 of Path B: turn each employee's self-declared SkillProficiency
+        ('Skill:Level; ...') into SkillAssessment rows (source='self').
+
+        Declared skill names are resolved to the canonical catalogue — exact
+        first, then a best-effort fuzzy match (RapidFuzz, like title matching;
+        skipped if not installed). Anything that still doesn't map is kept as a
+        lightweight 'Declared' skill so nothing is lost, and the resolution rate
+        is recorded: a low rate is itself the finding — it means people declare
+        skills in language the framework doesn't share, and assessments should be
+        captured against the catalogue, not free text."""
+        if df is None:
+            return
+        conf = SOURCE_CONFIDENCE.get("self", 0.5)
+        # canonical (catalogued) skills only, snapshotted before we add any 'Declared' ones
+        canon = {n: sid for n, sid in self.skill_by_norm.items()
+                 if not (self.skills.get(sid) and self.skills[sid].category == "Declared")}
+        canon_keys = list(canon.keys())
+        try:
+            from rapidfuzz import process, fuzz
+        except ImportError:
+            process = fuzz = None
+        resolved = declared = 0
+        for row in df.itertuples(index=False):
+            emp_id = _val(row, "EmployeeID", "employee_id", "ID", "id")
+            raw = _val(row, "SkillProficiency", "skill_proficiency", "Skills", "skills")
+            if not emp_id or not raw:
+                continue
+            for name, level in parse_skill_proficiency(raw):
+                key = name.strip().lower()
+                sid = canon.get(key)
+                if sid is None and process is not None and canon_keys:
+                    m = process.extractOne(key, canon_keys, scorer=fuzz.token_sort_ratio, score_cutoff=90)
+                    if m:
+                        sid = canon[m[0]]
+                if sid is not None:
+                    resolved += 1
+                else:
+                    declared += 1
+                    sid = "SD_" + re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+                    if sid and sid not in self.skills:
+                        self.skills[sid] = Skill(skill_id=sid, skill_name=name, category="Declared")
+                        self.skill_by_norm[key] = sid
+                if not sid:
+                    continue
+                self.skill_assessments.setdefault(emp_id, []).append(
+                    SkillAssessment(employee_id=emp_id, skill_id=sid,
+                                    current_level=level, source="self", confidence=conf)
+                )
+        total = resolved + declared
+        self.skill_assessment_resolution = {
+            "rows": total, "resolved": resolved, "declared_only": declared,
+            "resolution_rate": round(resolved / total, 3) if total else 0.0,
+        }
+        if total:
+            logger.info("Skill assessments: %d rows, %.0f%% resolved to the canonical catalogue",
+                        total, 100 * resolved / total)
+
+    def load_skill_assessments(self, df) -> int:
+        """Public: (re)load self-declared assessments from an employees dataframe —
+        e.g. an uploaded CSV in the UI. Returns how many assessment rows were added."""
+        before = sum(len(v) for v in self.skill_assessments.values())
+        self._build_skill_assessments(df)
+        return sum(len(v) for v in self.skill_assessments.values()) - before
 
     def _build_competency_levels(self, df) -> None:
         if df is None:

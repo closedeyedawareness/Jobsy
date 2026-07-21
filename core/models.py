@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 __all__ = ["Job", "JobProfile", "SalaryBand", "CareerStep", "Employee",
+           "Skill", "RoleSkillRequirement", "CompetencyLevel", "SkillAssessment",
            "BenefitCatalogItem", "BenefitObservation", "LevelBenefitFactor", "BenefitBand"]
 
 
@@ -105,6 +106,22 @@ class CompetencyLevel:
     level: int
     name: str
     description: str = ""
+
+
+@dataclass(frozen=True)
+class SkillAssessment:
+    """A person's actual level on a skill — the piece the reference library never
+    held. Joined to RoleSkillRequirement it turns "declared strengths" into a real
+    coverage-and-gap. `source`/`confidence` keep it honest (a self-rating is not a
+    validated one) and feed the HRS "Trust in the Reading" register."""
+    employee_id: str
+    skill_id: str
+    current_level: int             # 1–5, on the CompetencyLevel scale
+    source: str = "self"           # self | manager | validated
+    confidence: float = 0.5        # 0–1
+    assessed_at: str = ""          # ISO date, optional
+    evidence_ref: str = ""         # certification / project / assessment id, optional
+
 
 @dataclass(frozen=True)
 class JobGrade:
