@@ -16,10 +16,18 @@ It produces, per the EU Pay Transparency Directive framing:
     level via a log-salary regression, i.e. the residual gap for people doing
     work of equal value,
   * **per Function x Level cohort** gaps with the Directive's 5% trigger and a
-    small-sample guard (privacy + noise), and
+    small-sample guard (privacy + noise),
   * **representation** — the share of women by level and by function, because a
     headline gap is usually driven as much by *where* women sit as by unequal
-    pay within a cohort.
+    pay within a cohort, and
+  * a **grade-assignment gap** — does gender predict the level itself
+    (controlling for function, and tenure if supplied), independent of whether
+    pay is fair within a level. This is the one that actually looks at the
+    classification system Art. 4 requires to be gender-neutral, rather than
+    just assuming it. A full point-factor job evaluation (skills, effort,
+    responsibility, working conditions) is a bigger, separate piece of work
+    this does not attempt — this is a statistical flag from data already
+    collected, not a substitute for one.
 
 Pure pandas + numpy (numpy ships with pandas); no statsmodels dependency.
 """
@@ -98,6 +106,13 @@ class PayGapResult:
     adjusted_ci: tuple[float, float] | None
     adjusted_significant: bool | None
 
+    # Grade-assignment gap: does gender predict the LEVEL itself (in level
+    # units, not %), controlling for function -- a test of the classification
+    # system, distinct from whether pay is fair within a level.
+    grade_gap_levels: float | None
+    grade_gap_ci: tuple[float, float] | None
+    grade_gap_significant: bool | None
+
     # Cohorts (Function x Level)
     cohorts: list[CohortGap]
     n_cohorts_tested: int
@@ -164,6 +179,75 @@ def _regression_adjusted_gap(
         return None, None, None
 
 
+def _grade_assignment_gap(
+    level: np.ndarray, is_female: np.ndarray, function: pd.Series, tenure: np.ndarray | None = None
+) -> tuple[float | None, tuple[float, float] | None, bool | None, str | None]:
+    """
+    Tests a DIFFERENT question from the pay-adjusted gap above: not "is pay
+    equal within a level", but "does gender predict the level itself" --
+    i.e. is the classification system doing the sorting, before pay ever
+    enters the picture. Directive Art. 4 requires the classification system
+    itself to be gender-neutral; a pay-only analysis can look clean while the
+    grading underneath it is not.
+
+    OLS:  level ~ female + C(function) [+ tenure].  A negative coefficient on
+    "female" means women sit at a lower level than men in the same function
+    (and, if tenure is supplied, after accounting for it) -- independent of
+    whether they're paid fairly for that level.
+
+    Returns (gap_levels, ci, significant, skip_reason). gap_levels is
+    men-vs-women in LEVEL UNITS (not %, levels aren't a ratio scale): positive
+    means men sit higher. skip_reason explains why the test didn't run (level
+    isn't numeric/ordinal, or too few rows) when the other three are None.
+    """
+    lvl_num = pd.to_numeric(pd.Series(level), errors="coerce")
+    bad = lvl_num.isna()
+    if bad.mean() > 0.05:
+        return None, None, None, ("Level values aren't numeric/ordinal enough to test grade "
+                                   "assignment this way (need e.g. 1-12, not free-text grades).")
+    keep = ~bad
+    y = lvl_num[keep].to_numpy(dtype=float)
+    fem = np.asarray(is_female)[keep.to_numpy()].astype(float)
+    fun = pd.get_dummies(pd.Series(function)[keep.to_numpy()].astype(str), prefix="fun", drop_first=True)
+
+    try:
+        cols = [np.ones(len(y)), fem]
+        if fun.shape[1]:
+            cols.append(fun.to_numpy(dtype=float))
+        used_tenure = False
+        if tenure is not None:
+            ten = pd.to_numeric(pd.Series(tenure)[keep.to_numpy()], errors="coerce")
+            if ten.notna().mean() > 0.95:
+                cols.append(ten.fillna(ten.median()).to_numpy(dtype=float))
+                used_tenure = True
+        X = np.column_stack(cols)
+        if len(y) <= X.shape[1] + 1:
+            return None, None, None, "Not enough rows to test grade assignment against function (+ tenure)."
+
+        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+        coef_f = float(beta[1])                      # effect of being female on level
+        gap_levels = round(-coef_f, 2)                # positive = men sit at a higher level
+
+        ci = None
+        significant: bool | None = None
+        try:
+            dof = len(y) - X.shape[1]
+            resid = y - X @ beta
+            sigma2 = float(resid @ resid) / dof
+            se_f = float(np.sqrt(np.diag(sigma2 * np.linalg.inv(X.T @ X))[1]))
+            lo, hi = -coef_f - 1.96 * se_f, -coef_f + 1.96 * se_f
+            ci = (round(min(lo, hi), 2), round(max(lo, hi), 2))
+            significant = abs(coef_f / se_f) > 1.96 if se_f else None
+        except (np.linalg.LinAlgError, ZeroDivisionError, ValueError):
+            pass
+        note = None if used_tenure else ("Controls for function only, not tenure — a residual difference "
+                                         "could partly reflect a genuine tenure gap rather than biased "
+                                         "grading. Supply a tenure/start-date column to strengthen this.")
+        return gap_levels, ci, significant, note
+    except (np.linalg.LinAlgError, ValueError, ZeroDivisionError):
+        return None, None, None, "Grade-assignment model could not be fit on this data."
+
+
 def analyze_gender_pay_gap(
     df: pd.DataFrame,
     *,
@@ -172,6 +256,7 @@ def analyze_gender_pay_gap(
     gender_col: str,
     salary_col: str,
     fte_col: str | None = None,
+    tenure_col: str | None = None,
     male_label: str = "M",
     female_label: str = "F",
 ) -> PayGapResult:
@@ -184,7 +269,7 @@ def analyze_gender_pay_gap(
     normalised on their first letter, so "Male"/"m"/"M" all read as ``male_label``.
     """
     notes: list[str] = []
-    d = df[[c for c in {function_col, level_col, gender_col, salary_col, fte_col} if c]].copy()
+    d = df[[c for c in {function_col, level_col, gender_col, salary_col, fte_col, tenure_col} if c]].copy()
 
     d["_sal"] = pd.to_numeric(d[salary_col], errors="coerce")
     fte_normalised = False
@@ -199,6 +284,8 @@ def analyze_gender_pay_gap(
     d["_fun"] = d[function_col].astype(str).str.strip()
     d["_lvl"] = d[level_col].astype(str).str.strip()
     d["_g"] = d[gender_col].astype(str).str.strip().str.upper().str[:1]
+    if tenure_col:
+        d["_ten"] = pd.to_numeric(d[tenure_col], errors="coerce")
 
     d = d[d["_sal"].notna() & (d["_sal"] > 0) & (d["_fun"] != "") & (d["_lvl"] != "")]
 
@@ -246,6 +333,19 @@ def analyze_gender_pay_gap(
             binary["_fun"], binary["_lvl"],
         )
 
+    # Grade-assignment gap: does gender predict the LEVEL itself, not pay
+    # within it -- a different question, testing the classification system
+    # rather than the pay decisions made on top of it.
+    grade_gap = grade_gap_ci = grade_gap_sig = None
+    grade_gap_note = None
+    if n_m and n_f:
+        grade_gap, grade_gap_ci, grade_gap_sig, grade_gap_note = _grade_assignment_gap(
+            binary["_lvl"].to_numpy(), (binary["_g"] == f_lab).to_numpy(), binary["_fun"],
+            tenure=binary["_ten"].to_numpy() if "_ten" in binary.columns else None,
+        )
+        if grade_gap_note:
+            notes.append(grade_gap_note)
+
     # Representation (uses all rows incl. non-binary in the denominator count of people)
     def _pct_women(grp_col: str) -> dict[str, float]:
         out: dict[str, float] = {}
@@ -262,11 +362,27 @@ def analyze_gender_pay_gap(
     notes.append("Adjusted gap controls for function and level only — not tenure, "
                  "hours, performance or location. A residual gap is a prompt to "
                  "investigate, not proof of an unjustified gap.")
+    notes.append("The grade-assignment gap tests whether gender predicts the level itself "
+                 "(a statistical flag from data already collected) — it does not replace a "
+                 "full point-factor job evaluation against skills, effort, responsibility and "
+                 "working conditions, which Art. 4 requires and which needs data this tool "
+                 "does not currently collect. Treat a significant grade-assignment gap as reason "
+                 "to commission that fuller evaluation, not as proof on its own.")
+    notes.append("Dutch implementing legislation for the EU Pay Transparency Directive is not "
+                 "yet in force (bill before the Tweede Kamer as of May 2026, targeted for 1 "
+                 "January 2027 — later than the original June 2026 EU deadline, which the "
+                 "European Commission declined to extend). Once live, the formal reporting duty "
+                 "that starts the 6-month remediation clock is phased by size: 150+ employees "
+                 "first report 7 June 2028 (annually thereafter); 100-149 employees first report "
+                 "7 June 2031 (every 3 years); under 100 employees has no reporting duty under "
+                 "this mechanism. Frame this analysis as getting ahead of the law, not as a live "
+                 "compliance deadline, unless the client is already at 150+.")
 
     return PayGapResult(
         n=n_total, n_m=n_m, n_f=n_f, n_excluded=n_excluded,
         mean_gap_pct=mean_gap, median_gap_pct=median_gap,
         adjusted_gap_pct=adj_gap, adjusted_ci=adj_ci, adjusted_significant=adj_sig,
+        grade_gap_levels=grade_gap, grade_gap_ci=grade_gap_ci, grade_gap_significant=grade_gap_sig,
         cohorts=cohorts, n_cohorts_tested=len(cohorts),
         n_cohorts_flagged=n_flagged, n_cohorts_flagged_reliable=n_flagged_reliable,
         pct_women_overall=pct_women_overall,

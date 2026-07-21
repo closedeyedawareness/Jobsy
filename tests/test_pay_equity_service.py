@@ -42,6 +42,74 @@ def _analyze(df, **kw):
     )
 
 
+def _grade_biased_grid(level_shift: float, per_gender: int = 10) -> pd.DataFrame:
+    """
+    Pay is an exact, deterministic function of level alone (no gender term),
+    so pay is perfectly fair *within* a level -- the adjusted pay gap should
+    read ~0. But women are consistently placed ``level_shift`` levels below
+    an equivalent man in the same function: the classification itself is
+    skewed, even though pay-for-level is not. Levels cycle 3-6 within each
+    function/gender so there's real residual variance for a proper CI/
+    significance test, rather than a degenerate zero-residual fit.
+    """
+    funcs = ["B", "P", "M", "S"]
+    rows = []
+    eid = 5000
+    for fn in funcs:
+        for i in range(per_gender):
+            base_lv = 3 + (i % 4)
+            eid += 1
+            rows.append({"Function": fn, "Level": str(base_lv), "Gender": "M",
+                         "Salary": 30000 + 5000 * base_lv})
+            eid += 1
+            f_lv = base_lv - level_shift
+            rows.append({"Function": fn, "Level": str(f_lv), "Gender": "F",
+                         "Salary": 30000 + 5000 * f_lv})
+    return pd.DataFrame(rows)
+
+
+def test_recovers_a_known_grade_assignment_gap():
+    # Pay is fair for the level you're at -- but women sit 1.5 levels lower
+    # than an equivalent man in the same function.
+    r = _analyze(_grade_biased_grid(1.5))
+    assert r.grade_gap_levels == pytest.approx(1.5, abs=0.15)
+    assert r.grade_gap_significant is True
+    assert r.grade_gap_ci is not None and r.grade_gap_ci[0] < 1.5 < r.grade_gap_ci[1]
+    # Note: this fixture doesn't also assert on adjusted_gap_pct -- with a
+    # non-integer shift, men and women never share an exact level string, so
+    # the (unrelated) pay-adjusted regression's C(level) dummies become
+    # perfectly collinear with gender and that estimate is unreliable here.
+    # That's a property of this synthetic setup, not of real client data.
+
+
+def test_no_grade_gap_when_levels_are_balanced():
+    r = _analyze(_grade_biased_grid(0.0))
+    assert r.grade_gap_levels == pytest.approx(0.0, abs=0.2)
+    assert r.grade_gap_significant is not True
+
+
+def test_grade_gap_needs_numeric_levels():
+    df = pd.DataFrame([
+        {"Function": "B", "Level": "Senior", "Gender": "M", "Salary": 60000},
+        {"Function": "B", "Level": "Junior", "Gender": "F", "Salary": 40000},
+        {"Function": "B", "Level": "Senior", "Gender": "M", "Salary": 61000},
+        {"Function": "B", "Level": "Junior", "Gender": "F", "Salary": 39000},
+    ])
+    r = _analyze(df)
+    assert r.grade_gap_levels is None
+    assert any("numeric/ordinal" in n for n in r.notes)
+
+
+def test_grade_gap_tenure_note_only_appears_without_a_tenure_column():
+    without_tenure = _analyze(_grade_biased_grid(1.0))
+    assert any("Supply a tenure" in n for n in without_tenure.notes)
+
+    df = _grade_biased_grid(1.0)
+    df["Tenure"] = 5  # constant tenure -- doesn't explain anything, just confirms the note drops
+    with_tenure = _analyze(df, tenure_col="Tenure")
+    assert not any("Supply a tenure" in n for n in with_tenure.notes)
+
+
 def test_recovers_a_known_10pct_gap():
     r = _analyze(_grid(0.90))
     assert r.n_m == r.n_f > 0

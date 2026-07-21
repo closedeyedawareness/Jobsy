@@ -1700,7 +1700,7 @@ def data_quality_page(catalog):
         st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None):
+def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
     (Function + Level + Gender + Salary), with no job-title matching or bands.
@@ -1715,7 +1715,7 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
             analyze_gender_pay_gap, DIRECTIVE_THRESHOLD_PCT, flip_gap_sign, flip_gap_ci)
 
     det = [("Function", function_col), ("Level", level_col), ("Gender", gender_col),
-           ("Salary", salary_col), ("FTE", fte_col)]
+           ("Salary", salary_col), ("FTE", fte_col), ("Tenure", tenure_col)]
     st.caption("Leveled-grid mode · " + " · ".join(f"{lab}: **{c}**" for lab, c in det if c))
     if not salary_col:
         st.error("No salary column found — include an annual salary column."); return
@@ -1723,7 +1723,8 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
         st.info("➕ Add a **Gender** column (M / F) to compute the gender pay gap."); return
 
     r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
-                               gender_col=gender_col, salary_col=salary_col, fte_col=fte_col)
+                               gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
+                               tenure_col=tenure_col)
     if not r.has_gap:
         st.info(f"Need both men and women with pay to compute a gap (M n={r.n_m}, F n={r.n_f})."); return
 
@@ -1767,6 +1768,27 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
             f'At the <b>same function and level</b>, women earn '
             f'<b style="color:{_col(adjusted_gap)}">{abs(adjusted_gap):.1f}%</b> {direction} than men'
             f'{ci} — {sig}. The residual "unexplained" gap after controlling for function and level.</div>',
+            unsafe_allow_html=True)
+
+    if r.grade_gap_levels is not None:
+        gg = flip_gap_sign(r.grade_gap_levels)          # positive = women sit at a HIGHER level, on this display
+        gg_ci = flip_gap_ci(r.grade_gap_ci)
+        gg_sig = ("statistically significant" if r.grade_gap_significant
+                  else "not statistically significant" if r.grade_gap_significant is False else "significance n/a")
+        gg_dir = "higher" if gg >= 0 else "lower"
+        gg_col = C["danger"] if (r.grade_gap_significant and abs(gg) >= 0.5) else C["teal"]
+        gg_ci_txt = f" (95% CI {gg_ci[0]:+.2f}…{gg_ci[1]:+.2f})" if gg_ci else ""
+        st.markdown(
+            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
+            f'border-left:3px solid {gg_col};border-radius:10px;padding:12px 14px;'
+            f'margin:10px 0;font-size:13.5px;color:{C["ink"]};line-height:1.55">'
+            f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.1em;text-transform:uppercase;'
+            f'color:{C["muted"]};margin-bottom:4px">Grade-assignment check</div>'
+            f'At the <b>same function</b>, women sit at a level <b style="color:{gg_col}">{abs(gg):.2f}</b> '
+            f'{gg_dir} than men{gg_ci_txt} — {gg_sig}. This tests whether <b>gender predicts the level itself</b>, '
+            f'not just pay within it — the classification system Art. 4 requires to be gender-neutral, rather than '
+            f'assumed. A significant gap here is reason to commission a full job-evaluation review '
+            f'(skills, effort, responsibility, working conditions), not proof of one on its own.</div>',
             unsafe_allow_html=True)
 
     if r.n_cohorts_tested:
@@ -1885,8 +1907,12 @@ def pay_equity_page(catalog, service):
             _lg_fte = _smart_detect(cols, {"fte", "parttime", "part-time", "part time", "werkuren", "deeltijd",
                                            "contract hours", "hours", "parttimefactor", "deeltijdfactor"},
                                     ["fte", "parttime", "deeltijd"])
+            _lg_tenure = _smart_detect(cols, {"tenure", "yearsofservice", "years of service", "dienstjaren",
+                                              "startdate", "start date", "hiredate", "hire date", "indiensttreding"},
+                                       ["tenure", "dienstjaren", "startdate", "hiredate"])
             _render_leveled_gap(df, function_col=_fun_col, level_col=_lvl_col, gender_col=_lg_gender,
-                                salary_col=_smart_detect(cols, _salkeys, _salcont), fte_col=_lg_fte)
+                                salary_col=_smart_detect(cols, _salkeys, _salcont), fte_col=_lg_fte,
+                                tenure_col=_lg_tenure)
             return
     title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",
                                      "functie", "functietitel", "role"}, ["title", "functie", "role"]) or cols[0]
