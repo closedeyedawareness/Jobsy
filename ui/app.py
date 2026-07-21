@@ -2645,7 +2645,7 @@ def main():
     _require_password()
 
     # page navigation
-    page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Assessment", "Skill Gap", "Job Family", "Pay Equity", "Benefits Benchmarking", "9-Box Grid", "Architecture Report", "Data Quality", "Organisation", "Organigram"], label_visibility="collapsed")
+    page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Dashboard", "Skills Assessment", "Skill Gap", "Job Family", "Pay Equity", "Benefits Benchmarking", "9-Box Grid", "Architecture Report", "Data Quality", "Organisation", "Organigram"], label_visibility="collapsed")
 
     # header moved below catalog loading for dashboard statistics
 
@@ -2793,6 +2793,10 @@ def main():
 
     if page == "Connect":
         connect_page()
+        return
+
+    if page == "Skills Dashboard":
+        skills_dashboard_page(catalog)
         return
 
     if page == "Skills Assessment":
@@ -3506,6 +3510,137 @@ def skill_gap_page(catalog, service):
                     file_name="jobsy_succession_risk.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+
+
+def skills_dashboard_page(catalog):
+    """Skills-based organisation lens: org-wide skills intelligence (tiles +
+    category treemap + demand/supply table) and the per-role proficiency wheel.
+    Demand side = the reference library; supply side = assessments uploaded on
+    the Skills Assessment page (session), honestly labelled by source."""
+    import pandas as _pd
+    try:
+        from services.skills_dashboard_service import (
+            build_wheel_svg, overlay_supply, skill_demand, squarify)
+    except ImportError:
+        from jobsy.services.skills_dashboard_service import (
+            build_wheel_svg, overlay_supply, skill_demand, squarify)
+
+    repo = catalog.repository
+    st.markdown(
+        f'<div style="font-family:{FONT_SERIF};font-size:28px;font-weight:600;'
+        f'letter-spacing:-0.02em;margin-bottom:4px">Skills Dashboard</div>'
+        f'<p style="color:{C["muted"]};font-size:14px;margin-bottom:16px">'
+        f'The organisation seen through <b>what people can do</b> rather than where they sit '
+        f'in a hierarchy. Demand side comes from the role architecture ({len(repo.jobs)} roles); '
+        f'supply side appears when assessments are uploaded on the Skills Assessment page.</p>',
+        unsafe_allow_html=True,
+    )
+
+    # supply: session assessments {emp: {skill_id: level}} -> flat shim list
+    _sa = st.session_state.get("skill_assessments") or {}
+
+    class _A:  # noqa: N801 - tiny adapter
+        __slots__ = ("skill_id", "current_level")
+        def __init__(self, sid, lvl):
+            self.skill_id, self.current_level = sid, lvl
+
+    flat = [_A(sid, lvl) for skills in _sa.values() for sid, lvl in skills.items() if lvl and lvl > 0]
+    demand = overlay_supply(skill_demand(repo), flat)
+
+    # ── headline tiles ──────────────────────────────────────────────────
+    n_cats = len({s.category for s in demand})
+    tiles = [("Skill categories", str(n_cats), C["ink"]),
+             ("Skills in demand", str(len(demand)), C["violet"]),
+             ("Roles architected", str(len(repo.jobs)), C["teal"]),
+             ("People assessed", str(len(_sa)) if _sa else "—", C["accent"] if _sa else C["muted"])]
+    trow = "".join(
+        f'<div style="flex:1;min-width:120px;background:{C["surface"]};border:1px solid {C["line"]};'
+        f'border-radius:12px;padding:14px 16px"><div style="font-family:{FONT_SERIF};font-size:28px;'
+        f'font-weight:700;color:{col}">{val}</div><div style="font-family:{FONT_MONO};font-size:10px;'
+        f'letter-spacing:.08em;text-transform:uppercase;color:{C["muted"]};margin-top:2px">{lab}</div></div>'
+        for lab, val, col in tiles)
+    st.markdown(f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 16px">{trow}</div>',
+                unsafe_allow_html=True)
+    if not _sa:
+        st.caption("➕ Upload assessments on the **Skills Assessment** page to light up the supply side "
+                   "(holders per skill, held-vs-required overlay on the wheel). Declared ≠ validated — "
+                   "the source of each assessment matters and is carried through.")
+
+    # ── category treemap ───────────────────────────────────────────────
+    _sizelab = ("people holding (assessments)" if _sa else "requirement instances (role × skill)")
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:14px 0 6px">'
+                f'Skills map — size = {_sizelab}</div>', unsafe_allow_html=True)
+    cats = sorted({s.category for s in demand})
+    cat_pick = st.selectbox("Category", ["All categories"] + cats, key="sd_cat")
+    subset = demand if cat_pick == "All categories" else [s for s in demand if s.category == cat_pick]
+    if cat_pick == "All categories":
+        items = []
+        for c in cats:
+            v = sum((s.n_holders if _sa else s.n_roles) for s in demand if s.category == c)
+            items.append((c, float(v)))
+    else:
+        items = [(s.skill_name, float(s.n_holders if _sa else s.n_roles)) for s in subset]
+    rects = squarify(items, 0, 0, 100, 56)
+    _PALETTE = ["#6F3CFF", "#5C35A3", "#A77BFF", "#4A2A80", "#8850EF", "#3B2064", "#34B5FF", "#22103F"]
+    cells = []
+    for i, r in enumerate(sorted(rects, key=lambda r: -(r.w * r.h))):
+        fs = max(9, min(15, (r.w * r.h) ** 0.5 * 0.55))
+        cells.append(
+            f'<div style="position:absolute;left:{r.x}%;top:{r.y / 56 * 100}%;width:{r.w}%;'
+            f'height:{r.h / 56 * 100}%;background:{_PALETTE[i % len(_PALETTE)]};'
+            f'border:1px solid {C["bg"]};border-radius:4px;overflow:hidden;display:flex;'
+            f'align-items:center;justify-content:center;text-align:center;padding:2px">'
+            f'<span style="font-size:{fs:.0f}px;color:#FFFFFF;line-height:1.15">{r.label}'
+            f'<br><span style="opacity:.75;font-size:{fs*0.85:.0f}px">{r.value:.0f}</span></span></div>')
+    st.markdown(f'<div style="position:relative;width:100%;aspect-ratio:100/56;'
+                f'background:{C["surface"]};border-radius:10px;margin-bottom:14px">{"".join(cells)}</div>',
+                unsafe_allow_html=True)
+
+    # ── demand / supply table ──────────────────────────────────────────
+    with st.expander(f"Skills table ({len(subset)} in view)"):
+        st.caption("Demand = the role architecture (roles requiring, Core count, max required level). "
+                   "Supply = uploaded assessments; blank until they exist rather than pretending.")
+        tbl = _pd.DataFrame([{
+            "Skill": s.skill_name, "Category": s.category, "Roles requiring": s.n_roles,
+            "Core in": s.n_core, "Max req. level": s.max_required_level,
+            "Holders": (s.n_holders if _sa else None), "Avg level held": s.avg_level_held,
+        } for s in sorted(subset, key=lambda s: -(s.n_holders if _sa else s.n_roles))])
+        st.dataframe(tbl, use_container_width=True, hide_index=True)
+
+    # ── proficiency wheel ──────────────────────────────────────────────
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
+                f'Proficiency wheel — required profile per role</div>', unsafe_allow_html=True)
+    titles = sorted(j.standard_title for j in repo.jobs.values() if repo.role_skill_map.get(j.job_id))
+    role_pick = st.selectbox("Role", titles, key="sd_role")
+    job = next(j for j in repo.jobs.values() if j.standard_title == role_pick)
+    reqs = [{"skill": (repo.skills[r.skill_id].skill_name if r.skill_id in repo.skills else r.skill_id),
+             "level": r.required_level, "type": r.skill_type}
+            for r in sorted(repo.role_skill_map.get(job.job_id, []),
+                            key=lambda r: (-r.required_level, r.skill_type))]
+
+    overlay = None
+    emp_pick = None
+    if _sa:
+        emp_pick = st.selectbox("Overlay a person (from uploaded assessments)",
+                                ["— none —"] + sorted(_sa.keys()), key="sd_emp")
+        if emp_pick and emp_pick != "— none —":
+            _name_by_id = {sid: (repo.skills[sid].skill_name if sid in repo.skills else sid)
+                           for sid in _sa[emp_pick]}
+            overlay = {_name_by_id[sid]: lvl for sid, lvl in _sa[emp_pick].items() if lvl and lvl > 0}
+
+    st.markdown(f'<div style="max-width:660px;margin:0 auto">'
+                f'{build_wheel_svg(role_pick, reqs, overlay_levels=overlay)}</div>',
+                unsafe_allow_html=True)
+    _legend = (f'<span style="color:{C["violet"]}">■</span> required level (rings 1–5) &nbsp; '
+               f'<b style="font-size:12px">bold</b> = Core skill')
+    if overlay:
+        _legend += f' &nbsp; <span style="color:{C["accent"]}">■</span> {emp_pick} — current level'
+    st.caption(_legend, unsafe_allow_html=True)
+    st.caption("Skill-based structure in one picture: the role is its required capability profile, "
+               "not a box on an org chart. Overlay a person to see fit and growth edges — gaps are "
+               "development conversations, not verdicts.")
 
 
 def skill_assessment_page(catalog):
