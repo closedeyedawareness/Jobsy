@@ -1977,7 +1977,8 @@ def pay_equity_page(catalog, service):
         band = repo.salary.get((m.function, m.level)) if m.matched else None
         rec = {"Name": (str(r.get(name_col)) if name_col else str(r.get(cols[0]))),
                "Input title": title, "Matched role": m.standard_title or "— no match —",
-               "Function": m.function or "", "Level": m.level or "—", "Actual": actual}
+               "Function": m.function or "", "Level": m.level or "—", "Actual": actual,
+               "JobId": m.job_id, "Description": m.description or ""}
         _fte = _fnum(r.get(fte_col)) if fte_col else None
         rec["FTE"] = _fte if _fte else 1.0
         rec["Actual FT"] = round(actual / rec["FTE"]) if rec["FTE"] else actual
@@ -2066,6 +2067,90 @@ def pay_equity_page(catalog, service):
             st.altair_chart(chart, use_container_width=True)
         except Exception:
             pass
+
+    # ── CAO crosswalk (ISF / CATS®, indicative, public bands only) ─────────
+    if len(priced) and priced["Grade"].notna().any():
+        try:
+            from services.cao_crosswalk_service import (
+                crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
+        except ImportError:
+            from jobsy.services.cao_crosswalk_service import (
+                crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
+
+        st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                    f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
+                    f'CAO crosswalk — ISF / CATS® (indicative)</div>', unsafe_allow_html=True)
+        st.caption("Positions Jobsy's own grade against the PUBLIC salary-group structure of a "
+                   "sector CAO — never a reproduced ISF/CATS® scoring method (that's FME's / De "
+                   "Leeuw Consult's protected IP; see docs/cao-metalektro-isf-reference.md). "
+                   "Always indicative — official classification needs a certified weging.")
+
+        graded = priced[priced["Grade"].notna()].copy()
+        grade_min_repo = min(repo.job_grades.keys()) if getattr(repo, "job_grades", None) else None
+        grade_max_repo = max(repo.job_grades.keys()) if getattr(repo, "job_grades", None) else None
+        g_min = grade_min_repo if grade_min_repo is not None else float(graded["Grade"].min())
+        g_max = grade_max_repo if grade_max_repo is not None else float(graded["Grade"].max())
+        _range_src = "org's full JobGrade ladder" if grade_min_repo is not None else "this file's own grade range"
+        st.caption(f"Rank-positioned against the {_range_src}: grade {g_min}–{g_max}.")
+
+        _system = st.radio("CAO systeem", ["ISF (Metalektro)", "CATS® (kies sector)"],
+                           key="cao_crosswalk_system", horizontal=True)
+
+        if _system.startswith("ISF"):
+            def _isf_row(grade):
+                r = crosswalk_to_isf(grade, g_min, g_max)
+                return (r.salarisgroep, f"{r.isf_point_range[0]}–{r.isf_point_range[1]}",
+                        (f"€{r.monthly_scale[0]:,.0f}–€{r.monthly_scale[1]:,.0f}".replace(",", ".")
+                         if r.monthly_scale else "— (Hoger Personeel, geen vaste schaal)")) if r else (None, None, None)
+            graded[["Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]] = graded["Grade"].apply(
+                lambda g: _pd.Series(_isf_row(g)))
+            _groups = sorted(g for g in graded["Salarisgroep"].dropna().unique())
+            _pick = st.multiselect("Filter op salarisgroep", _groups, default=_groups, key="isf_group_filter")
+            _shown = graded[graded["Salarisgroep"].isin(_pick)]
+            st.dataframe(_shown[["Name", "Matched role", "Function", "Level", "Grade",
+                                 "Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]],
+                        use_container_width=True, hide_index=True)
+            st.caption("Indicatief: positionering van Jobsy's eigen gradering binnen de publieke "
+                       "ISF-bandbreedtes — geen berekende ISF-score. Officiële ISF-indeling vereist "
+                       "een gecertificeerde weging.")
+        else:
+            _sector = st.selectbox("Sector (CATS® handboek)", known_cats_sectors(), key="cats_sector")
+            def _cats_row(grade):
+                r = crosswalk_to_cats(grade, g_min, g_max, sector=_sector)
+                return (r.functiegroep, r.salarisgroep)
+            graded[["Functiegroep", "Salarisgroep"]] = graded["Grade"].apply(lambda g: _pd.Series(_cats_row(g)))
+            _groups = sorted(g for g in graded["Salarisgroep"].dropna().unique())
+            _pick = st.multiselect("Filter op salarisgroep", _groups, default=_groups, key="cats_group_filter")
+            _shown = graded[graded["Salarisgroep"].isin(_pick)]
+            st.dataframe(_shown[["Name", "Matched role", "Function", "Level", "Grade",
+                                 "Functiegroep", "Salarisgroep"]],
+                        use_container_width=True, hide_index=True)
+            st.caption(f"Label alignment only, {_sector} — CATS® has no public point-range table to "
+                       "position against (unlike ISF). Official classification requires reading the "
+                       "sector's niveaublad for the relevant functiefamilie, done by a certified CATS® user.")
+
+        # Supporting context (never an input to a scoring formula): job description +
+        # skill class/family, so a reviewer can sanity-check the indicative position.
+        _roles = sorted(graded["Matched role"].dropna().unique())
+        if _roles:
+            with st.expander("Inspect a role — description & skill family (context, not a score input)"):
+                _role_pick = st.selectbox("Role", _roles, key="cao_crosswalk_inspect_role")
+                _rowmatch = graded[graded["Matched role"] == _role_pick].iloc[0]
+                st.markdown(f"**{_role_pick}** · Function {_rowmatch.get('Function','—')} · "
+                           f"Level {_rowmatch.get('Level','—')} · Grade {_rowmatch.get('Grade','—')}")
+                _desc = _rowmatch.get("Description") or ""
+                st.write(_desc if _desc else "_No description on file for this role._")
+                _jid = _rowmatch.get("JobId")
+                _reqs = repo.role_skill_map.get(_jid, []) if _jid else []
+                if _reqs:
+                    _skilltbl = _pd.DataFrame([{
+                        "Skill": repo.skills[req.skill_id].skill_name if req.skill_id in repo.skills else req.skill_id,
+                        "Class (family)": repo.skills[req.skill_id].category if req.skill_id in repo.skills else "—",
+                        "Required level": req.required_level, "Type": req.skill_type,
+                    } for req in _reqs])
+                    st.dataframe(_skilltbl, use_container_width=True, hide_index=True)
+                else:
+                    st.caption("No skill requirements on file for this role.")
 
     # ── gender pay gap & equity reasoning (EU Pay Transparency Directive) ──
     if gender_col and "Gender" in priced.columns:
