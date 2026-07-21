@@ -177,7 +177,18 @@ def test_chart_shows_data_labels_bottom_legend_and_is_sized_to_not_overlap():
     from openpyxl import load_workbook
     ws = load_workbook(BytesIO(data))["Summary"]
     chart = ws._charts[0]
-    assert chart.dataLabels is not None and chart.dataLabels.showVal is True
+    dl = chart.dataLabels
+    assert dl is not None and dl.showVal is True
+    # Every other show* flag must be explicitly False, not just left as the
+    # class default (None) -- Excel renders an unset flag here as "on", so a
+    # None instead of False produces "series name, category, value" all
+    # concatenated onto one oversized, overlapping label per bar. This is
+    # exactly the bug a previous version of this chart shipped with.
+    assert dl.showSerName is False
+    assert dl.showCatName is False
+    assert dl.showLegendKey is False
+    assert dl.showPercent is False
+    assert dl.dLblPos == "outEnd"
     assert chart.legend.position == "b"
     # height/width aren't round-tripped onto the Chart object on load (they only
     # drive the anchor's extent at save time) -- read the actual saved size back

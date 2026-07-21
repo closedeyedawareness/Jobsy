@@ -273,8 +273,17 @@ class PayEquityExportService:
         chart.set_categories(cats)
         chart.series[0].graphicalProperties.solidFill = _PURPLE  # Mean M
         chart.series[1].graphicalProperties.solidFill = _PINK    # Mean F
+        # Every show* flag left as None (the class default) renders in Excel as
+        # "series name, category, value" all concatenated on one label -- huge,
+        # overlapping text across the whole plot. Every flag must be explicit.
         chart.dataLabels = DataLabelList()
         chart.dataLabels.showVal = True
+        chart.dataLabels.showSerName = False
+        chart.dataLabels.showCatName = False
+        chart.dataLabels.showLegendKey = False
+        chart.dataLabels.showPercent = False
+        chart.dataLabels.showBubbleSize = False
+        chart.dataLabels.dLblPos = "outEnd"
         chart.dataLabels.numFmt = "#,##0"
         ws.add_chart(chart, "D2")
 
