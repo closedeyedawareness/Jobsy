@@ -225,3 +225,141 @@ def build_wheel_svg(role_title: str, requirements: list[dict], *, size: int = 64
                  f'font-size="{size*0.019:.0f}" fill="#C9B8E8">skills matrix</text>')
     parts.append("</svg>")
     return "".join(parts)
+
+
+# ── departmental overlap (skills shared across functions) ───────────────────
+
+@dataclass(frozen=True)
+class FunctionOverlap:
+    function_a: str
+    function_b: str
+    jaccard: float               # shared / union of DISTINCT skills
+    cosine: float                # level-weighted profile similarity
+    shared_skills: tuple[str, ...]   # names, sorted by combined weight desc
+
+
+def function_skill_profiles(repo) -> dict[str, dict[str, int]]:
+    """{function: {skill_id: max required_level across that function's roles}}."""
+    prof: dict[str, dict[str, int]] = {}
+    for job_id, reqs in repo.role_skill_map.items():
+        job = repo.jobs.get(job_id)
+        if not job:
+            continue
+        p = prof.setdefault(job.function, {})
+        for r in reqs:
+            p[r.skill_id] = max(p.get(r.skill_id, 0), r.required_level)
+    return prof
+
+
+def function_overlaps(repo) -> list[FunctionOverlap]:
+    """
+    Pairwise skill overlap between functions/departments -- the internal
+    mobility corridors of a skills-based organisation: a big overlap means
+    people can cross between those departments on capabilities they already
+    share. Cosine on level-weighted profiles (same approach the Skills
+    Intelligence report uses); Jaccard on distinct-skill sets for the more
+    intuitive "share N of their combined skills" read.
+    """
+    prof = function_skill_profiles(repo)
+    fns = sorted(prof.keys())
+    out: list[FunctionOverlap] = []
+    for i in range(len(fns)):
+        for j in range(i + 1, len(fns)):
+            a, b = prof[fns[i]], prof[fns[j]]
+            shared_ids = set(a) & set(b)
+            union = set(a) | set(b)
+            jac = len(shared_ids) / len(union) if union else 0.0
+            dot = sum(a[s] * b[s] for s in shared_ids)
+            na = math.sqrt(sum(v * v for v in a.values()))
+            nb = math.sqrt(sum(v * v for v in b.values()))
+            cos = dot / (na * nb) if na and nb else 0.0
+            names = sorted(shared_ids, key=lambda s: -(a[s] + b[s]))
+            skill_names = tuple(
+                (repo.skills[s].skill_name if s in repo.skills else s) for s in names)
+            out.append(FunctionOverlap(fns[i], fns[j], round(jac, 3), round(cos, 3), skill_names))
+    return sorted(out, key=lambda o: -o.cosine)
+
+
+# ── skills of the future (sourced analytical overlay) ───────────────────────
+# Sources -- same evidence base the Skills Intelligence report cites:
+#   [WEF]  World Economic Forum, Future of Jobs Report 2025 (core skills 2025-2030)
+#   [LI]   LinkedIn, Skills on the Rise 2025
+# This is an ANALYTICAL OVERLAY: future skills are matched to the org's own
+# catalogue by transparent keyword rules (matches shown to the user), never
+# presented as a measured fact about the organisation.
+
+FUTURE_SKILLS: list[dict] = [
+    {"name": "AI & big data",                       "source": "WEF 2025 #1 fastest-growing",
+     "keywords": ["machine learning", "ai", "data analysis", "statistical", "data pipeline", "business intelligence"]},
+    {"name": "AI literacy (applied, non-specialist)", "source": "LinkedIn 2025 #1 rising",
+     "keywords": ["machine learning and ai", "data-driven decision", "email marketing and automation"]},
+    {"name": "Networks & cybersecurity",            "source": "WEF 2025 top-3 growing",
+     "keywords": ["security engineering", "gdpr", "cloud infrastructure"]},
+    {"name": "Technological literacy",              "source": "WEF 2025 core skill",
+     "keywords": ["cloud", "api", "programming", "javascript", "sql", "frontend", "ci/cd", "container", "infrastructure"]},
+    {"name": "Analytical & systems thinking",       "source": "WEF 2025 #1 core skill",
+     "keywords": ["problem structuring", "requirements analysis", "data analysis", "financial modelling", "statistical"]},
+    {"name": "Creative thinking",                   "source": "WEF 2025 core skill",
+     "keywords": ["content strategy", "brand management", "go-to-market"]},
+    {"name": "Resilience, flexibility & agility",   "source": "WEF 2025 core skill",
+     "keywords": ["change management"]},
+    {"name": "Curiosity & lifelong learning",       "source": "WEF 2025 core skill",
+     "keywords": ["coaching and mentoring", "talent management"]},
+    {"name": "Leadership & social influence",       "source": "WEF 2025 core skill",
+     "keywords": ["team leadership", "stakeholder management", "board and executive"]},
+    {"name": "Conflict mitigation & negotiation",   "source": "LinkedIn 2025 rising",
+     "keywords": ["negotiation", "employee relations"]},
+    {"name": "Process optimization",                "source": "LinkedIn 2025 rising",
+     "keywords": ["process improvement", "project management"]},
+    {"name": "Environmental stewardship / ESG",     "source": "WEF 2025 rising",
+     "keywords": ["sustainab", "esg", "environment"]},
+]
+
+
+@dataclass(frozen=True)
+class FutureSkillStatus:
+    name: str
+    source: str
+    matched_skills: tuple[str, ...]   # catalogue skills the keywords hit (transparency)
+    n_roles_requiring: int            # demand-side presence across matched skills
+    n_holders: int                    # supply-side (assessments), 0 when none uploaded
+    status: str                       # "Covered" | "Emerging" | "Missing" | "Not in catalogue"
+
+
+def future_skill_readiness(repo, assessments=None, *, emerging_role_threshold: int = 5) -> list[FutureSkillStatus]:
+    """
+    For each sourced future skill: which catalogue skills match (shown, so the
+    mapping is checkable), how many roles require any of them, how many people
+    hold any of them (if assessments exist), and an honest status:
+      Not in catalogue -- the org's taxonomy can't even SEE this skill yet
+      Missing          -- in the taxonomy, but no role requires it
+      Emerging         -- required by fewer than `emerging_role_threshold` roles
+      Covered          -- structurally present across the role architecture
+    """
+    demand = {s.skill_id: s for s in skill_demand(repo)}
+    holders_by_skill: dict[str, int] = {}
+    for a in (assessments or []):
+        if getattr(a, "current_level", 0) and a.current_level > 0:
+            holders_by_skill[a.skill_id] = holders_by_skill.get(a.skill_id, 0) + 1
+
+    out: list[FutureSkillStatus] = []
+    for fs in FUTURE_SKILLS:
+        kws = [k.lower() for k in fs["keywords"]]
+        matched_ids = [
+            sid for sid, sk in repo.skills.items()
+            if any(k in sk.skill_name.lower() for k in kws)
+        ]
+        n_roles = sum(demand[sid].n_roles for sid in matched_ids if sid in demand)
+        n_holds = sum(holders_by_skill.get(sid, 0) for sid in matched_ids)
+        if not matched_ids:
+            status = "Not in catalogue"
+        elif n_roles == 0:
+            status = "Missing"
+        elif n_roles < emerging_role_threshold:
+            status = "Emerging"
+        else:
+            status = "Covered"
+        names = tuple(sorted(repo.skills[s].skill_name for s in matched_ids))
+        out.append(FutureSkillStatus(fs["name"], fs["source"], names, n_roles, n_holds, status))
+    _rank = {"Not in catalogue": 0, "Missing": 1, "Emerging": 2, "Covered": 3}
+    return sorted(out, key=lambda f: (_rank[f.status], -f.n_roles_requiring))

@@ -95,3 +95,72 @@ def test_wheel_svg_draws_all_spokes_and_overlay():
 
 def test_wheel_svg_empty_requirements_is_safe():
     assert build_wheel_svg("Empty", []) == "<svg></svg>"
+
+
+from services.skills_dashboard_service import (
+    FUTURE_SKILLS,
+    function_overlaps,
+    function_skill_profiles,
+    future_skill_readiness,
+)
+
+
+class _Job:
+    def __init__(self, jid, function):
+        self.job_id, self.function = jid, function
+
+
+class _Repo2:
+    """Two functions sharing one skill (S1); one function-exclusive skill each."""
+    def __init__(self):
+        self.skills = {
+            "S1": _Skill("S1", "Machine learning and AI", "Data & Analytics"),
+            "S2": _Skill("S2", "Financial reporting", "Finance & Accounting"),
+            "S3": _Skill("S3", "Team leadership and development", "Leadership"),
+        }
+        self.jobs = {
+            "J1": _Job("J1", "Finance"),
+            "J2": _Job("J2", "Data"),
+        }
+        self.role_skill_map = {
+            "J1": [_Req("S1", 2, "Adjacent"), _Req("S2", 4, "Core")],
+            "J2": [_Req("S1", 4, "Core"), _Req("S3", 3, "Leadership")],
+        }
+
+
+def test_function_profiles_take_max_level():
+    prof = function_skill_profiles(_Repo2())
+    assert prof["Finance"] == {"S1": 2, "S2": 4}
+    assert prof["Data"] == {"S1": 4, "S3": 3}
+
+
+def test_function_overlap_math():
+    o = function_overlaps(_Repo2())[0]
+    assert {o.function_a, o.function_b} == {"Data", "Finance"}
+    assert o.jaccard == pytest.approx(1 / 3, abs=5e-4)  # 1 shared of 3 distinct
+    # cosine = (2*4) / (sqrt(2^2+4^2) * sqrt(4^2+3^2)) = 8 / (sqrt20*5)
+    assert o.cosine == pytest.approx(8 / (math.sqrt(20) * 5), abs=1e-3)
+    assert o.shared_skills == ("Machine learning and AI",)
+
+
+def test_future_readiness_statuses_and_transparency():
+    r = future_skill_readiness(_Repo2(), emerging_role_threshold=5)
+    by_name = {f.name: f for f in r}
+    ai = by_name["AI & big data"]
+    assert "Machine learning and AI" in ai.matched_skills   # mapping is visible
+    assert ai.n_roles_requiring == 2 and ai.status == "Emerging"
+    esg = by_name["Environmental stewardship / ESG"]
+    assert esg.matched_skills == () and esg.status == "Not in catalogue"
+    # ordering: worst first (Not in catalogue before Emerging before Covered)
+    statuses = [f.status for f in r]
+    assert statuses.index("Not in catalogue") < statuses.index("Emerging")
+
+
+def test_future_readiness_counts_holders_from_assessments():
+    r = future_skill_readiness(_Repo2(), assessments=[_Assessment("S1", 3), _Assessment("S1", 4)])
+    ai = next(f for f in r if f.name == "AI & big data")
+    assert ai.n_holders == 2
+
+
+def test_every_future_skill_has_a_source():
+    assert all(f["source"] for f in FUTURE_SKILLS)

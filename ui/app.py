@@ -3682,6 +3682,83 @@ def skills_dashboard_page(catalog):
                "not a box on an org chart. Overlay a person to see fit and growth edges — gaps are "
                "development conversations, not verdicts.")
 
+    # ── departmental overlap — the mobility corridors ──────────────────
+    try:
+        from services.skills_dashboard_service import function_overlaps, future_skill_readiness
+    except ImportError:
+        from jobsy.services.skills_dashboard_service import function_overlaps, future_skill_readiness
+
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:22px 0 6px">'
+                f'Departmental overlap — shared skills between functions</div>', unsafe_allow_html=True)
+    st.caption("Where departments already speak each other's language. High overlap = an internal "
+               "mobility corridor: people can cross on capabilities they demonstrably share. "
+               "Similarity is cosine on level-weighted skill profiles; 'shared' counts distinct skills.")
+    overlaps = function_overlaps(repo)
+    if overlaps:
+        _otbl = _pd.DataFrame([{
+            "Function A": o.function_a, "Function B": o.function_b,
+            "Similarity": o.cosine, "Shared skills": len(o.shared_skills),
+            "Top shared": ", ".join(o.shared_skills[:3]) + ("…" if len(o.shared_skills) > 3 else ""),
+        } for o in overlaps])
+        st.dataframe(_otbl, use_container_width=True, hide_index=True,
+                     column_config={"Similarity": st.column_config.ProgressColumn(
+                         "Similarity", min_value=0.0, max_value=1.0, format="%.2f")})
+        _pairs = [f"{o.function_a} ↔ {o.function_b}" for o in overlaps]
+        with st.expander("Inspect a corridor — every skill two functions share"):
+            _pk = st.selectbox("Function pair", _pairs, key="sd_overlap_pair")
+            _o = overlaps[_pairs.index(_pk)]
+            if _o.shared_skills:
+                st.markdown(" · ".join(f"`{s}`" for s in _o.shared_skills))
+                st.caption(f"Jaccard {_o.jaccard:.2f} — these functions share "
+                           f"{len(_o.shared_skills)} of their combined distinct skills. Each shared "
+                           "skill is a bridge a person can cross without starting over.")
+            else:
+                st.caption("No shared skills — these functions currently have no direct corridor.")
+
+    # ── skills of the future — sourced overlay vs the org ──────────────
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:22px 0 6px">'
+                f'Skills of the future — what the organisation still misses</div>', unsafe_allow_html=True)
+    st.caption("Analytical overlay, not measurement: future-skill demand from sourced research "
+               "(WEF Future of Jobs 2025 · LinkedIn Skills on the Rise 2025), matched to this "
+               "organisation's own skill catalogue by visible keyword rules — check the match, "
+               "don't take it on faith.")
+    _future = future_skill_readiness(repo, assessments=flat)
+    _fs_color = {"Not in catalogue": C["danger"], "Missing": C["danger"],
+                 "Emerging": C["amber"], "Covered": C["teal"]}
+    _gaps = [f for f in _future if f.status in ("Not in catalogue", "Missing")]
+    if _gaps:
+        st.markdown(
+            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
+            f'border-left:3px solid {C["danger"]};border-radius:10px;padding:12px 14px;margin:8px 0;'
+            f'font-size:13.5px;color:{C["ink"]}"><b style="color:{C["danger"]}">Still missing:</b> ' +
+            " · ".join(f"<b>{f.name}</b> <span style=\"color:{C['muted']}\">({f.source})</span>" for f in _gaps) +
+            '<br><span style="color:' + C["muted"] + ';font-size:12.5px">"Not in catalogue" is the deeper gap: '
+            'the taxonomy cannot even see the skill yet — adding it to the catalogue is step one, '
+            'requiring it in roles is step two.</span></div>', unsafe_allow_html=True)
+    _cards = "".join(
+        f'<div style="flex:1;min-width:230px;background:{C["surface"]};border:1px solid {C["line"]};'
+        f'border-left:3px solid {_fs_color[f.status]};border-radius:12px;padding:12px 14px">'
+        f'<div style="font-size:.92rem;font-weight:600;color:{C["ink"]}">{f.name}</div>'
+        f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.06em;text-transform:uppercase;'
+        f'color:{C["muted"]};margin:2px 0 6px">{f.source}</div>'
+        f'<div style="font-size:.8rem;color:{_fs_color[f.status]};font-weight:700">{f.status}</div>'
+        f'<div style="font-size:.78rem;color:{C["muted"]};margin-top:4px">'
+        + (f'{f.n_roles_requiring} roles require · ' if f.n_roles_requiring else '')
+        + (f'{f.n_holders} people hold · ' if f.n_holders else '')
+        + (f'matches: {", ".join(f.matched_skills[:2])}{"…" if len(f.matched_skills) > 2 else ""}'
+           if f.matched_skills else 'no catalogue match') + '</div></div>'
+        for f in _future)
+    st.markdown(f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 16px">{_cards}</div>',
+                unsafe_allow_html=True)
+    with st.expander("Full match table — how each future skill maps to the catalogue"):
+        st.dataframe(_pd.DataFrame([{
+            "Future skill": f.name, "Source": f.source, "Status": f.status,
+            "Roles requiring": f.n_roles_requiring, "People holding": (f.n_holders or None),
+            "Catalogue matches": ", ".join(f.matched_skills) or "—",
+        } for f in _future]), use_container_width=True, hide_index=True)
+
 
 def skill_assessment_page(catalog):
     """Upload individual skill assessments — actual levels per person per skill."""
