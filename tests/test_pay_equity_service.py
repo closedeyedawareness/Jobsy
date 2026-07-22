@@ -100,6 +100,24 @@ def test_grade_gap_needs_numeric_levels():
     assert any("numeric/ordinal" in n for n in r.notes)
 
 
+def test_dutch_v_is_read_as_female_natively():
+    # Dutch HR exports use M/V (Man/Vrouw). Before the alias fold, every "V"
+    # row landed in "excluded (unknown gender)" and the analysis silently ran
+    # all-male. Same 10%-gap grid, women labelled V instead of F:
+    df = _grid(0.90)
+    df["Gender"] = df["Gender"].replace({"F": "V"})
+    r = _analyze(df)
+    assert r.n_excluded == 0                      # V rows are IN, not excluded
+    assert r.n_f == r.n_m > 0
+    assert r.mean_gap_pct == pytest.approx(10.0, abs=0.3)
+    # Full words normalise too (first letter → alias fold): Vrouw/Female/Man
+    df2 = _grid(0.90)
+    df2["Gender"] = df2["Gender"].replace({"F": "Vrouw", "M": "Man"})
+    r2 = _analyze(df2)
+    assert r2.n_excluded == 0
+    assert r2.mean_gap_pct == pytest.approx(10.0, abs=0.3)
+
+
 def test_dropped_rows_are_counted_and_reconciled():
     df = _grid(0.90, per_gender=6)
     import pandas as _pd

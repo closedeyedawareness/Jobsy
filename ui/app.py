@@ -1720,7 +1720,7 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     if not salary_col:
         st.error("No salary column found — include an annual salary column."); return
     if not gender_col:
-        st.info("➕ Add a **Gender** column (M / F) to compute the gender pay gap."); return
+        st.info("➕ Add a **Gender** column (M / F — Dutch M / V is read natively) to compute the gender pay gap."); return
 
     r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
                                gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
@@ -2049,6 +2049,9 @@ def pay_equity_page(catalog, service):
         rec["Actual FT"] = round(actual / rec["FTE"]) if rec["FTE"] else actual
         if gender_col:
             rec["Gender"] = str(r.get(gender_col, "")).strip().upper()[:1]
+            # Dutch M/V: read V(rouw) as F so a Dutch export analyses natively.
+            if rec["Gender"] == "V":
+                rec["Gender"] = "F"
         if has_variable:
             _bonus = (_num(r.get(bonus_col)) or 0) if bonus_col else 0
             _allow = (_num(r.get(allow_col)) or 0) if allow_col else 0
@@ -2373,7 +2376,7 @@ def pay_equity_page(catalog, service):
         st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
                     f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
                     f'Gender pay gap &amp; equity reasoning</div>', unsafe_allow_html=True)
-        st.info("➕ Add a **Gender** column (M / F) to unlock the gender pay-gap analysis — mean & median "
+        st.info("➕ Add a **Gender** column (M / F — Dutch M / V is read natively) to unlock the gender pay-gap analysis — mean & median "
                 "gaps on base and total pay, per-category testing against the 5% threshold, the pay-quartile "
                 "split and variable-pay coverage.")
 

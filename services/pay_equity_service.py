@@ -291,6 +291,15 @@ def analyze_gender_pay_gap(
     d["_fun"] = d[function_col].astype(str).str.strip()
     d["_lvl"] = d[level_col].astype(str).str.strip()
     d["_g"] = d[gender_col].astype(str).str.strip().str.upper().str[:1]
+    # Dutch HR exports use M/V (Man/Vrouw). Fold the female aliases into the
+    # effective female label so a Dutch file analyses natively instead of all
+    # its women landing in "excluded (unknown gender)" -- which silently
+    # produced an all-male "analysis" before this. "Female"/"Vrouw"/"F"/"V"
+    # all normalise to the same bucket; anything else (X, blank, other) still
+    # counts as non-binary/unknown, exactly as before.
+    _f_lab = female_label.strip().upper()[:1]
+    _m_lab = male_label.strip().upper()[:1]
+    d["_g"] = d["_g"].apply(lambda g: _f_lab if g in ("F", "V") else (_m_lab if g == "M" else g))
     if tenure_col:
         d["_ten"] = pd.to_numeric(d[tenure_col], errors="coerce")
 
