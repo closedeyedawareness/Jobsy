@@ -1909,6 +1909,51 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     for note in r.notes:
         st.caption("· " + note)
 
+    # ── shift-toeslag & generatiepact reasoning ─────────────────────────
+    try:
+        from services.special_conditions_service import analyze_special_conditions
+    except ImportError:
+        from jobsy.services.special_conditions_service import analyze_special_conditions
+    _sc = analyze_special_conditions(
+        df, function_col=function_col, level_col=level_col, gender_col=gender_col,
+        salary_col=salary_col, fte_col=fte_col, tenure_col=tenure_col,
+        salary_already_fte=salary_already_fte)
+    if _sc is not None and (_sc.n_shift_tagged or _sc.n_generatiepact):
+        st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                    f'text-transform:uppercase;color:{C["muted"]};margin:22px 0 6px">'
+                    f'Shift-work &amp; generatiepact reasoning</div>', unsafe_allow_html=True)
+        st.caption(f"Free-text conditions column detected: **{_sc.conditions_col}**. Shift (ploeg) "
+                   "toeslag and generatiepact reduced-hours rows are flagged and re-tested for how much "
+                   "they move the headline gap — the numbers alone can't say whether either mechanism is "
+                   "already folded into the salary column, so this shows sensitivity, not a silent correction.")
+        for _f in _sc.risk_flags:
+            st.markdown(
+                f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
+                f'border-left:3px solid {C["teal"] if _f.startswith("No ") else C["danger"]};'
+                f'border-radius:10px;padding:10px 14px;margin:6px 0;font-size:13px;'
+                f'color:{C["ink"]};line-height:1.5">{_f}</div>', unsafe_allow_html=True)
+        if _sc.scenarios:
+            _sctbl = pd.DataFrame([{
+                "Scenario": s.label, "N": s.n, "M": s.n_m, "F": s.n_f,
+                "Mean gap %": s.mean_gap_pct, "Adjusted gap %": s.adjusted_gap_pct,
+            } for s in _sc.scenarios])
+            st.dataframe(_sctbl, use_container_width=True, hide_index=True)
+            _base = _sc.scenarios[0]
+            _worst = max(_sc.scenarios[1:], key=lambda s: abs((s.mean_gap_pct or 0) - (_base.mean_gap_pct or 0)),
+                        default=None)
+            if _worst is not None and _base.mean_gap_pct is not None and _worst.mean_gap_pct is not None:
+                _delta = _worst.mean_gap_pct - _base.mean_gap_pct
+                st.caption(f"Most sensitive to: **{_worst.label}** — mean gap moves "
+                           f"{_delta:+.1f} percentage points once those rows are set aside. "
+                           "Treat the headline number as a range bounded by these scenarios until the "
+                           "underlying mechanism is confirmed with payroll/HR.")
+        if _sc.next_steps:
+            st.markdown(f'<div style="font-size:13px;color:{C["ink"]};margin:10px 0 2px;font-weight:600">'
+                        f'Advised next steps</div>', unsafe_allow_html=True)
+            for _s in _sc.next_steps:
+                st.markdown(f'<div style="font-size:13px;color:{C["muted"]};margin:2px 0 2px 4px">— {_s}</div>',
+                           unsafe_allow_html=True)
+
     try:
         from services.pay_equity_export_service import PayEquityExportService
     except ImportError:
