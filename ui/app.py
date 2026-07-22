@@ -1958,11 +1958,15 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
         from services.pay_equity_export_service import PayEquityExportService
     except ImportError:
         from jobsy.services.pay_equity_export_service import PayEquityExportService
-    _report_bytes = PayEquityExportService().to_workbook_bytes(r)
+    _report_lang = st.radio("Report language", ["English", "Nederlands"],
+                           key="lg_report_lang", horizontal=True)
+    _lang_code = "nl" if _report_lang == "Nederlands" else "en"
+    _report_bytes = PayEquityExportService().to_workbook_bytes(r, lang=_lang_code)
     st.download_button(
-        "⬇ Download pay equity report (.xlsx)",
+        "⬇ Download pay equity report (.xlsx)" if _lang_code == "en"
+        else "⬇ Download loonkloofrapport (.xlsx)",
         _report_bytes,
-        file_name="jobsy_pay_equity_report.xlsx",
+        file_name=f"jobsy_pay_equity_report_{_lang_code}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 

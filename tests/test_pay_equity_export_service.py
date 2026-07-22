@@ -302,3 +302,71 @@ def test_summary_sheet_carries_the_grade_assignment_gap():
     )
     # Significant -> coloured as danger, same red used for a flagged pct gap elsewhere in this sheet.
     assert sm_ws.cell(gg_row, 3).font.color.rgb[-6:] == "FF5A7A"
+
+
+# ── Dutch-language export ────────────────────────────────────────────────────
+
+def test_dutch_workbook_has_dutch_sheet_names():
+    r = _analyze(_grid(0.90))
+    data = PayEquityExportService().to_workbook_bytes(r, lang="nl")
+    assert set(_sheets(data)) == {"Samenvatting", "Cohorten"}
+
+
+def test_dutch_summary_uses_dutch_column_and_metric_labels():
+    r = _analyze(_grid(0.90))
+    data = PayEquityExportService(lang="nl").to_workbook_bytes(r)
+    sm = _sheets(data)["Samenvatting"]
+    assert "Metriek" in sm.columns and "Waarde" in sm.columns
+    labels = [l for l in sm["Metriek"].tolist() if isinstance(l, str)]
+    assert any(l.startswith("Gemiddelde loonkloof %") for l in labels)
+    assert any(l.startswith("Gecorrigeerde loonkloof %") for l in labels)
+    assert any(l == "Medewerkers in scope" for l in labels)
+    # No English metric labels should leak into the Dutch report.
+    assert not any(l.startswith("Employees in scope") for l in labels)
+
+
+def test_dutch_cohorts_sheet_uses_dutch_column_headers():
+    r = _analyze(_grid(0.90))
+    data = PayEquityExportService().to_workbook_bytes(r, lang="nl")
+    coh = _sheets(data)["Cohorten"]
+    assert "Functie" in coh.columns and "Niveau" in coh.columns
+    assert any(c.startswith("Gemarkeerd") for c in coh.columns)
+    assert any(c.startswith("Gemiddelde kloof %") for c in coh.columns)
+
+
+def test_dutch_notes_are_translated_with_numbers_preserved():
+    df = _grid(0.90)
+    # Force a real exclusion so the dynamic EXCLUSIONS note (with embedded
+    # counts) gets generated and must survive translation with the SAME numbers.
+    df.loc[df.index[0], "Salary"] = 0
+    r = _analyze(df)
+    assert any(n.startswith("EXCLUSIONS:") for n in r.notes)
+    data = PayEquityExportService().to_workbook_bytes(r, lang="nl")
+    from openpyxl import load_workbook
+    ws = load_workbook(BytesIO(data))["Samenvatting"]
+    all_text = " ".join(str(ws.cell(row, 2).value) for row in range(1, ws.max_row + 1)
+                        if ws.cell(row, 2).value)
+    assert "UITSLUITINGEN:" in all_text
+    assert "1 van de" in all_text  # the dropped-row count carried through untranslated as a number
+    assert "Tekenconventie" in all_text
+    assert "EXCLUSIONS:" not in all_text  # English original must not also appear
+
+
+def test_dutch_gap_values_still_colour_flagged_red():
+    # Same grid as the brand-colours English test, just requested in Dutch --
+    # the colour logic must recognise the Dutch label wording too.
+    r = _analyze(_grid(0.80))  # 20% gap -> flagged
+    data = PayEquityExportService().to_workbook_bytes(r, lang="nl")
+    from openpyxl import load_workbook
+    ws = load_workbook(BytesIO(data))["Samenvatting"]
+    row = next(row for row in range(1, ws.max_row + 1)
+              if str(ws.cell(row, 2).value).startswith("Gemiddelde loonkloof %"))
+    assert ws.cell(row, 3).font.color.rgb[-6:] == "FF5A7A"
+
+
+def test_english_report_unaffected_by_nl_translation_additions():
+    r = _analyze(_grid(0.90))
+    data = PayEquityExportService().to_workbook_bytes(r)  # default lang="en"
+    assert set(_sheets(data)) == {"Summary", "Cohorts"}
+    sm = _sheets(data)["Summary"]
+    assert "Metric" in sm.columns and "Value" in sm.columns
