@@ -1700,7 +1700,7 @@ def data_quality_page(catalog):
         st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, salary_already_fte=False):
+def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, salary_already_fte=False):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
     (Function + Level + Gender + Salary), with no job-title matching or bands.
@@ -1724,7 +1724,7 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
 
     r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
                                gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
-                               tenure_col=tenure_col, salary_already_fte=salary_already_fte)
+                               tenure_col=tenure_col, age_col=age_col, salary_already_fte=salary_already_fte)
     if not r.has_gap:
         st.info(f"Need both men and women with pay to compute a gap (M n={r.n_m}, F n={r.n_f})."); return
 
@@ -1763,15 +1763,17 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
         sig = ("statistically significant" if r.adjusted_significant
                else "not statistically significant" if r.adjusted_significant is False else "significance n/a")
         direction = "more" if (adjusted_gap or 0) >= 0 else "less"
+        _extra_controls = list(getattr(r, "adjusted_controls_used", ()) or ())
+        _same_as = "function and level" + (f" and {' and '.join(_extra_controls)}" if _extra_controls else "")
         st.markdown(
             f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
             f'border-left:3px solid {_col(adjusted_gap)};border-radius:10px;padding:12px 14px;'
             f'margin:10px 0;font-size:13.5px;color:{C["ink"]};line-height:1.55">'
             f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.1em;text-transform:uppercase;'
             f'color:{C["muted"]};margin-bottom:4px">Adjusted — like-for-like</div>'
-            f'At the <b>same function and level</b>, women earn '
+            f'At the <b>same {_same_as}</b>, women earn '
             f'<b style="color:{_col(adjusted_gap)}">{abs(adjusted_gap):.1f}%</b> {direction} than men'
-            f'{ci} — {sig}. The residual "unexplained" gap after controlling for function and level.</div>',
+            f'{ci} — {sig}. The residual "unexplained" gap after controlling for {_same_as}.</div>',
             unsafe_allow_html=True)
 
     # The grade-assignment regression treats the level column as an ORDERED
@@ -2059,8 +2061,12 @@ def pay_equity_page(catalog, service):
                                            "contract hours", "hours", "parttimefactor", "deeltijdfactor"},
                                     ["fte", "parttime", "deeltijd"])
             _lg_tenure = _smart_detect(cols, {"tenure", "yearsofservice", "years of service", "dienstjaren",
-                                              "startdate", "start date", "hiredate", "hire date", "indiensttreding"},
-                                       ["tenure", "dienstjaren", "startdate", "hiredate"])
+                                              "startdate", "start date", "hiredate", "hire date", "indiensttreding",
+                                              "datum in dienst"},
+                                       ["tenure", "dienstjaren", "startdate", "hiredate", "indiensttreding"])
+            _lg_age = _smart_detect(cols, {"age", "leeftijd", "birthdate", "birth date", "dateofbirth",
+                                          "date of birth", "geboortedatum"},
+                                    ["age", "leeftijd", "birthdate", "geboortedatum"])
             _lg_sal = _smart_detect(cols, _salkeys, _salcont)
             # "FT salaris" (Dutch intake templates) means the column is ALREADY
             # full-time-equivalent. Dividing it by FTE again double-corrects --
@@ -2076,7 +2082,7 @@ def pay_equity_page(catalog, service):
             _already_fte = _sal_reading.startswith("Already")
             _render_leveled_gap(df, function_col=_fun_col, level_col=_lvl_col, gender_col=_lg_gender,
                                 salary_col=_lg_sal, fte_col=(None if _already_fte else _lg_fte),
-                                tenure_col=_lg_tenure, salary_already_fte=_already_fte)
+                                tenure_col=_lg_tenure, age_col=_lg_age, salary_already_fte=_already_fte)
             return
     title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",
                                      "functie", "functietitel", "role"}, ["title", "functie", "role"]) or cols[0]

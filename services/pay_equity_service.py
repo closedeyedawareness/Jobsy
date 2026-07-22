@@ -43,6 +43,35 @@ import pandas as pd
 # Minimum head-count per gender in a cohort before its gap is treated as
 # reliable and shown (noise + re-identification guard).
 SMALL_N = 5
+
+
+def _years_from_col(col: pd.Series, *, as_of: pd.Timestamp | None = None) -> pd.Series:
+    """
+    Turn a tenure/age source column into years, accepting EITHER an
+    already-numeric years column (e.g. "Tenure": 4.5) OR a raw date column
+    (e.g. "Datum in dienst" / "Geboortedatum"). Two traps here, not one:
+
+    1. pd.to_numeric() on a datetime column doesn't fail or produce years --
+       it silently returns nanoseconds-since-epoch, a ~1.6e18 "tenure" that
+       would blow up (or worse, silently corrupt) the regression.
+    2. The inverse trap, and the one that actually bit this function's first
+       version: pd.to_datetime() on a plain int/float column doesn't fail
+       either -- it happily reads small numbers as nanoseconds-since-epoch
+       and returns real (bogus, ~1970) timestamps, so a genuine numeric years
+       column got silently rerouted through the date branch and turned into
+       a near-constant ~56 years for everyone. dtype is checked FIRST so a
+       numeric column can never reach pd.to_datetime at all; only
+       object/string columns attempt date parsing.
+    """
+    as_of = as_of or pd.Timestamp.now()
+    if pd.api.types.is_datetime64_any_dtype(col):
+        return (as_of - col).dt.days / 365.25
+    if pd.api.types.is_numeric_dtype(col):
+        return pd.to_numeric(col, errors="coerce")
+    dt = pd.to_datetime(col, errors="coerce")
+    if dt.notna().mean() > 0.8:   # object/string column that reads as dates for most rows
+        return (as_of - dt).dt.days / 365.25
+    return pd.to_numeric(col, errors="coerce")
 # Directive trigger: a gap of this magnitude within a category of equal /
 # equal-value work is the point at which it must be investigated/justified.
 DIRECTIVE_THRESHOLD_PCT = 5.0
@@ -107,6 +136,11 @@ class PayGapResult:
     adjusted_gap_pct: float | None
     adjusted_ci: tuple[float, float] | None
     adjusted_significant: bool | None
+    # Which optional continuous controls actually made it into the adjusted
+    # regression -- ("tenure",), ("age",), both, or () when neither was
+    # supplied or usable (>95% real values required). Lets the UI/export say
+    # exactly what "adjusted" means for THIS run instead of a fixed caveat.
+    adjusted_controls_used: tuple[str, ...]
 
     # Grade-assignment gap: does gender predict the LEVEL itself (in level
     # units, not %), controlling for function -- a test of the classification
@@ -140,16 +174,24 @@ class PayGapResult:
 
 
 def _regression_adjusted_gap(
-    salary: np.ndarray, is_female: np.ndarray, function: pd.Series, level: pd.Series
-) -> tuple[float | None, tuple[float, float] | None, bool | None]:
+    salary: np.ndarray, is_female: np.ndarray, function: pd.Series, level: pd.Series,
+    tenure: np.ndarray | None = None, age: np.ndarray | None = None,
+) -> tuple[float | None, tuple[float, float] | None, bool | None, tuple[str, ...]]:
     """
-    Adjusted gap from  log(salary) ~ female + C(function) + C(level).
+    Adjusted gap from  log(salary) ~ female + C(function) + C(level) [+ tenure] [+ age].
 
-    Returns (gap_pct, ci, significant). gap_pct is men-vs-women as a % of men's
-    pay: a positive number means, at the same function and level, women earn
-    that much less. CI/significance are None when the design can't support them
-    (too few rows, a single function/level, or a singular design matrix).
+    tenure/age are optional continuous controls -- each included only when
+    supplied AND at least 95% of rows have a real value (missing rows get the
+    column median, same guard _grade_assignment_gap uses for tenure). Skipped
+    silently otherwise so a mostly-blank column can't quietly distort the fit.
+
+    Returns (gap_pct, ci, significant, controls_used). gap_pct is men-vs-women
+    as a % of men's pay: a positive number means, at the same function and
+    level (and tenure/age, if included), women earn that much less. CI/
+    significance are None when the design can't support them (too few rows, a
+    single function/level, or a singular design matrix).
     """
+    controls_used: list[str] = []
     try:
         y = np.log(salary.astype(float))
         fun = pd.get_dummies(function.astype(str), prefix="fun", drop_first=True)
@@ -159,9 +201,16 @@ def _regression_adjusted_gap(
             cols.append(fun.to_numpy(dtype=float))
         if lvl.shape[1]:
             cols.append(lvl.to_numpy(dtype=float))
+        for name, arr in (("tenure", tenure), ("age", age)):
+            if arr is None:
+                continue
+            s = pd.to_numeric(pd.Series(arr), errors="coerce")
+            if s.notna().mean() > 0.95:
+                cols.append(s.fillna(s.median()).to_numpy(dtype=float))
+                controls_used.append(name)
         X = np.column_stack(cols)
         if len(y) <= X.shape[1] + 1:
-            return None, None, None
+            return None, None, None, ()
 
         beta, *_ = np.linalg.lstsq(X, y, rcond=None)
         coef_f = float(beta[1])                       # effect of being female on log-pay
@@ -181,9 +230,9 @@ def _regression_adjusted_gap(
             significant = abs(coef_f / se_f) > 1.96 if se_f else None
         except (np.linalg.LinAlgError, ZeroDivisionError, ValueError):
             pass
-        return gap_pct, ci, significant
+        return gap_pct, ci, significant, tuple(controls_used)
     except (np.linalg.LinAlgError, ValueError, ZeroDivisionError):
-        return None, None, None
+        return None, None, None, ()
 
 
 def _grade_assignment_gap(
@@ -264,6 +313,7 @@ def analyze_gender_pay_gap(
     salary_col: str,
     fte_col: str | None = None,
     tenure_col: str | None = None,
+    age_col: str | None = None,
     male_label: str = "M",
     female_label: str = "F",
     salary_already_fte: bool = False,
@@ -275,9 +325,15 @@ def analyze_gender_pay_gap(
     pay is divided by FTE first (guarded against zero/blank). Rows missing
     function, level, gender or a positive salary are dropped. Gender values are
     normalised on their first letter, so "Male"/"m"/"M" all read as ``male_label``.
+
+    ``tenure_col``/``age_col`` each accept EITHER an already-numeric years
+    column OR a raw date column (start date / date of birth) -- converted via
+    ``_years_from_col``. When supplied and usable (>=95% real values), both
+    become additional continuous controls in the adjusted-gap regression, not
+    just the grade-assignment side-test.
     """
     notes: list[str] = []
-    d = df[[c for c in {function_col, level_col, gender_col, salary_col, fte_col, tenure_col} if c]].copy()
+    d = df[[c for c in {function_col, level_col, gender_col, salary_col, fte_col, tenure_col, age_col} if c]].copy()
 
     d["_sal"] = pd.to_numeric(d[salary_col], errors="coerce")
     fte_normalised = False
@@ -310,7 +366,9 @@ def analyze_gender_pay_gap(
     _m_lab = male_label.strip().upper()[:1]
     d["_g"] = d["_g"].apply(lambda g: _f_lab if g in ("F", "V") else (_m_lab if g == "M" else g))
     if tenure_col:
-        d["_ten"] = pd.to_numeric(d[tenure_col], errors="coerce")
+        d["_ten"] = _years_from_col(d[tenure_col])
+    if age_col:
+        d["_age"] = _years_from_col(d[age_col])
 
     n_input = len(d)
     _valid = d["_sal"].notna() & (d["_sal"] > 0) & (d["_fun"] != "") & (d["_lvl"] != "")
@@ -362,12 +420,15 @@ def analyze_gender_pay_gap(
     n_flagged = sum(1 for c in cohorts if c.flagged)
     n_flagged_reliable = sum(1 for c in cohorts if c.flagged and c.reliable)
 
-    # Adjusted (controls for function + level)
+    # Adjusted (controls for function + level [+ tenure] [+ age])
     adj_gap = adj_ci = adj_sig = None
+    adj_controls: tuple[str, ...] = ()
     if n_m and n_f:
-        adj_gap, adj_ci, adj_sig = _regression_adjusted_gap(
+        adj_gap, adj_ci, adj_sig, adj_controls = _regression_adjusted_gap(
             binary["_sal"].to_numpy(), (binary["_g"] == f_lab).to_numpy(),
             binary["_fun"], binary["_lvl"],
+            tenure=binary["_ten"].to_numpy() if "_ten" in binary.columns else None,
+            age=binary["_age"].to_numpy() if "_age" in binary.columns else None,
         )
 
     # Grade-assignment gap: does gender predict the LEVEL itself, not pay
@@ -411,9 +472,14 @@ def analyze_gender_pay_gap(
     if any(not c.reliable for c in cohorts):
         notes.append(f"Cohorts with fewer than {SMALL_N} of either gender are marked "
                      "low-sample — treat their gaps as indicative only.")
-    notes.append("Adjusted gap controls for function and level only — not tenure, "
-                 "hours, performance or location. A residual gap is a prompt to "
-                 "investigate, not proof of an unjustified gap.")
+    if adj_controls:
+        notes.append(f"Adjusted gap also controls for {' and '.join(adj_controls)} (in addition to "
+                     "function and level) — not hours, performance or location. A residual gap is a "
+                     "prompt to investigate, not proof of an unjustified gap.")
+    else:
+        notes.append("Adjusted gap controls for function and level only — not tenure, "
+                     "hours, performance or location. A residual gap is a prompt to "
+                     "investigate, not proof of an unjustified gap.")
     notes.append("The grade-assignment gap tests whether gender predicts the level itself "
                  "(a statistical flag from data already collected) — it does not replace a "
                  "full point-factor job evaluation against skills, effort, responsibility and "
@@ -435,6 +501,7 @@ def analyze_gender_pay_gap(
         n_input=n_input, n_dropped_invalid=n_dropped_invalid,
         mean_gap_pct=mean_gap, median_gap_pct=median_gap,
         adjusted_gap_pct=adj_gap, adjusted_ci=adj_ci, adjusted_significant=adj_sig,
+        adjusted_controls_used=adj_controls,
         grade_gap_levels=grade_gap, grade_gap_ci=grade_gap_ci, grade_gap_significant=grade_gap_sig,
         cohorts=cohorts, n_cohorts_tested=len(cohorts),
         n_cohorts_flagged=n_flagged, n_cohorts_flagged_reliable=n_flagged_reliable,

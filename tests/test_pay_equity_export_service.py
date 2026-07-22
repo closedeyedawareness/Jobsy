@@ -370,3 +370,11 @@ def test_english_report_unaffected_by_nl_translation_additions():
     assert set(_sheets(data)) == {"Summary", "Cohorts"}
     sm = _sheets(data)["Summary"]
     assert "Metric" in sm.columns and "Value" in sm.columns
+
+
+def test_dutch_translation_of_extra_controls_note():
+    from services.pay_equity_export_service import _translate_note
+    note = "Adjusted gap also controls for tenure and age (in addition to function and level) — not hours, performance or location. A residual gap is a prompt to investigate, not proof of an unjustified gap."
+    nl = _translate_note(note)
+    assert "dienstjaren" in nl and "leeftijd" in nl
+    assert "Adjusted gap" not in nl  # fully translated, not a fallback

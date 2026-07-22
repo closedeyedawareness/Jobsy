@@ -282,3 +282,81 @@ def test_flip_gap_ci_matches_flip_gap_sign_on_a_real_result():
     assert lo == flip_gap_sign(r.adjusted_ci[1])
     assert hi == flip_gap_sign(r.adjusted_ci[0])
     assert lo < hi
+
+
+# ── tenure / age as adjusted-gap controls ────────────────────────────────────
+
+from services.pay_equity_service import _years_from_col, _regression_adjusted_gap
+
+
+def test_years_from_col_numeric_passthrough():
+    s = pd.Series([1, 2.5, None, 4])
+    out = _years_from_col(s)
+    assert out.tolist()[:2] == [1.0, 2.5] and out.isna().sum() == 1
+
+
+def test_years_from_col_parses_raw_dates():
+    as_of = pd.Timestamp("2026-07-22")
+    dates = pd.Series([pd.Timestamp("2016-07-22"), pd.Timestamp("2021-07-22")])  # 10y, 5y ago
+    out = _years_from_col(dates, as_of=as_of)
+    assert out.round(1).tolist() == [10.0, 5.0]
+
+
+def _tenure_confounded_df():
+    """
+    One function/level cohort where log(salary) is EXACTLY linear in tenure
+    (no true gender effect) but women happen to have systematically less
+    tenure -- so the naive (no-control) adjusted gap shows a fake gap, and
+    controlling for tenure (matching the model's own log-linear form) should
+    make it collapse to ~0.
+    """
+    import math
+    rows = []
+    for i in range(10):
+        rows.append({"Function": "X", "Level": "1", "Gender": "M",
+                     "Salary": round(40000 * math.exp(0.03 * (10 + i))), "TenureYears": 10 + i})
+    for i in range(10):
+        rows.append({"Function": "X", "Level": "1", "Gender": "F",
+                     "Salary": round(40000 * math.exp(0.03 * (1 + i))), "TenureYears": 1 + i})
+    return pd.DataFrame(rows)
+
+
+def test_adjusted_gap_uses_numeric_tenure_and_changes_the_estimate():
+    df = _tenure_confounded_df()
+    naive = _analyze(df)   # no tenure_col -> confounded, shows a fake gap
+    controlled = _analyze(df, tenure_col="TenureYears")
+    assert naive.adjusted_controls_used == ()
+    assert controlled.adjusted_controls_used == ("tenure",)
+    assert abs(naive.adjusted_gap_pct) > 5           # confounded: looks like a real gap
+    assert abs(controlled.adjusted_gap_pct) < 1       # controlled: gap explained away
+    assert any(n.startswith("Adjusted gap also controls for tenure") for n in controlled.notes)
+    assert not any(n.startswith("Adjusted gap also controls") for n in naive.notes)
+
+
+def test_adjusted_gap_accepts_raw_birthdate_column_for_age():
+    # Regression test for a real bug: pd.to_numeric() on a raw date column
+    # silently returns nanoseconds-since-epoch, not years -- which would have
+    # blown up or silently corrupted this fit instead of registering as a
+    # usable "age" control.
+    df = _tenure_confounded_df()
+    as_of = pd.Timestamp.now()
+    df["Birthdate"] = [as_of - pd.Timedelta(days=365.25 * (30 + i)) for i in range(10)] \
+                     + [as_of - pd.Timedelta(days=365.25 * (25 + i)) for i in range(10)]
+    r = _analyze(df, age_col="Birthdate")
+    assert r.adjusted_controls_used == ("age",)
+    assert r.adjusted_gap_pct is not None and abs(r.adjusted_gap_pct) < 100  # sane, not a nanosecond blow-up
+
+
+def test_mostly_missing_tenure_is_not_used_as_a_control():
+    df = _tenure_confounded_df()
+    df["TenureYears"] = [None] * 15 + list(df["TenureYears"])[15:]  # 75% missing
+    r = _analyze(df, tenure_col="TenureYears")
+    assert r.adjusted_controls_used == ()
+    assert any(n.startswith("Adjusted gap controls for function and level only") for n in r.notes)
+
+
+def test_regression_adjusted_gap_reports_both_controls_when_both_usable():
+    df = _tenure_confounded_df()
+    df["Age"] = [40 + i for i in range(10)] + [30 + i for i in range(10)]
+    r = _analyze(df, tenure_col="TenureYears", age_col="Age")
+    assert set(r.adjusted_controls_used) == {"tenure", "age"}

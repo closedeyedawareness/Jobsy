@@ -193,6 +193,13 @@ def _translate_note(note: str) -> str:
         return ("De gecorrigeerde loonkloof houdt alleen rekening met functie en niveau — niet met "
                 "dienstjaren, uren, prestaties of locatie. Een resterende kloof is aanleiding voor "
                 "onderzoek, geen bewijs van een ongerechtvaardigde kloof.")
+    m = re.match(r"Adjusted gap also controls for (.+) \(in addition to function and level\)", note)
+    if m:
+        _nl_ctrl = {"tenure": "dienstjaren", "age": "leeftijd"}
+        ctrls_nl = " en ".join(_nl_ctrl.get(c.strip(), c.strip()) for c in m.group(1).replace(" and ", ", ").split(", "))
+        return (f"De gecorrigeerde loonkloof houdt ook rekening met {ctrls_nl} (naast functie en niveau) "
+                "— niet met uren, prestaties of locatie. Een resterende kloof is aanleiding voor onderzoek, "
+                "geen bewijs van een ongerechtvaardigde kloof.")
     if note.startswith("The grade-assignment gap tests whether gender predicts"):
         return ("De niveau-indelingskloof toetst of geslacht het niveau zelf voorspelt (een statistisch "
                 "signaal uit reeds verzamelde data) — dit vervangt geen volledige functiewaardering "
