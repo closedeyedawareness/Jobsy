@@ -363,3 +363,115 @@ def future_skill_readiness(repo, assessments=None, *, emerging_role_threshold: i
         out.append(FutureSkillStatus(fs["name"], fs["source"], names, n_roles, n_holds, status))
     _rank = {"Not in catalogue": 0, "Missing": 1, "Emerging": 2, "Covered": 3}
     return sorted(out, key=lambda f: (_rank[f.status], -f.n_roles_requiring))
+
+
+# ── declared skills by department (from an uploaded workforce file) ─────────
+
+@dataclass(frozen=True)
+class DeclaredSkillRow:
+    skill_id: str
+    skill_name: str
+    total_holders: int
+    by_department: dict[str, float]   # department -> % of that dept's assessed people holding it
+
+
+@dataclass(frozen=True)
+class DeclaredSkillsHeatmap:
+    departments: tuple[tuple[str, int], ...]   # (name, headcount assessed), desc by headcount
+    rows: tuple[DeclaredSkillRow, ...]          # desc by total_holders
+
+
+def declared_skills_heatmap(
+    assessments_by_emp: dict, emp_department: dict, repo, *, max_skills: int = 18
+) -> DeclaredSkillsHeatmap:
+    """
+    Cross-tab of SELF-DECLARED skills (from an uploaded workforce/assessment file)
+    against department -- "who says they can do what, and where". Deliberately
+    separate from skill_demand/overlay_supply (which read the ROLE architecture):
+    this is what people claim about themselves, unresolved against any role
+    requirement. Declared is not validated -- render this labelled as such.
+
+    assessments_by_emp: {emp_key: {skill_id: level}} (session skill_assessments)
+    emp_department: {emp_key: department_name}, same keys as assessments_by_emp
+    """
+    dept_headcount: dict[str, int] = {}
+    dept_holders: dict[str, dict[str, int]] = {}
+    skill_total: dict[str, int] = {}
+    for emp, skills in assessments_by_emp.items():
+        dept = emp_department.get(emp) or "Unassigned"
+        dept_headcount[dept] = dept_headcount.get(dept, 0) + 1
+        for sid, lvl in skills.items():
+            if not lvl or lvl <= 0:
+                continue
+            bucket = dept_holders.setdefault(dept, {})
+            bucket[sid] = bucket.get(sid, 0) + 1
+            skill_total[sid] = skill_total.get(sid, 0) + 1
+
+    departments = tuple(sorted(dept_headcount.items(), key=lambda kv: -kv[1]))
+    top_skills = sorted(skill_total.items(), key=lambda kv: -kv[1])[:max_skills]
+    rows = []
+    for sid, total in top_skills:
+        name = repo.skills[sid].skill_name if sid in repo.skills else sid
+        by_dept = {}
+        for dept, headcount in departments:
+            n = dept_holders.get(dept, {}).get(sid, 0)
+            by_dept[dept] = round(100 * n / headcount, 0) if headcount else 0.0
+        rows.append(DeclaredSkillRow(sid, name, total, by_dept))
+    return DeclaredSkillsHeatmap(departments=departments, rows=tuple(rows))
+
+
+# ── shared-capability index: full matrix + redeployment narrative ──────────
+
+@dataclass(frozen=True)
+class RedeploymentLane:
+    a: str
+    b: str
+    cosine: float
+    top_skill: str | None
+
+
+@dataclass(frozen=True)
+class RedeploymentSummary:
+    functions: tuple[str, ...]                 # axis order for the matrix, desc by avg similarity
+    matrix: dict[tuple[str, str], float]       # (a,b) AND (b,a) populated; no self-pairs
+    top_lanes: tuple[RedeploymentLane, ...]
+    most_isolated: str | None
+    most_isolated_avg: float | None
+
+
+def redeployment_summary(repo, *, top_n: int = 3) -> RedeploymentSummary:
+    """
+    Full department x department shared-capability matrix (cosine, symmetric),
+    plus the synthesis a static overlap table can't give at a glance: the
+    strongest redeployment lanes (named by their biggest shared skill) and
+    which department is structurally most isolated -- the one whose specialist
+    skills have no natural backup anywhere else in the org.
+    """
+    overlaps = function_overlaps(repo)
+    prof = function_skill_profiles(repo)
+    fns = sorted(prof.keys())
+
+    matrix: dict[tuple[str, str], float] = {}
+    for o in overlaps:
+        matrix[(o.function_a, o.function_b)] = o.cosine
+        matrix[(o.function_b, o.function_a)] = o.cosine
+
+    avg_by_fn: dict[str, float] = {}
+    for f in fns:
+        vals = [matrix[(f, g)] for g in fns if g != f and (f, g) in matrix]
+        avg_by_fn[f] = sum(vals) / len(vals) if vals else 0.0
+
+    ordered_fns = tuple(sorted(fns, key=lambda f: -avg_by_fn.get(f, 0.0)))
+    most_isolated = min(avg_by_fn, key=lambda f: avg_by_fn[f]) if avg_by_fn else None
+
+    top = sorted(overlaps, key=lambda o: -o.cosine)[:top_n]
+    lanes = tuple(
+        RedeploymentLane(o.function_a, o.function_b, o.cosine,
+                        o.shared_skills[0] if o.shared_skills else None)
+        for o in top
+    )
+    return RedeploymentSummary(
+        functions=ordered_fns, matrix=matrix, top_lanes=lanes,
+        most_isolated=most_isolated,
+        most_isolated_avg=(round(avg_by_fn[most_isolated], 3) if most_isolated else None),
+    )

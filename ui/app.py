@@ -3655,6 +3655,54 @@ def skills_dashboard_page(catalog):
                    "(holders per skill, held-vs-required overlay on the wheel). Declared ≠ validated — "
                    "the source of each assessment matters and is carried through.")
 
+    # ── declared skills — from your file, by department ─────────────────
+    if _sa:
+        try:
+            from services.skills_dashboard_service import declared_skills_heatmap
+        except ImportError:
+            from jobsy.services.skills_dashboard_service import declared_skills_heatmap
+        _emp_dept = st.session_state.get("skill_assessment_departments") or {}
+        _hm = declared_skills_heatmap(_sa, _emp_dept, repo)
+        st.markdown(
+            f'<div style="display:inline-block;font-family:{FONT_MONO};font-size:10px;'
+            f'letter-spacing:.1em;text-transform:uppercase;color:{C["accent"]};'
+            f'border:1px solid {C["accent"]};border-radius:999px;padding:3px 10px;margin:18px 0 10px">'
+            f'● Declared skills · from your file</div>', unsafe_allow_html=True)
+        if not _emp_dept:
+            st.caption("No Department column recognised on the assessment upload — everyone is grouped "
+                       "under **Unassigned**. Re-upload with a Department/Team column to split this by team.")
+        _depts = _hm.departments
+        _maxpct = 1.0
+        _rows_html = []
+        for row in _hm.rows:
+            cells = "".join(
+                (lambda p: f'<div style="text-align:center;font-family:{FONT_MONO};font-size:11px;'
+                          f'font-weight:700;border-radius:8px;padding:6px 2px;'
+                          f'background:rgba(111,60,255,{0.06 + 0.85*(p/100):.3f});'
+                          f'color:{C["ink"] if p >= 25 else C["muted"]}">'
+                          f'{f"{p:.0f}%" if p > 0 else "·"}</div>')(row.by_department.get(d, 0.0))
+                for d, _ in _depts)
+            _rows_html.append(
+                f'<div style="display:grid;grid-template-columns:180px repeat({len(_depts)},1fr);'
+                f'gap:4px;align-items:center;padding:2px 0">'
+                f'<div style="font-size:12.5px;color:{C["ink"]}">{row.skill_name}'
+                f'<div style="font-family:{FONT_MONO};font-size:9.5px;color:{C["muted"]}">'
+                f'{row.total_holders} hold</div></div>{cells}</div>')
+        _header = (f'<div style="display:grid;grid-template-columns:180px repeat({len(_depts)},1fr);'
+                  f'gap:4px;margin-bottom:6px">' + '<div></div>' +
+                  ''.join(f'<div style="text-align:center;font-family:{FONT_MONO};font-size:10px;'
+                          f'letter-spacing:.04em;text-transform:uppercase;color:{C["muted"]}">{d}'
+                          f'<div style="font-weight:700;color:{C["ink"]};font-size:12px">{n}</div></div>'
+                          for d, n in _depts) + '</div>')
+        if _hm.rows:
+            st.markdown(f'<div style="overflow-x:auto">{_header}{"".join(_rows_html)}</div>',
+                       unsafe_allow_html=True)
+            st.caption("Each team's own top **declared** skills — cell = share of that team who declared it. "
+                       "Self-reported, not validated: pair with the Skills Assessment page's confidence "
+                       "levels before treating a gap as real.")
+        else:
+            st.caption("No declared skills to show yet.")
+
     # ── category treemap ───────────────────────────────────────────────
     _sizelab = ("people holding (assessments)" if _sa else "requirement instances (role × skill)")
     st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
@@ -3764,6 +3812,75 @@ def skills_dashboard_page(catalog):
                            "skill is a bridge a person can cross without starting over.")
             else:
                 st.caption("No shared skills — these functions currently have no direct corridor.")
+
+        # full symmetric matrix + redeployment-lane narrative, same overlap
+        # math as the table above, read at a glance instead of row by row.
+        try:
+            from services.skills_dashboard_service import redeployment_summary
+        except ImportError:
+            from jobsy.services.skills_dashboard_service import redeployment_summary
+        _rs = redeployment_summary(repo)
+        st.markdown(
+            f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.1em;'
+            f'text-transform:uppercase;color:{C["muted"]};margin:18px 0 8px">'
+            f'Shared-capability index · department × department</div>', unsafe_allow_html=True)
+        _fns = _rs.functions
+        _mcol1, _mcol2 = st.columns([1.6, 1])
+        with _mcol1:
+            _mheader = ('<div style="display:grid;grid-template-columns:120px '
+                       f'repeat({len(_fns)},1fr);gap:3px;margin-bottom:3px">' + '<div></div>' +
+                       ''.join(f'<div style="text-align:center;font-family:{FONT_MONO};font-size:9px;'
+                               f'color:{C["muted"]};writing-mode:vertical-rl;transform:rotate(180deg);'
+                               f'height:70px;padding-bottom:3px">{f}</div>' for f in _fns) + '</div>')
+            _mrows = []
+            _maxv = max([v for v in _rs.matrix.values()] or [1.0])
+            for a in _fns:
+                cells = []
+                for b in _fns:
+                    if a == b:
+                        cells.append(f'<div style="border-radius:6px;background:repeating-linear-gradient('
+                                     f'45deg,{C["line"]},{C["line"]} 3px,transparent 3px,transparent 6px);'
+                                     f'min-height:26px"></div>')
+                    else:
+                        v = _rs.matrix.get((a, b), 0.0)
+                        inten = min(1.0, v / _maxv) if _maxv else 0
+                        cells.append(
+                            f'<div style="text-align:center;font-family:{FONT_MONO};font-size:10.5px;'
+                            f'font-weight:700;border-radius:6px;padding:5px 2px;min-height:16px;'
+                            f'background:rgba(111,60,255,{0.05 + 0.85*inten:.3f});'
+                            f'color:{C["ink"] if inten >= 0.25 else C["muted"]}">'
+                            f'{f"{100*v:.0f}" if v > 0 else "·"}</div>')
+                _mrows.append(
+                    f'<div style="display:grid;grid-template-columns:120px repeat({len(_fns)},1fr);'
+                    f'gap:3px;align-items:center;margin:2px 0">'
+                    f'<div style="font-size:11.5px;color:{C["ink"]};text-align:right;padding-right:6px">{a}</div>'
+                    + ''.join(cells) + '</div>')
+            st.markdown(f'<div style="overflow-x:auto">{_mheader}{"".join(_mrows)}</div>',
+                       unsafe_allow_html=True)
+            st.caption("Shared capability % (skill-profile similarity) — higher = more overlap. "
+                       "▨ = same department (excluded, not zero).")
+        with _mcol2:
+            st.markdown(f'<div style="font-family:{FONT_MONO};font-size:10.5px;letter-spacing:.08em;'
+                        f'text-transform:uppercase;color:{C["teal"]};margin-bottom:6px">'
+                        f'Strongest redeployment lanes</div>', unsafe_allow_html=True)
+            for i, lane in enumerate(_rs.top_lanes, 1):
+                _skill_note = (f"Shared strength in <b>{lane.top_skill}</b> — cover and redeployment are "
+                               f"low-friction." if lane.top_skill else
+                               "A shared-skill base makes cover between them straightforward.")
+                st.markdown(
+                    f'<div style="margin-bottom:10px"><span style="font-family:{FONT_SERIF};'
+                    f'font-weight:700;color:{C["violet"]};margin-right:6px">{i}</span>'
+                    f'<b style="color:{C["ink"]}">{lane.a} ↔ {lane.b}</b>'
+                    f'<div style="font-size:12px;color:{C["muted"]};margin-top:2px">{_skill_note}</div></div>',
+                    unsafe_allow_html=True)
+            if _rs.most_isolated:
+                st.markdown(
+                    f'<div style="margin-top:10px;padding:10px 12px;border-radius:10px;'
+                    f'background:{C["surface"]};border:1px solid {C["danger"]}"> '
+                    f'<b style="color:{C["danger"]}">! {_rs.most_isolated} is the most isolated</b>'
+                    f'<div style="font-size:12px;color:{C["muted"]};margin-top:3px">It shares the least '
+                    f'capability with the rest of the business — its specialist skills have no natural '
+                    f'backup. Cross-train a second holder for each.</div></div>', unsafe_allow_html=True)
 
     # ── skills of the future — sourced overlay vs the org ──────────────
     st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
@@ -4016,6 +4133,16 @@ def skill_assessment_page(catalog):
         st.error("No valid skill data found. Check the file matches the template format."); return
 
     st.session_state["skill_assessments"] = assessments
+    # Department lives on the uploaded file itself, not on SkillAssessment --
+    # captured here (same emp_key so it joins back cleanly) so the Skills
+    # Dashboard's declared-skills-by-department view has somewhere to read it from.
+    _dept_col = next((c for c in df_sa.columns
+                      if c.lower() in ("department", "dept", "afdeling", "team", "business unit")), None)
+    if _dept_col:
+        st.session_state["skill_assessment_departments"] = {
+            emp_key(row): str(row[_dept_col]).strip()
+            for _, row in df_sa.iterrows() if str(row.get(_dept_col, "")).strip()
+        }
     st.success(f"✓ Loaded assessments for **{len(assessments)} people** covering "
                f"{max(len(v) for v in assessments.values())} skills each.")
     _show_assessment_preview(catalog, assessments)

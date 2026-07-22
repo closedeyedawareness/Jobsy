@@ -164,3 +164,78 @@ def test_future_readiness_counts_holders_from_assessments():
 
 def test_every_future_skill_has_a_source():
     assert all(f["source"] for f in FUTURE_SKILLS)
+
+
+from services.skills_dashboard_service import (
+    declared_skills_heatmap,
+    redeployment_summary,
+)
+
+
+def test_declared_skills_heatmap_computes_pct_per_department():
+    # 2 people in Finance (both hold S1), 1 person in Data (holds S1 and S3).
+    assessments = {
+        "e1": {"S1": 3}, "e2": {"S1": 4, "S2": 0}, "e3": {"S1": 2, "S3": 5},
+    }
+    emp_dept = {"e1": "Finance", "e2": "Finance", "e3": "Data"}
+    hm = declared_skills_heatmap(assessments, emp_dept, _Repo2())
+    depts = dict(hm.departments)
+    assert depts == {"Finance": 2, "Data": 1}
+    by_id = {r.skill_id: r for r in hm.rows}
+    assert by_id["S1"].total_holders == 3
+    assert by_id["S1"].by_department["Finance"] == 100.0   # 2/2
+    assert by_id["S1"].by_department["Data"] == 100.0      # 1/1
+    # S2 held by nobody (level 0 doesn't count) -- shouldn't even appear as a holder
+    assert "S2" not in by_id or by_id.get("S2") is None
+    assert by_id["S3"].by_department["Finance"] == 0.0     # nobody in Finance holds it
+    assert by_id["S3"].by_department["Data"] == 100.0
+
+
+def test_declared_skills_heatmap_respects_max_skills():
+    assessments = {f"e{i}": {"S1": 3} for i in range(3)}
+    assessments.update({f"f{i}": {"S2": 3} for i in range(2)})
+    emp_dept = {**{f"e{i}": "A" for i in range(3)}, **{f"f{i}": "B" for i in range(2)}}
+    hm = declared_skills_heatmap(assessments, emp_dept, _Repo2(), max_skills=1)
+    assert len(hm.rows) == 1 and hm.rows[0].skill_id == "S1"   # S1 has more holders
+
+
+def test_declared_skills_heatmap_unassigned_department_fallback():
+    hm = declared_skills_heatmap({"e1": {"S1": 3}}, {}, _Repo2())
+    assert dict(hm.departments) == {"Unassigned": 1}
+
+
+def test_redeployment_summary_matrix_is_symmetric_and_excludes_self():
+    rs = redeployment_summary(_Repo2())
+    assert rs.matrix[("Finance", "Data")] == rs.matrix[("Data", "Finance")]
+    assert ("Finance", "Finance") not in rs.matrix
+    assert set(rs.functions) == {"Finance", "Data"}
+
+
+def test_redeployment_summary_top_lanes_and_isolation():
+    rs = redeployment_summary(_Repo2(), top_n=1)
+    assert len(rs.top_lanes) == 1
+    lane = rs.top_lanes[0]
+    assert {lane.a, lane.b} == {"Finance", "Data"}
+    assert lane.top_skill == "Machine learning and AI"   # the one shared skill in this fixture
+    # Only two functions exist -- each is "most isolated" relative to the other,
+    # but the function must resolve to ONE of them without error.
+    assert rs.most_isolated in {"Finance", "Data"}
+    assert rs.most_isolated_avg == pytest.approx(lane.cosine)
+
+
+def test_redeployment_summary_isolation_picks_the_true_outlier():
+    # Three functions: A<->B share heavily, C shares nothing with either.
+    class _Job3:
+        def __init__(self, jid, function): self.job_id, self.function = jid, function
+    class _Repo3:
+        def __init__(self):
+            self.skills = {"S1": _Skill("S1", "Skill One", "Cat")}
+            self.jobs = {"J1": _Job3("J1", "A"), "J2": _Job3("J2", "B"), "J3": _Job3("J3", "C")}
+            self.role_skill_map = {
+                "J1": [_Req("S1", 3, "Core")],
+                "J2": [_Req("S1", 3, "Core")],
+                "J3": [],
+            }
+    rs = redeployment_summary(_Repo3())
+    assert rs.most_isolated == "C"
+    assert rs.most_isolated_avg == 0.0
