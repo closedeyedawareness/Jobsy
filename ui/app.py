@@ -1700,7 +1700,7 @@ def data_quality_page(catalog):
         st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None):
+def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, salary_already_fte=False):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
     (Function + Level + Gender + Salary), with no job-title matching or bands.
@@ -1724,7 +1724,7 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
 
     r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
                                gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
-                               tenure_col=tenure_col)
+                               tenure_col=tenure_col, salary_already_fte=salary_already_fte)
     if not r.has_gap:
         st.info(f"Need both men and women with pay to compute a gap (M n={r.n_m}, F n={r.n_f})."); return
 
@@ -1751,11 +1751,15 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
         f'<span style="color:{C["muted"]}">(M n={r.n_m}, F n={r.n_f}{_xnote})</span></div>',
         unsafe_allow_html=True)
     st.caption("Positive = women paid more (NL wetsvoorstel: (vrouw-man)/man). " +
-               ("Full-time-equivalent (base ÷ FTE)." if r.fte_normalised
-               else "⚠ No FTE column — part-time pay is not pro-rated, which tends to overstate the gap."))
+               ("Salary read as already full-time-equivalent (source-declared FT) — no extra pro-rating."
+                if salary_already_fte
+                else "Full-time-equivalent (base ÷ FTE)." if r.fte_normalised
+                else "⚠ No FTE column — part-time pay is not pro-rated, which tends to overstate the gap."))
 
     if adjusted_gap is not None:
-        ci = f" (95% CI {adjusted_ci[0]:+.1f}…{adjusted_ci[1]:+.1f}%)" if adjusted_ci else ""
+        import math as _math
+        _ci_ok = adjusted_ci and all(v is not None and not _math.isnan(v) for v in adjusted_ci)
+        ci = f" (95% CI {adjusted_ci[0]:+.1f}…{adjusted_ci[1]:+.1f}%)" if _ci_ok else ""
         sig = ("statistically significant" if r.adjusted_significant
                else "not statistically significant" if r.adjusted_significant is False else "significance n/a")
         direction = "more" if (adjusted_gap or 0) >= 0 else "less"
@@ -1790,7 +1794,9 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
                   else "not statistically significant" if r.grade_gap_significant is False else "significance n/a")
         gg_dir = "higher" if gg >= 0 else "lower"
         gg_col = C["danger"] if (r.grade_gap_significant and abs(gg) >= 0.5) else C["teal"]
-        gg_ci_txt = f" (95% CI {gg_ci[0]:+.2f}…{gg_ci[1]:+.2f})" if gg_ci else ""
+        import math as _math
+        _gg_ok = gg_ci and all(v is not None and not _math.isnan(v) for v in gg_ci)
+        gg_ci_txt = f" (95% CI {gg_ci[0]:+.2f}…{gg_ci[1]:+.2f})" if _gg_ok else ""
         st.markdown(
             f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
             f'border-left:3px solid {gg_col};border-radius:10px;padding:12px 14px;'
@@ -2006,9 +2012,22 @@ def pay_equity_page(catalog, service):
             _lg_tenure = _smart_detect(cols, {"tenure", "yearsofservice", "years of service", "dienstjaren",
                                               "startdate", "start date", "hiredate", "hire date", "indiensttreding"},
                                        ["tenure", "dienstjaren", "startdate", "hiredate"])
+            _lg_sal = _smart_detect(cols, _salkeys, _salcont)
+            # "FT salaris" (Dutch intake templates) means the column is ALREADY
+            # full-time-equivalent. Dividing it by FTE again double-corrects --
+            # part-timers (mostly women, in NL) get inflated pay and a real gap
+            # silently shrinks. Default from the column name; analyst can override.
+            _looks_fte = bool(_lg_sal) and bool(_re.search(r"(^|\W)(ft|fte|fulltime|full-time|voltijd)($|\W)",
+                                                            str(_lg_sal), _re.I))
+            _sal_reading = st.radio(
+                "How should the salary column be read?",
+                ["Already full-time-equivalent (do not divide by FTE)",
+                 "Actual paid salary (divide by FTE to compare)"],
+                index=(0 if _looks_fte else 1), key="lg_sal_reading", horizontal=False)
+            _already_fte = _sal_reading.startswith("Already")
             _render_leveled_gap(df, function_col=_fun_col, level_col=_lvl_col, gender_col=_lg_gender,
-                                salary_col=_smart_detect(cols, _salkeys, _salcont), fte_col=_lg_fte,
-                                tenure_col=_lg_tenure)
+                                salary_col=_lg_sal, fte_col=(None if _already_fte else _lg_fte),
+                                tenure_col=_lg_tenure, salary_already_fte=_already_fte)
             return
     title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",
                                      "functie", "functietitel", "role"}, ["title", "functie", "role"]) or cols[0]

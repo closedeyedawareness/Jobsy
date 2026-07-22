@@ -266,6 +266,7 @@ def analyze_gender_pay_gap(
     tenure_col: str | None = None,
     male_label: str = "M",
     female_label: str = "F",
+    salary_already_fte: bool = False,
 ) -> PayGapResult:
     """
     Compute the structural gender pay gap from a leveled grid.
@@ -280,7 +281,15 @@ def analyze_gender_pay_gap(
 
     d["_sal"] = pd.to_numeric(d[salary_col], errors="coerce")
     fte_normalised = False
-    if fte_col:
+    if salary_already_fte:
+        # The source declares the salary column ALREADY full-time-equivalent
+        # (e.g. Dutch intake templates' "FT salaris"). Dividing it by FTE
+        # again would double-correct -- inflating part-timers' pay, and since
+        # part-time skews female (esp. in NL), silently SHRINKING a real gap.
+        fte_normalised = True
+        notes.append("Salary supplied as full-time-equivalent by the source — "
+                     "no additional FTE pro-rating applied.")
+    elif fte_col:
         fte = pd.to_numeric(d[fte_col], errors="coerce")
         d["_sal"] = np.where((fte > 0), d["_sal"] / fte, d["_sal"])
         fte_normalised = True

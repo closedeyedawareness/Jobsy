@@ -100,6 +100,24 @@ def test_grade_gap_needs_numeric_levels():
     assert any("numeric/ordinal" in n for n in r.notes)
 
 
+def test_salary_already_fte_is_not_divided_again():
+    import pandas as _pd
+    # FT-equivalent salaries EQUAL by design; the woman works 0.5 FTE.
+    df = _pd.DataFrame([
+        {"Function": "P", "Level": "5", "Gender": "M", "Salary": 60000, "FTE": 1.0},
+        {"Function": "P", "Level": "5", "Gender": "F", "Salary": 60000, "FTE": 0.5},
+    ])
+    # Correct reading: salary is already FTE -> no gap.
+    right = _analyze(df, salary_already_fte=True)
+    assert right.fte_normalised is True
+    assert right.mean_gap_pct == pytest.approx(0.0, abs=0.1)
+    assert any("already" in n.lower() or "full-time-equivalent by the source" in n for n in right.notes)
+    # The old failure mode: dividing an already-FTE salary by FTE doubles the
+    # part-timer's pay -> a fake +100% "women paid more" distortion.
+    wrong = _analyze(df, fte_col="FTE")
+    assert wrong.mean_gap_pct == pytest.approx(-100.0, abs=0.5)
+
+
 def test_dutch_v_is_read_as_female_natively():
     # Dutch HR exports use M/V (Man/Vrouw). Before the alias fold, every "V"
     # row landed in "excluded (unknown gender)" and the analysis silently ran
