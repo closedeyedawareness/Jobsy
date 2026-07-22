@@ -1770,7 +1770,20 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
             f'{ci} — {sig}. The residual "unexplained" gap after controlling for function and level.</div>',
             unsafe_allow_html=True)
 
-    if r.grade_gap_levels is not None:
+    # The grade-assignment regression treats the level column as an ORDERED
+    # ladder. Some intake files (e.g. the pay-transparency basis-check
+    # template) use "categorie" as NOMINAL comparison-group numbers -- "all
+    # employees doing the same work share a group" -- where group 5 is not
+    # "higher" than group 3, just different work. Testing whether gender
+    # predicts a nominal group NUMBER is statistically meaningless, so let
+    # the analyst say which kind this column is instead of silently assuming.
+    _is_ladder = st.checkbox(
+        "Level/Categorie is an ordered ladder (higher number = more senior) — enables the grade-assignment check",
+        value=True, key="lg_level_is_ordinal",
+        help="Untick for files where the category is a comparison-GROUP number "
+             "(same work grouped together, numbers carry no rank). The pay-gap "
+             "figures above are unaffected either way.")
+    if r.grade_gap_levels is not None and _is_ladder:
         gg = flip_gap_sign(r.grade_gap_levels)          # positive = women sit at a HIGHER level, on this display
         gg_ci = flip_gap_ci(r.grade_gap_ci)
         gg_sig = ("statistically significant" if r.grade_gap_significant
@@ -1790,6 +1803,10 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
             f'assumed. A significant gap here is reason to commission a full job-evaluation review '
             f'(skills, effort, responsibility, working conditions), not proof of one on its own.</div>',
             unsafe_allow_html=True)
+    elif r.grade_gap_levels is not None and not _is_ladder:
+        st.caption("Grade-assignment check hidden — level read as nominal comparison groups "
+                   "(numbers carry no rank), so a \"sits higher/lower\" test doesn't apply. "
+                   "Representation per group below still shows where women sit.")
 
     if r.n_cohorts_tested:
         bcol = C["danger"] if r.n_cohorts_flagged else C["teal"]
@@ -1970,8 +1987,9 @@ def pay_equity_page(catalog, service):
                                     "functiefamilie", "discipline", "vakgebied"},
                              ["function", "functie", "family", "discipline"])
     _lvl_col = _smart_detect(cols, {"level", "niveau", "grade", "joblevel", "job level", "career level",
-                                    "functieniveau", "schaal", "salarisschaal"},
-                             ["level", "niveau", "grade", "schaal"])
+                                    "functieniveau", "schaal", "salarisschaal",
+                                    "categorie", "category", "werknemerscategorie", "functiegroep"},
+                             ["level", "niveau", "grade", "schaal", "categorie", "category"])
     if _fun_col and _lvl_col:
         _mode = st.radio(
             "This file is already leveled (Function + Level detected) — how should Pay Equity read it?",
