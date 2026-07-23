@@ -70,6 +70,7 @@ except ImportError:
     def info_tile(*a,**k): return ""
 
 from core.repository import Repository
+from services.assessment_service import service_for_assessments
 from services.benefits_service import BenefitsService
 from services.export_service import ExportService
 from services.matching_service import MatchingService
@@ -4149,9 +4150,152 @@ def skill_assessment_page(catalog):
             emp_key(row): str(row[_dept_col]).strip()
             for _, row in df_sa.iterrows() if str(row.get(_dept_col, "")).strip()
         }
+    # The person's current job title, captured the same way. This is what lets
+    # AssessmentService resolve someone to their OWN role -- without it the page
+    # can only answer "ready for the role you picked", never "how are they doing
+    # in the job they already have".
+    _title_col = next((c for c in df_sa.columns
+                       if c.lower().replace(" ", "").replace("_", "") in (
+                           "currentrole", "currenttitle", "jobtitle", "title",
+                           "role", "functie", "functienaam")), None)
+    if _title_col:
+        st.session_state["skill_assessment_titles"] = {
+            emp_key(row): str(row[_title_col]).strip()
+            for _, row in df_sa.iterrows() if str(row.get(_title_col, "")).strip()
+        }
     st.success(f"✓ Loaded assessments for **{len(assessments)} people** covering "
                f"{max(len(v) for v in assessments.values())} skills each.")
     _show_assessment_preview(catalog, assessments)
+
+
+def _render_own_role_coverage(catalog, assessments, selected):
+    """Coverage against the person's OWN role, plus their next career step.
+
+    Everything below comes from AssessmentService, which joins SkillAssessment to
+    RoleSkillRequirement. Two things differ from the target-role analysis further
+    down the page: coverage is weighted by required level (a Core-5 gap counts for
+    more than an Adjacent-2, where a flat count treats them alike), and the next
+    role comes from the CareerStep already in the library rather than from a guess.
+    """
+    titles = st.session_state.get("skill_assessment_titles") or {}
+    try:
+        svc = service_for_assessments(catalog, assessments, titles=titles, source="self")
+        cov  = svc.coverage_for_employee(selected)
+        opps = svc.career_opportunities(selected)
+    except Exception as exc:                       # never take the page down
+        import logging
+        logging.getLogger("jobsy").warning(
+            "Own-role coverage unavailable for %r: %s", selected, exc)
+        return
+
+    st.markdown(
+        f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+        f'text-transform:uppercase;color:{C["muted"]};margin:18px 0 8px">'
+        f'Against their own role</div>', unsafe_allow_html=True)
+
+    if not cov.job_id:
+        _t = titles.get(selected, "")
+        st.markdown(
+            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
+            f'border-radius:12px;padding:14px 16px;color:{C["muted"]};font-size:13px">'
+            + (f'No role in the library matches <b>{_t}</b>, so there is nothing to '
+               f'measure them against. Use the target-role analysis below.'
+               if _t else
+               'This file carries no current-role column, so people can only be '
+               'measured against a role you pick. Add a <b>CurrentRole</b> column '
+               'to see coverage against the job they already hold.')
+            + '</div>', unsafe_allow_html=True)
+        return
+
+    if not cov.gaps:
+        # A role with no requirements in the library scores 1.0 by definition.
+        # Showing that as "100% covered" would be the exact overclaim this page exists
+        # to avoid, so say what's actually true instead.
+        st.markdown(
+            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
+            f'border-radius:12px;padding:14px 16px;color:{C["muted"]};font-size:13px">'
+            f'<b>{cov.job_title}</b> has no skill requirements defined in the reference '
+            f'library, so there is nothing to measure coverage against. This is a gap in '
+            f'the job architecture, not a finding about this person.</div>',
+            unsafe_allow_html=True)
+        return
+
+    # How much of the role we actually have a reading on. Coverage without this is
+    # unreadable: 11% of a role you have one data point for is not a low score, it's
+    # an absent measurement, and the two must never look the same.
+    n_req      = len(cov.gaps)
+    n_assessed = sum(1 for g in cov.gaps if g.current_level > 0)
+    measured   = n_assessed / n_req
+    thin       = measured < 0.5
+
+    pct   = round(cov.coverage * 100)
+    ccol  = C["muted"] if thin else (C["teal"] if pct >= 80 else (C["amber"] if pct >= 55 else C["clay"]))
+    conf  = [g.confidence for g in cov.gaps if g.current_level > 0]
+    avg_c = round(sum(conf) / len(conf), 2) if conf else 0.0
+    core_open = sum(1 for g in cov.open_gaps if g.skill_type == "Core")
+
+    st.caption(f"Measured against **{cov.job_title}** — the role resolved from their own title.")
+    st.markdown(
+        f'<div style="display:flex;gap:10px;margin:8px 0 4px">'
+        f'<div style="flex:1;background:{C["surface"]};border:1px solid {C["line"]};border-radius:14px;'
+        f'padding:14px 10px;text-align:center">'
+        f'<div style="font-family:{FONT_MONO};font-weight:600;font-size:26px;color:{ccol}">{pct}%</div>'
+        f'<div style="font-family:{FONT_MONO};font-size:10px;color:{C["muted"]};letter-spacing:.1em">'
+        f'ROLE COVERAGE</div></div>'
+        f'{_stat_card(f"{n_assessed}/{n_req}", "Requirements Read", C["clay"] if thin else C["teal"])}'
+        f'{_stat_card(core_open, "Core Gaps", C["clay"] if core_open else C["teal"])}'
+        f'{_stat_card(avg_c, "Confidence", C["muted"])}'
+        f'</div>', unsafe_allow_html=True)
+
+    if thin:
+        st.warning(
+            f"**Read this as an absent measurement, not a low score.** Only "
+            f"{n_assessed} of {cov.job_title}'s {n_req} required skills have any "
+            f"assessment behind them; the other {n_req - n_assessed} have never been "
+            f"rated, and an unrated skill counts as zero. Capture assessments against "
+            f"the skill catalogue — using the template above — before reading the "
+            f"percentage as capability."
+        )
+    else:
+        st.caption(
+            "Coverage is weighted by required level, so a Core-5 shortfall counts for more "
+            "than an Adjacent-2. Confidence is the mean across assessed skills — self-rated "
+            "readings sit at 0.5 and only rise when someone validates them."
+        )
+
+    for o in opps:
+        rpct  = round(o.readiness * 100)
+        o_read = sum(1 for g in o.gaps if g.current_level > 0)
+        o_thin = bool(o.gaps) and (o_read / len(o.gaps)) < 0.5
+        rcol  = C["muted"] if o_thin else (C["teal"] if o.ready else C["amber"])
+        state = ("too little assessed to say" if o_thin
+                 else ("Ready now" if o.ready else f"{len(o.open_gaps)} to close"))
+        st.markdown(
+            f'<div style="background:{C["surface"]};border:1px solid {C["line"]};'
+            f'border-left:4px solid {rcol};border-radius:12px;padding:12px 14px;margin:10px 0 0">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center">'
+            f'<div><div style="font-family:{FONT_MONO};font-size:10px;color:{C["muted"]};'
+            f'letter-spacing:.1em">NEXT STEP</div>'
+            f'<div style="font-family:{FONT_SANS};font-size:14px;font-weight:600;color:{C["ink"]}">'
+            f'{o.to_title}</div></div>'
+            f'<span style="font-family:{FONT_MONO};font-size:11px;font-weight:600;'
+            f'background:{rcol}1A;color:{rcol};border-radius:999px;padding:3px 10px">'
+            + (state if o_thin else f'{rpct}% · {state}')
+            + '</span></div></div>', unsafe_allow_html=True)
+        if o.open_gaps:
+            with st.expander(f"What stands between them and {o.to_title}"):
+                st.markdown("".join(
+                    f'<div style="display:flex;justify-content:space-between;padding:6px 0;'
+                    f'border-bottom:1px solid {C["line"]};font-size:13px;color:{C["ink"]}">'
+                    f'<span>{g.skill_name} '
+                    f'<span style="font-family:{FONT_MONO};font-size:10px;color:{C["muted"]}">'
+                    f'{g.skill_type}</span></span>'
+                    f'<span style="font-family:{FONT_MONO};font-size:11px;color:{C["amber"]}">'
+                    f'{g.current_level} → {g.required_level}</span></div>'
+                    for g in o.open_gaps), unsafe_allow_html=True)
+
+    if not opps:
+        st.caption("No onward career step is defined for this role in the library.")
 
 
 def _show_assessment_preview(catalog, assessments):
@@ -4178,6 +4322,8 @@ def _show_assessment_preview(catalog, assessments):
         f'<div style="font-size:24px;font-weight:700;color:{C["blue"]}">{avg_level}</div>'
         f'<div style="font-family:{FONT_MONO};font-size:10px;color:{C["muted"]};letter-spacing:.1em">AVG LEVEL</div></div>'
         f'</div>', unsafe_allow_html=True)
+
+    _render_own_role_coverage(catalog, assessments, selected)
 
     # target role selector
     all_jobs = sorted(catalog.repository.jobs.values(), key=lambda j:(j.function,j.standard_title))

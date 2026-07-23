@@ -27,7 +27,16 @@ from typing import Optional
 import logging
 logger = logging.getLogger('jobsy')
 
-__all__ = ["SkillGap", "EmployeeCoverage", "CareerOpportunity", "AssessmentService"]
+from core.models import Employee, SkillAssessment
+
+__all__ = ["SkillGap", "EmployeeCoverage", "CareerOpportunity", "AssessmentService",
+           "DEFAULT_CONFIDENCE", "service_for_assessments"]
+
+
+# A self-rating and a validated one are not the same fact. These are the weights
+# the rest of the system reads as "how much of this picture is earned" -- they are
+# the only reason `confidence` is a dial rather than a constant.
+DEFAULT_CONFIDENCE = {"self": 0.5, "manager": 0.75, "validated": 0.95}
 
 
 # ------------------------------------------------------------------ result types
@@ -209,3 +218,77 @@ class AssessmentService:
             "avg_confidence": avg_conf,
             "open_gaps": sum(1 for g in all_gaps if g.gap > 0),
         }
+
+
+# ------------------------------------------------------- session/upload bridge
+class _OverlayRepository:
+    """A read-only view of the reference repository with an uploaded cohort's
+    people and assessments laid over it.
+
+    Uploaded assessments live in the UI session, not in the reference workbook,
+    and the two must not be confused: mutating the shared repository would leak
+    one client's file into every other view. Everything except `employees` and
+    `skill_assessments` proxies straight through to the real repository, so the
+    canonical taxonomy, role requirements and career steps stay authoritative.
+    """
+
+    def __init__(self, base, employees, skill_assessments) -> None:
+        self._base = base
+        self.employees = employees
+        self.skill_assessments = skill_assessments
+
+    def __getattr__(self, name):          # only called for attrs not set above
+        return getattr(self._base, name)
+
+
+class _OverlayCatalog:
+    """Catalog whose `.repository` is the overlay; everything else is the real one."""
+
+    def __init__(self, base, repository) -> None:
+        self._base = base
+        self.repository = repository
+
+    def __getattr__(self, name):
+        return getattr(self._base, name)
+
+
+def service_for_assessments(catalog, assessments, *, titles=None, source="self",
+                            confidence=None, assessed_at="", matcher=None) -> AssessmentService:
+    """Build an AssessmentService over assessments captured from an upload.
+
+    `assessments` is the shape the assessment page already produces --
+    ``{employee_key: {skill_id: level}}`` -- and `titles` maps the same keys to
+    the person's current job title, which is what lets the service resolve each
+    person to their *own* role rather than making someone pick one from a list.
+
+    A key with no title falls back to the reference repository's employee record
+    if one exists under that key, so this works for both an uploaded cohort and
+    the built-in demo data.
+    """
+    repo = getattr(catalog, "repository", None)
+    if repo is None:
+        raise ValueError("service_for_assessments needs a Catalog with a .repository")
+
+    titles = titles or {}
+    conf = DEFAULT_CONFIDENCE.get(source, 0.5) if confidence is None else float(confidence)
+
+    employees: dict[str, Employee] = {}
+    rows: dict[str, list[SkillAssessment]] = {}
+
+    for key, skills in (assessments or {}).items():
+        known = repo.employees.get(key)
+        title = (titles.get(key) or (known.current_title if known else "") or "").strip()
+        employees[key] = Employee(
+            employee_id=key,
+            name=(known.name if known else key),
+            current_title=title,
+        )
+        rows[key] = [
+            SkillAssessment(employee_id=key, skill_id=sid, current_level=int(level),
+                            source=source, confidence=conf, assessed_at=assessed_at)
+            for sid, level in (skills or {}).items()
+            if level is not None and int(level) > 0
+        ]
+
+    overlay = _OverlayRepository(repo, employees, rows)
+    return AssessmentService(_OverlayCatalog(catalog, overlay), matcher=matcher)

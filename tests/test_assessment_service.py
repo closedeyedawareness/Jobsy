@@ -10,7 +10,8 @@ import pandas as pd
 import pytest
 
 from core.repository import Repository
-from services.assessment_service import AssessmentService
+from services.assessment_service import (
+    DEFAULT_CONFIDENCE, AssessmentService, service_for_assessments)
 
 
 class _Cat:
@@ -86,3 +87,82 @@ def test_team_summary(repo):
     # An unmeasured skill honestly carries zero confidence.
     assert s["avg_confidence"] == pytest.approx(1 / 3, abs=1e-3)
     assert s["open_gaps"] == 1
+
+
+# ------------------------------------------------------- the upload/session bridge
+# The assessment page holds {employee_key: {skill_id: level}} in session state,
+# keyed by a display string and carrying no source/confidence. These cover the
+# bridge that presents that shape to the service without touching the reference
+# repository.
+
+def test_bridge_resolves_each_person_to_their_own_role(repo):
+    svc = service_for_assessments(
+        _Cat(repo),
+        {"Ada Lovelace (E9)": {"SK-PY": 4, "SK-SQL": 2}},
+        titles={"Ada Lovelace (E9)": "Junior Software Engineer"})
+    cov = svc.coverage_for_employee("Ada Lovelace (E9)")
+    assert cov.job_id == "J-JSE"                 # resolved from the title, not picked from a list
+    assert cov.coverage == pytest.approx(5 / 7, abs=1e-3)
+    assert {g.skill_id: g.gap for g in cov.open_gaps} == {"SK-COMM": 2}
+
+
+def test_bridge_does_not_mutate_the_reference_repository(repo):
+    before_emps = dict(repo.employees)
+    before_rows = {k: list(v) for k, v in repo.skill_assessments.items()}
+    service_for_assessments(_Cat(repo), {"Someone New": {"SK-PY": 5}},
+                            titles={"Someone New": "Software Engineer"})
+    assert repo.employees == before_emps
+    assert {k: list(v) for k, v in repo.skill_assessments.items()} == before_rows
+    assert "Someone New" not in repo.employees
+
+
+def test_bridge_confidence_follows_the_source(repo):
+    people = {"P": {"SK-PY": 3}}
+    titles = {"P": "Junior Software Engineer"}
+    for source, expected in DEFAULT_CONFIDENCE.items():
+        svc = service_for_assessments(_Cat(repo), people, titles=titles, source=source)
+        py = next(g for g in svc.coverage_for_employee("P").gaps if g.skill_id == "SK-PY")
+        assert py.confidence == pytest.approx(expected)
+    # an explicit override still wins
+    svc = service_for_assessments(_Cat(repo), people, titles=titles, confidence=0.9)
+    py = next(g for g in svc.coverage_for_employee("P").gaps if g.skill_id == "SK-PY")
+    assert py.confidence == pytest.approx(0.9)
+
+
+def test_bridge_gives_career_opportunity_through_the_overlay(repo):
+    svc = service_for_assessments(
+        _Cat(repo),
+        {"P": {"SK-PY": 4, "SK-SQL": 2}},
+        titles={"P": "Junior Software Engineer"})
+    opps = svc.career_opportunities("P")
+    assert len(opps) == 1 and opps[0].to_job_id == "J-SE"
+    assert opps[0].ready is False
+    assert opps[0].readiness == pytest.approx(6 / 10, abs=1e-3)
+
+
+def test_bridge_falls_back_to_the_reference_employee_title(repo):
+    # No title supplied, but E1 exists in the reference workbook.
+    svc = service_for_assessments(_Cat(repo), {"E1": {"SK-PY": 4}})
+    assert svc.coverage_for_employee("E1").job_id == "J-JSE"
+
+
+def test_bridge_drops_unrated_skills(repo):
+    svc = service_for_assessments(
+        _Cat(repo), {"P": {"SK-PY": 4, "SK-SQL": 0, "SK-COMM": None}},
+        titles={"P": "Junior Software Engineer"})
+    cov = svc.coverage_for_employee("P")
+    held = {g.skill_id: g.current_level for g in cov.gaps}
+    assert held["SK-PY"] == 4
+    assert held["SK-SQL"] == 0 and held["SK-COMM"] == 0   # unrated reads as unassessed, not as zero skill
+    assert next(g for g in cov.gaps if g.skill_id == "SK-SQL").confidence == 0.0
+
+
+def test_bridge_team_summary_covers_the_uploaded_cohort_only(repo):
+    svc = service_for_assessments(
+        _Cat(repo),
+        {"A": {"SK-PY": 4, "SK-SQL": 2, "SK-COMM": 2},
+         "B": {"SK-PY": 1}},
+        titles={"A": "Junior Software Engineer", "B": "Junior Software Engineer"})
+    s = svc.team_summary()
+    assert s["employees_matched"] == 2          # E1 from the reference file is not counted
+    assert s["open_gaps"] == 3                  # A fully covered; B short on all three
