@@ -15,3 +15,7 @@ env/
 
 # OS / editor
 .DS_Store
+docs/delivery-log.*
+provenance-inventory.*
+jobsy_reference_library.backup-*.xlsx
+jobsy_reference_library.pre-*.xlsx
