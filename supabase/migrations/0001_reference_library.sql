@@ -489,6 +489,10 @@ alter table orgs               enable row level security;
 alter table library_revisions  enable row level security;
 alter table library_audit      enable row level security;
 
--- The audit trail is append-only even for roles that can reach it: no update
--- or delete grant exists anywhere, and the trigger writes as security definer.
+-- WRONG, and left here as the record: this revoke does nothing. Supabase grants
+-- every privilege on a new table to anon, authenticated, service_role and
+-- postgres EXPLICITLY, so removing a grant from `public` leaves all four with
+-- DELETE and TRUNCATE. service_role — what the importer authenticates as —
+-- could erase the trail. Corrected in 0003, which revokes from the roles by
+-- name and proves it by trying as service_role.
 revoke update, delete on library_audit from public;
