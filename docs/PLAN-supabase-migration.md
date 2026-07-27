@@ -3,7 +3,38 @@
 **Roadmap item:** Phase 0.1 + 0.2 (governed DB as master, record-level provenance).
 **Goal:** Make the reference library a governed, versioned, auditable database — the real
 single source of truth — **without rewriting the app.**
-Status: Proposed · Effort: ~3–4 weeks · Owner: Eng
+Status: W1 schema authored (unapplied) · Effort: ~3–4 weeks · Owner: Eng
+
+---
+
+## 0. Checked against the code, 2026-07-27
+
+Four corrections from verifying this plan's assumptions before building W1:
+
+- **20 tables, not 16.** `SHEET_MAP` in `core/catalog.py` is the authoritative list of what the
+  app consumes: 20 sheets, of 27 in the workbook. The 7 it never reads — CareerBands,
+  LevelCriteria, PayElements, PayMix, SalarySources, BenefitsSources, DataDictionary — are
+  deliberately not tabled in `0001`, because a table the loader never produces a frame for is a
+  table that silently rots. They need their own decision, not a default.
+- **The provenance block already exists, in Excel.** Every reference sheet carries `Owner`,
+  `Status`, `EffectiveFrom`, `Source` and `UpdatedAt`, populated for essentially every row.
+  §3's provenance columns are not new governance — they are somebody's hand-kept trail, and
+  `0001` adopts the names 1:1 so the importer is a straight mapping and nothing recorded is lost.
+- **`Employees` is customer data, not reference data.** It is the one sheet with no governance
+  columns and zero rows. It stays in the schema because `SHEET_MAP` loads it, but it is the
+  table that will hold personal data and therefore the one where RLS stops being theoretical.
+- **Confirmed: no Jobsy Supabase project exists** (only `Solstice-Player` and `Research Agent`).
+  A new project on this org costs **$10/month** — W1 step 1 is a spend decision, not a task.
+
+**One design change from §3.** The plan's provenance block implies versioned rows. `0001` keeps
+**one row per natural key**, with history in an append-only `library_audit` table written by
+trigger, because a foreign key requires a full unique constraint on its target and duplicate
+historical rows make one impossible — costing exactly the referential integrity §3 exists to
+gain. Snapshot versioning is `library_revisions`.
+
+**Not yet verified: the SQL has never been executed.** There is no local Postgres or Docker on
+this machine and no project to apply it to, so `0001` is reviewed and structurally checked but
+unrun. First application is the real test.
 
 ---
 
