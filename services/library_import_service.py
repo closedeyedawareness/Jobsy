@@ -91,7 +91,13 @@ SPECS: list[TableSpec] = [
         "Characteristics": "characteristics"}),
 
     # No foreign keys of their own.
-    TableSpec("Levels", "levels", ("level",), {"Level": "level", "Order": "order"}),
+    # sort_order, not "order": see 0004 — the reserved word collided with
+    # PostgREST's own ordering parameter.
+    TableSpec("Levels", "levels", ("level",), {"Level": "level", "Order": "sort_order"}),
+    TableSpec("PayElements", "pay_elements", ("element_id",), {
+        "ElementID": "element_id", "Name": "name", "Category": "category", "Basis": "basis",
+        "TypicalValue": "typical_value", "StatutoryNL": "statutory_nl", "Taxable": "taxable",
+        "Description": "description"}),
     TableSpec("Categories", "categories", ("category",), {
         "Category": "category", "Function": "function", "Description": "description"}),
     TableSpec("Employees", "employees", ("employee_id",), {
@@ -138,6 +144,13 @@ SPECS: list[TableSpec] = [
     TableSpec("RoleSkillMap", "role_skill_map", ("job_id", "skill_id"), {
         "JobID": "job_id", "SkillID": "skill_id", "RequiredLevel": "required_level",
         "SkillType": "skill_type"}),
+
+    # References salary_bands on (function, level) — must follow it.
+    TableSpec("PayMix", "pay_mix", ("function", "level"), {
+        "Function": "function", "Level": "level",
+        "TargetVariablePct": "target_variable_pct",
+        "ThirteenthMonthPct": "thirteenth_month_pct",
+        "LTIEligible": "lti_eligible", "Notes": "notes"}),
 
     # Reference industries.
     TableSpec("IndustrySalaryFactors", "industry_salary_factors", ("industry_id", "function"), {

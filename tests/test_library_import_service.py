@@ -110,7 +110,8 @@ def test_specs_are_in_dependency_order():
     """A table may only be written after every table it references."""
     parents = {"job_profiles": ["jobs"], "title_mapping": ["jobs"], "career_paths": ["jobs"],
                "role_skill_map": ["jobs", "skills"], "industry_salary_factors": ["industries"],
-               "industry_skills": ["industries"], "benefits_observations": ["industries"]}
+               "industry_skills": ["industries"], "benefits_observations": ["industries"],
+               "pay_mix": ["salary_bands"]}
     order = [s.table for s in SPECS]
     for child, needed in parents.items():
         for parent in needed:
@@ -123,7 +124,31 @@ def test_dry_run_over_the_real_workbook_maps_every_sheet_and_drops_nothing_unexp
     assert report.total > 2000
     # Only TitleMapping's three known duplicate rows should be dropped.
     assert report.dropped == {"title_mapping": 3}, report.dropped
-    # The seven sheets the app has never consumed stay unimported, deliberately.
+    # PayElements and PayMix ARE imported as of 0004 — the variable-pay exposure
+    # analysis reads PayMix, so leaving it in the workbook would leave that
+    # feature depending on a file that is no longer the master.
+    assert report.rows["pay_mix"] == 45
+    assert report.rows["pay_elements"] == 7
+    # What remains unimported is what the app genuinely never reads.
     assert set(report.skipped_sheets) == {
-        "BenefitsSources", "CareerBands", "DataDictionary", "LevelCriteria",
-        "PayElements", "PayMix", "SalarySources"}
+        "BenefitsSources", "CareerBands", "DataDictionary",
+        "LevelCriteria", "SalarySources"}
+
+
+def test_pay_mix_covers_exactly_the_salary_band_cohorts():
+    """0004 makes this a foreign key. If the two sheets ever diverge the import
+    fails at the database, so the mismatch should surface here first."""
+    import pandas as _pd
+    xl = _pd.ExcelFile("jobsy_reference_library.xlsx")
+    payload, _ = build_rows({"PayMix": xl.parse("PayMix"), "SalaryBands": xl.parse("SalaryBands")},
+                            org_id=ORG, revision_id=None, source="import:test.xlsx")
+    mix = {(r["function"], r["level"]) for r in payload["pay_mix"]}
+    bands = {(r["function"], r["level"]) for r in payload["salary_bands"]}
+    assert mix <= bands, f"PayMix cohorts with no salary band: {sorted(mix - bands)}"
+
+
+def test_levels_maps_to_sort_order_not_the_reserved_word():
+    payload, _ = _rows(_book(Levels=[{"Level": "Junior", "Order": 1}]))
+    row = payload["levels"][0]
+    assert row["sort_order"] == 1
+    assert "order" not in row
