@@ -1577,6 +1577,47 @@ def _dq_frames(path):
     return _pd.read_excel(path, sheet_name=["Jobs", "TitleMapping"], dtype=str)
 
 
+# How old a sheet may get before the scorecard stops calling it current. Salary
+# and benchmark data is the reason there is a threshold at all: a band nobody
+# has revisited in a year is not wrong in any way validation can see, and is
+# still the thing most likely to be quietly out of date.
+FRESH_DAYS = 90
+STALE_DAYS = 365
+
+
+@st.cache_data(show_spinner=False)
+def _dq_freshness(path):
+    """Per-sheet UpdatedAt / Source coverage, straight from the workbook.
+
+    Every sheet but Employees and DataDictionary carries UpdatedAt and Source
+    columns, populated for essentially every row — a provenance trail already
+    being kept by hand and, until now, read by nothing. Reading the whole
+    workbook is what it costs to see all of it; st.cache_data means once.
+    """
+    import pandas as _pd
+    out = []
+    try:
+        book = _pd.read_excel(path, sheet_name=None)
+    except Exception:
+        return out
+    for sheet, df in book.items():
+        if df is None or len(df) == 0:
+            out.append({"sheet": sheet, "rows": 0, "updated_pct": None,
+                        "source_pct": None, "newest": None})
+            continue
+        def _cov(col):
+            return round(df[col].notna().mean() * 100) if col in df.columns else None
+        newest = None
+        if "UpdatedAt" in df.columns:
+            dates = _pd.to_datetime(df["UpdatedAt"], errors="coerce").dropna()
+            if len(dates):
+                newest = dates.max().date()
+        out.append({"sheet": sheet, "rows": len(df),
+                    "updated_pct": _cov("UpdatedAt"), "source_pct": _cov("Source"),
+                    "newest": newest})
+    return out
+
+
 def data_quality_page(catalog):
     """Live data-quality scorecard for the reference library."""
     repo = catalog.repository
@@ -1678,6 +1719,88 @@ def data_quality_page(catalog):
                   f'<span style="color:{C["ink"]}">{label}</span>'
                   f'<span style="color:{C["muted"]};font-size:12px">{("— "+detail) if detail else ""}</span></div>')
     st.markdown(crows, unsafe_allow_html=True)
+
+    # ── validator report ────────────────────────────────────────────────
+    # The checks above are hand-derived and role-shaped. This is the Validator
+    # the Repository actually gates the load on — errors never reach here (they
+    # raise), so what shows is its warnings, which used to be log-only.
+    report = getattr(repo, "validation", None)
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:18px 0 8px">Validator</div>',
+                unsafe_allow_html=True)
+    if report is None:
+        st.caption("This library was built with validation disabled — no report to show.")
+    elif report.warnings:
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:10px;margin:4px 0;font-size:13px">'
+            f'<span style="color:{C["amber"]};font-weight:700">!</span>'
+            f'<span style="color:{C["ink"]}">Loaded with {len(report.warnings)} warning'
+            f'{"s" if len(report.warnings) != 1 else ""}</span></div>', unsafe_allow_html=True)
+        with st.expander(f"Validator warnings ({len(report.warnings)})"):
+            for w in report.warnings:
+                st.markdown(f"- {w}")
+    else:
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:10px;margin:4px 0;font-size:13px">'
+            f'<span style="color:{C["teal"]};font-weight:700">✓</span>'
+            f'<span style="color:{C["ink"]}">Passed with no warnings</span></div>',
+            unsafe_allow_html=True)
+
+    # ── freshness ───────────────────────────────────────────────────────
+    # Coverage says a field is filled in. It cannot say whether what is in it is
+    # still true. UpdatedAt is the only thing in the library that can, so it is
+    # worth reading even when — as now — the answer is mostly reassuring.
+    import datetime as _dt
+    fresh = _dq_freshness(WORKBOOK_PATH)
+    dated = [r for r in fresh if r["newest"] is not None]
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:18px 0 8px">Freshness</div>',
+                unsafe_allow_html=True)
+    if not dated:
+        st.caption("No UpdatedAt dates could be read from the workbook.")
+    else:
+        today = _dt.date.today()
+        ages = {r["sheet"]: (today - r["newest"]).days for r in dated}
+        last_touched = {r["sheet"]: r["newest"] for r in dated}
+        oldest_sheet = max(ages, key=ages.get)
+        stale = sorted([s for s, a in ages.items() if a > STALE_DAYS], key=lambda s: -ages[s])
+        ageing = sorted([s for s, a in ages.items() if FRESH_DAYS < a <= STALE_DAYS],
+                        key=lambda s: -ages[s])
+        no_date = [r["sheet"] for r in fresh if r["newest"] is None and r["rows"] > 0]
+
+        fcol = C["danger"] if stale else (C["amber"] if ageing else C["teal"])
+        ftiles = [("Oldest sheet", f"{ages[oldest_sheet]}d", fcol),
+                  (f"Ageing (>{FRESH_DAYS}d)", str(len(ageing)), C["amber"] if ageing else C["ink"]),
+                  (f"Stale (>{STALE_DAYS}d)", str(len(stale)), C["danger"] if stale else C["ink"]),
+                  ("Undated sheets", str(len(no_date)), C["amber"] if no_date else C["ink"])]
+        frow = "".join(
+            f'<div style="flex:1;min-width:120px;background:{C["surface"]};border:1px solid {C["line"]};'
+            f'border-radius:12px;padding:14px 16px">'
+            f'<div style="font-family:{FONT_SERIF};font-size:30px;font-weight:700;color:{col}">{val}</div>'
+            f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.08em;text-transform:uppercase;'
+            f'color:{C["muted"]};margin-top:2px">{lab}</div></div>'
+            for lab, val, col in ftiles)
+        st.markdown(f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">{frow}</div>',
+                    unsafe_allow_html=True)
+        st.caption(f"Oldest content is **{oldest_sheet}**, last touched {ages[oldest_sheet]} days ago "
+                   f"({last_touched[oldest_sheet]}).")
+        if no_date:
+            st.caption("No UpdatedAt column: " + ", ".join(no_date) +
+                       " — these carry no provenance date, so their age cannot be judged.")
+
+        with st.expander("Freshness and provenance by sheet"):
+            import pandas as _pd
+            rows = []
+            for r in sorted(fresh, key=lambda r: (r["newest"] is None, -(ages.get(r["sheet"], 0)))):
+                rows.append({
+                    "Sheet": r["sheet"],
+                    "Rows": r["rows"],
+                    "Last updated": str(r["newest"]) if r["newest"] else "—",
+                    "Age (days)": ages.get(r["sheet"], "—") if r["newest"] else "—",
+                    "UpdatedAt filled": f'{r["updated_pct"]}%' if r["updated_pct"] is not None else "—",
+                    "Source filled": f'{r["source_pct"]}%' if r["source_pct"] is not None else "—",
+                })
+            st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     # ── attention list ──────────────────────────────────────────────────
     gaps = {name: [j.standard_title for j in jobs if not fn(j)]

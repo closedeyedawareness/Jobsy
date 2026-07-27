@@ -72,8 +72,13 @@ class Repository:
     """Typed, validated, indexed view of the reference library."""
 
     def __init__(self, data: dict, *, validate: bool = True) -> None:
-        if validate:
-            Validator().validate(data, strict=True)
+        # The report is KEPT, not merely raised on. Errors still abort the build,
+        # so what survives here is warnings — orphaned references, salary bands
+        # the wrong way round. Those went to the log and nowhere else, which is
+        # why the Data Quality page grew its own re-derived integrity checks:
+        # two definitions of the same thing, free to drift. The page now reads
+        # this instead, and the Validator is the single answer.
+        self.validation = Validator().validate(data, strict=True) if validate else None
 
         self.jobs: dict[str, Job] = {}
         self.profiles: dict[str, JobProfile] = {}
