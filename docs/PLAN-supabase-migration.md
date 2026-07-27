@@ -3,7 +3,27 @@
 **Roadmap item:** Phase 0.1 + 0.2 (governed DB as master, record-level provenance).
 **Goal:** Make the reference library a governed, versioned, auditable database — the real
 single source of truth — **without rewriting the app.**
-Status: W1 schema authored (unapplied) · Effort: ~3–4 weeks · Owner: Eng
+Status: **W1 done — schema applied and verified** · Effort: ~3–4 weeks · Owner: Eng
+
+**Supabase project `Jobsy` — ref `qpprcmmdeqlbursogosu`** (eu-central-1, org `nubdeiwupcofidifrbfn`,
+alongside `Solstice-Player` and `Research Agent`). $10/month. Created 2026-07-27.
+`0001_reference_library.sql` applied cleanly on first run: 23 tables, RLS on all 23.
+
+Verified by writing bad data and watching it bounce, not by reading the DDL back:
+
+| Attempted write | Result |
+|---|---|
+| Duplicate JobID | rejected (unique) |
+| Salary min > max | rejected (check) |
+| Title mapping → non-existent job | rejected (foreign key) |
+| p25 > p50 | rejected (check) |
+| Competency level 9 (scale is 1–5) | rejected (check) |
+| `status = 'wobbly'` | rejected (check) |
+| A legitimate row | accepted — the constraints are not over-tight |
+| An UPDATE | audit row captured `Data Engineer -> Senior Data Engineer` |
+
+Reference tables are empty and ready for the W2 importer. The audit trail keeps the ten test
+writes as its first entries — emptying it would be the one thing this schema exists to prevent.
 
 ---
 
