@@ -48,14 +48,68 @@ SHEET_MAP = {
 class Catalog:
     """Reads the Excel reference library and builds a typed Repository."""
 
-    def __init__(self, path: str = "jobsy_reference_library.xlsx") -> None:
+    def __init__(self, path: str = "jobsy_reference_library.xlsx",
+                 source: str | None = None) -> None:
         self.path = Path(path)
         self.repository = None
         self._loaded = False
+        # "excel" | "db". None takes config.LIBRARY_SOURCE, so the cutover is a
+        # one-line config change and every existing Catalog(path) call site
+        # keeps working untouched.
+        if source is None:
+            try:
+                from core.config import LIBRARY_SOURCE
+                source = LIBRARY_SOURCE
+            except Exception:
+                source = "excel"
+        self.source = source
+        # What the library was ACTUALLY read from, which is not always what was
+        # asked for — see the fallback in _load_from_db(). The sidebar shows
+        # this, because "which source am I looking at" stops being obvious the
+        # moment a fallback exists.
+        self.active_source = None
+
+    def _load_from_db(self) -> dict | None:
+        """Frames from Postgres, or None to fall back to the workbook.
+
+        A database that is unreachable must not take the app down: the
+        committed workbook is a complete, working master and staying up on it
+        beats failing hard. But falling back SILENTLY would be worse than
+        either — a stale library that looks live is the exact thing this
+        migration is meant to end — so it is logged loudly and surfaced.
+        """
+        try:
+            from core.db_loader import load_frames_from_config
+            frames = load_frames_from_config()
+        except Exception as exc:
+            logger.error("Could not load the library from the database (%s: %s). "
+                         "Falling back to the workbook at %s — this data may be stale.",
+                         type(exc).__name__, exc, self.path)
+            return None
+
+        missing = [k for k in ("jobs", "titles", "salary")
+                   if k not in frames or frames[k] is None or len(frames[k]) == 0]
+        if missing:
+            # An empty database reads as a successful load of nothing, which
+            # would build an empty catalog and look like a data disaster rather
+            # than a configuration one. Refuse it and use the workbook.
+            logger.error("The database returned no rows for %s — it is probably not seeded. "
+                         "Falling back to the workbook.", ", ".join(missing))
+            return None
+        return frames
 
     def load(self) -> "Catalog":
         if self._loaded:
             return self
+
+        data = None
+        if self.source == "db":
+            data = self._load_from_db()
+            if data is not None:
+                self.active_source = "db"
+
+        if data is not None:
+            return self._build(data)
 
         if not self.path.exists():
             raise FileNotFoundError(
@@ -90,12 +144,23 @@ class Catalog:
             else:
                 logger.warning("  Sheet '%s' not found in workbook — skipped.", sheet_name)
 
+        self.active_source = "excel"
+        return self._build(data)
+
+    def _build(self, data: dict) -> "Catalog":
+        """Validate the frames and build the Repository.
+
+        Shared by both sources deliberately: the Excel path and the database
+        path must go through the same checks and the same Repository call, or
+        "the app behaves identically" stops being something the code enforces.
+        """
         # ensure required sheets are present
         for required in ("jobs", "titles", "salary"):
             if required not in data or data[required] is None or len(data[required]) == 0:
                 raise ValueError(
-                    f"Workbook is missing required sheet for '{required}'. "
-                    "Check that Jobs, TitleMapping, and SalaryBands sheets exist."
+                    f"Reference library is missing required data for '{required}' "
+                    f"(source: {self.active_source}). "
+                    "Check that Jobs, TitleMapping, and SalaryBands are present."
                 )
 
         # build the repository (lazy import to keep circular imports clean)
@@ -110,12 +175,23 @@ class Catalog:
             ) from exc
         self._loaded = True
         logger.info(
-            "Catalog loaded: %d roles, %d mappings, %d salary bands",
+            "Catalog loaded from %s: %d roles, %d mappings, %d salary bands",
+            self.active_source,
             len(self.repository.jobs),
             len(self.repository.title_mapping),
             len(self.repository.salary),
         )
         return self
+
+    @property
+    def fell_back_to_excel(self) -> bool:
+        """The database was asked for and the workbook answered.
+
+        Worth surfacing rather than inferring: the app works perfectly in this
+        state, which is exactly why nobody would notice they are reading a file
+        that stopped being the master.
+        """
+        return self.source == "db" and self.active_source == "excel"
 
     def get_complete_job(self, job_id: str) -> Optional[dict]:
         """Return job + profile + salary + career step for a given JobID."""

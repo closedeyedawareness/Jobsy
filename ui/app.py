@@ -1572,15 +1572,31 @@ def job_family_page(catalog):
 
 
 @st.cache_data(show_spinner=False)
-def _paymix_frame(path):
-    """PayMix from the workbook, or None.
+def _paymix_frame(path, source="excel"):
+    """PayMix, from wherever the library currently lives.
 
-    Read here rather than through Catalog because PayMix is not in SHEET_MAP —
-    the app has never loaded it, which is why the structural pay-gap view could
-    only ever see base salary. Returning None keeps the whole exposure panel
-    optional, so an older workbook without the sheet still renders the page.
+    Not loaded through Catalog because PayMix has no SHEET_MAP entry — the app
+    never read it, which is why the structural pay-gap view could only ever see
+    base salary. It follows LIBRARY_SOURCE all the same: once the database is
+    the master, a PayMix still read from the workbook would quietly serve
+    whatever the file last said, which is the failure this migration exists to
+    end. Returning None keeps the exposure panel optional either way.
     """
     import pandas as _pd
+    if source == "db":
+        try:
+            from core.db_loader import load_frames_from_config
+            frames = load_frames_from_config(include_all=True)
+            df = frames.get("PayMix")
+            if df is not None and len(df):
+                for col in ("TargetVariablePct", "ThirteenthMonthPct"):
+                    if col in df.columns:
+                        df[col] = _pd.to_numeric(df[col], errors="coerce")
+                return df
+        except Exception:
+            # Same reasoning as Catalog's fallback: the workbook is a complete
+            # master and losing one panel is worse than reading it.
+            pass
     try:
         return _pd.read_excel(path, sheet_name="PayMix")
     except Exception:
@@ -2107,7 +2123,11 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     # PayMix states what each Function × Level is entitled to, on exactly the
     # key this page already groups by — so the structural half is answerable
     # from data the client has already handed over.
-    _paymix = _paymix_frame(WORKBOOK_PATH)
+    try:
+        from core.config import LIBRARY_SOURCE as _lib_src
+    except Exception:
+        _lib_src = "excel"
+    _paymix = _paymix_frame(WORKBOOK_PATH, _lib_src)
     if _paymix is not None and not _paymix.empty:
         try:
             from services.pay_equity_service import analyze_variable_pay_exposure
@@ -3084,6 +3104,19 @@ def main():
         st.caption(f"{stats['title_mappings']} mappings · "
                    f"{stats['salary_bands']} salary bands · "
                    f"{stats['functions']} functions")
+
+        # Which source answered. Only interesting once there are two of them,
+        # and most interesting in the case nobody would otherwise notice: the
+        # database was asked for, was unreachable, and the workbook answered.
+        # The app works perfectly in that state, which is exactly the problem.
+        _src = getattr(catalog, "active_source", None)
+        if getattr(catalog, "fell_back_to_excel", False):
+            st.warning("Reading the workbook — the database could not be reached. "
+                       "This library may be out of date.", icon="⚠")
+        elif _src == "db":
+            st.caption("Source: database (governed, versioned)")
+        elif _src == "excel":
+            st.caption(f"Source: {WORKBOOK_PATH}")
 
     _set_active_catalog(catalog)
 
