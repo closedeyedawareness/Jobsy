@@ -509,3 +509,212 @@ def analyze_gender_pay_gap(
         women_by_level=_pct_women("_lvl"), women_by_function=_pct_women("_fun"),
         fte_normalised=fte_normalised, single_gender_levels=single_gender_levels, notes=notes,
     )
+
+
+# ──────────────────────────────────────────────── variable-pay exposure ──
+#
+# The gap above is measured on ONE salary column. Under the Pay Transparency
+# Directive "pay" is basic pay plus its complementary and variable components,
+# and the gap in those components is reportable in its own right — a gap can sit
+# entirely in who is eligible for a bonus rather than in anyone's base.
+#
+# The compa-ratio view already reports total-pay and variable-pay gaps when a
+# client hands over bonus/allowance/LTI columns. Most cannot. What every client
+# does have, the moment their grid is leveled, is a Function x Level per person
+# — and the reference library's PayMix sheet states, for exactly that key, what
+# variable pay the policy ENTITLES that cohort to. Its (Function, Level) grain
+# is the same one this module already groups cohorts by, so it joins directly.
+#
+# So this answers a question needing no pay data at all: is entitlement to
+# variable pay distributed evenly between men and women? That is structural,
+# measurable today, and where the Directive's "proportion of workers receiving
+# complementary or variable components" actually lives.
+#
+# What it is NOT: a measurement of variable pay received. PayMix is policy —
+# target percentages, not anyone's bonus. Every figure here is what the scheme
+# promises and must be reported that way. The implied-total gap is what the
+# structure produces if everyone is paid exactly on target; its distance from
+# the base gap is attributable to the STRUCTURE, which is the part a client can
+# actually redesign.
+
+
+@dataclass(frozen=True)
+class ExposureCohort:
+    function: str
+    level: str
+    n_m: int
+    n_f: int
+    target_variable_pct: float
+    thirteenth_month_pct: float
+    lti_eligible: bool
+
+
+@dataclass(frozen=True)
+class VariablePayExposure:
+    n: int
+    n_matched: int                        # rows whose (function, level) found a PayMix row
+    n_unmatched: int
+    unmatched_keys: list[tuple[str, str]]
+
+    # Access to long-term incentive. PayMix records eligibility but not value,
+    # so this is reported as access and never as an amount.
+    pct_women_lti_eligible: float | None
+    pct_men_lti_eligible: float | None
+    lti_access_gap_pp: float | None        # + = men more likely to be eligible
+
+    # Target variable entitlement, weighted by where people actually sit
+    mean_target_var_m: float | None
+    mean_target_var_f: float | None
+    target_var_gap_pp: float | None        # + = men entitled to more
+
+    # What the structure does to the gap
+    base_mean_gap_pct: float | None
+    implied_total_mean_gap_pct: float | None
+    widening_pp: float | None              # + = variable pay WIDENS the gap
+
+    cohorts: list[ExposureCohort]
+    notes: list[str]
+
+    @property
+    def structure_widens_gap(self) -> bool:
+        return bool(self.widening_pp is not None and self.widening_pp > 0)
+
+
+def analyze_variable_pay_exposure(
+    df: pd.DataFrame,
+    paymix: pd.DataFrame,
+    *,
+    function_col: str,
+    level_col: str,
+    gender_col: str,
+    salary_col: str,
+    fte_col: str | None = None,
+    male_label: str = "M",
+    female_label: str = "F",
+    salary_already_fte: bool = False,
+) -> VariablePayExposure:
+    """
+    Structural exposure to variable pay, from a leveled grid + the PayMix policy.
+
+    ``paymix`` is the reference library's PayMix sheet: Function, Level,
+    TargetVariablePct, ThirteenthMonthPct, LTIEligible.
+
+    Returns entitlement by gender and the gap the pay STRUCTURE produces on top
+    of base pay. No bonus data is required, and none is inferred to exist.
+    """
+    notes: list[str] = []
+
+    d = df[[c for c in {function_col, level_col, gender_col, salary_col, fte_col} if c]].copy()
+    d["_sal"] = pd.to_numeric(d[salary_col], errors="coerce")
+    if not salary_already_fte and fte_col:
+        fte = pd.to_numeric(d[fte_col], errors="coerce")
+        d["_sal"] = np.where(fte > 0, d["_sal"] / fte, d["_sal"])
+
+    d["_fun"] = d[function_col].astype(str).str.strip()
+    d["_lvl"] = d[level_col].astype(str).str.strip()
+    # Same normalisation as analyze_gender_pay_gap, including the Dutch M/V fold.
+    # A file that analyses natively there must analyse natively here, or the two
+    # numbers on one screen would be computed over different populations.
+    m_lab = male_label.strip().upper()[:1]
+    f_lab = female_label.strip().upper()[:1]
+    d["_g"] = d[gender_col].astype(str).str.strip().str.upper().str[:1]
+    d["_g"] = d["_g"].apply(lambda g: f_lab if g in ("F", "V") else (m_lab if g == "M" else g))
+
+    d = d[d["_sal"].notna() & (d["_sal"] > 0) & (d["_fun"] != "") & (d["_lvl"] != "")]
+    n = len(d)
+
+    pm = paymix.copy()
+    pm.columns = [str(c).strip() for c in pm.columns]
+    if not {"Function", "Level"}.issubset(pm.columns):
+        raise ValueError("PayMix must carry Function and Level columns")
+    pm["_fun"] = pm["Function"].astype(str).str.strip()
+    pm["_lvl"] = pm["Level"].astype(str).str.strip()
+    pm["_tv"] = pd.to_numeric(pm.get("TargetVariablePct"), errors="coerce").fillna(0.0)
+    pm["_13"] = pd.to_numeric(pm.get("ThirteenthMonthPct"), errors="coerce").fillna(0.0)
+    _lti_raw = pm["LTIEligible"] if "LTIEligible" in pm.columns else pd.Series([""] * len(pm))
+    pm["_lti"] = _lti_raw.astype(str).str.strip().str.lower().isin(["yes", "y", "true", "1", "ja"])
+    pm = pm.drop_duplicates(subset=["_fun", "_lvl"], keep="first")
+
+    merged = d.merge(pm[["_fun", "_lvl", "_tv", "_13", "_lti"]], on=["_fun", "_lvl"], how="left")
+    matched = merged["_tv"].notna()
+    n_matched = int(matched.sum())
+    n_unmatched = int(n - n_matched)
+    # zip, not itertuples: itertuples renames any column whose name starts with
+    # an underscore to a positional _1/_2, and every working column here does.
+    _um = merged[~matched]
+    unmatched_keys = sorted(set(zip(_um["_fun"], _um["_lvl"])))
+    if n_unmatched:
+        # Treating an unmatched cohort as zero-variable would manufacture a gap
+        # out of a mapping failure, so they are excluded and named instead.
+        notes.append(
+            f"{n_unmatched} of {n} row(s) sit in a Function x Level with no PayMix entry "
+            f"({', '.join(f'{f}/{l}' for f, l in unmatched_keys[:6])}"
+            f"{chr(8230) if len(unmatched_keys) > 6 else ''}) and are excluded from every figure "
+            "below — their entitlement is unknown, not zero.")
+
+    e = merged[matched]
+    men, women = e[e["_g"] == m_lab], e[e["_g"] == f_lab]
+
+    if len(men) < SMALL_N or len(women) < SMALL_N:
+        notes.append(f"Fewer than {SMALL_N} of one gender with a known entitlement — exposure "
+                     "figures are suppressed as unreliable and re-identifying.")
+        return VariablePayExposure(
+            n=n, n_matched=n_matched, n_unmatched=n_unmatched, unmatched_keys=unmatched_keys,
+            pct_women_lti_eligible=None, pct_men_lti_eligible=None, lti_access_gap_pp=None,
+            mean_target_var_m=None, mean_target_var_f=None, target_var_gap_pp=None,
+            base_mean_gap_pct=None, implied_total_mean_gap_pct=None, widening_pp=None,
+            cohorts=[], notes=notes)
+
+    pct_m_lti = float(men["_lti"].mean() * 100)
+    pct_f_lti = float(women["_lti"].mean() * 100)
+    mean_tv_m = float(men["_tv"].mean())
+    mean_tv_f = float(women["_tv"].mean())
+
+    # Implied total = base + on-target variable + 13th month. Holiday allowance
+    # is a flat statutory 8% of base for everyone, so it scales both genders
+    # identically and cannot move a percentage gap — leaving it out keeps this
+    # about the components that actually differ between cohorts.
+    e = e.assign(_total=e["_sal"] * (1 + e["_tv"] / 100.0 + e["_13"] / 100.0))
+    base_gap = _gap_pct(float(men["_sal"].mean()), float(women["_sal"].mean()))
+    total_gap = _gap_pct(float(e[e["_g"] == m_lab]["_total"].mean()),
+                         float(e[e["_g"] == f_lab]["_total"].mean()))
+    widening = (None if base_gap is None or total_gap is None else round(total_gap - base_gap, 2))
+
+    if widening is not None and widening > 0:
+        notes.append(
+            f"The pay structure adds {widening:.1f} percentage point(s) to the base-pay gap before "
+            "any individual bonus is considered: men sit in cohorts entitled to more variable pay. "
+            "That is a property of the scheme's design, not of individual pay decisions.")
+    elif widening is not None and widening < 0:
+        notes.append(f"The pay structure narrows the base-pay gap by {abs(widening):.1f} percentage "
+                     "point(s): women sit in cohorts entitled to more variable pay.")
+
+    if pct_m_lti > 0 or pct_f_lti > 0:
+        notes.append(
+            f"Long-term incentive eligibility: {pct_f_lti:.0f}% of women and {pct_m_lti:.0f}% of men "
+            "sit in an eligible cohort. PayMix records eligibility but not value, so this is access "
+            "only — the size of any LTI gap cannot be stated from policy alone.")
+
+    cohorts = [
+        ExposureCohort(
+            function=fn, level=lv,
+            n_m=int((grp["_g"] == m_lab).sum()), n_f=int((grp["_g"] == f_lab).sum()),
+            target_variable_pct=float(grp["_tv"].iloc[0]),
+            thirteenth_month_pct=float(grp["_13"].iloc[0]),
+            lti_eligible=bool(grp["_lti"].iloc[0]))
+        for (fn, lv), grp in e.groupby(["_fun", "_lvl"])
+    ]
+    cohorts.sort(key=lambda c: (-c.target_variable_pct, c.function, c.level))
+
+    notes.append("Every figure here is POLICY ENTITLEMENT from the reference library's PayMix, not "
+                 "variable pay received. To measure the actual variable-pay gap the Directive asks "
+                 "for, supply bonus / allowance / LTI columns with the employee data.")
+
+    return VariablePayExposure(
+        n=n, n_matched=n_matched, n_unmatched=n_unmatched, unmatched_keys=unmatched_keys,
+        pct_women_lti_eligible=round(pct_f_lti, 1), pct_men_lti_eligible=round(pct_m_lti, 1),
+        lti_access_gap_pp=round(pct_m_lti - pct_f_lti, 1),
+        mean_target_var_m=round(mean_tv_m, 2), mean_target_var_f=round(mean_tv_f, 2),
+        target_var_gap_pp=round(mean_tv_m - mean_tv_f, 2),
+        base_mean_gap_pct=base_gap, implied_total_mean_gap_pct=total_gap, widening_pp=widening,
+        cohorts=cohorts, notes=notes)

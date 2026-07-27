@@ -1572,6 +1572,22 @@ def job_family_page(catalog):
 
 
 @st.cache_data(show_spinner=False)
+def _paymix_frame(path):
+    """PayMix from the workbook, or None.
+
+    Read here rather than through Catalog because PayMix is not in SHEET_MAP —
+    the app has never loaded it, which is why the structural pay-gap view could
+    only ever see base salary. Returning None keeps the whole exposure panel
+    optional, so an older workbook without the sheet still renders the page.
+    """
+    import pandas as _pd
+    try:
+        return _pd.read_excel(path, sheet_name="PayMix")
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner=False)
 def _dq_frames(path):
     import pandas as _pd
     return _pd.read_excel(path, sheet_name=["Jobs", "TitleMapping"], dtype=str)
@@ -2079,6 +2095,87 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
             for _s in _sc.next_steps:
                 st.markdown(f'<div style="font-size:13px;color:{C["muted"]};margin:2px 0 2px 4px">— {_s}</div>',
                            unsafe_allow_html=True)
+
+    # ── variable-pay exposure ───────────────────────────────────────────
+    # Everything above measures one salary column. The Directive's "pay" also
+    # covers complementary and variable components, and a gap can live entirely
+    # in who is ELIGIBLE for a bonus rather than in anyone's base — which no
+    # amount of looking at base pay will ever show.
+    #
+    # The compa-ratio view can already report that when a client supplies
+    # bonus/allowance/LTI columns. Most cannot. But once a grid is leveled,
+    # PayMix states what each Function × Level is entitled to, on exactly the
+    # key this page already groups by — so the structural half is answerable
+    # from data the client has already handed over.
+    _paymix = _paymix_frame(WORKBOOK_PATH)
+    if _paymix is not None and not _paymix.empty:
+        try:
+            from services.pay_equity_service import analyze_variable_pay_exposure
+        except ImportError:
+            from jobsy.services.pay_equity_service import analyze_variable_pay_exposure
+        try:
+            _ex = analyze_variable_pay_exposure(
+                df, _paymix, function_col=function_col, level_col=level_col,
+                gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
+                salary_already_fte=salary_already_fte)
+        except Exception as _exc:
+            _ex = None
+            st.caption(f"Variable-pay exposure unavailable: {_exc}")
+
+        if _ex is not None:
+            st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                        f'text-transform:uppercase;color:{C["muted"]};margin:20px 0 6px">'
+                        f'Variable-pay exposure · policy entitlement</div>', unsafe_allow_html=True)
+
+            if _ex.pct_women_lti_eligible is None:
+                st.caption("Not enough people of one gender with a known entitlement to report "
+                           "exposure without re-identifying them.")
+            elif _ex.widening_pp is None:
+                st.caption("Entitlement is shown below, but the gap it implies could not be "
+                           "computed from these salaries.")
+            else:
+                # This page states gaps as (woman − man)/man, so a structure that
+                # favours men has to read NEGATIVE here like every other figure
+                # on screen. widening_pp is men-ahead, hence the flip.
+                _base = flip_gap_sign(_ex.base_mean_gap_pct)
+                _tot = flip_gap_sign(_ex.implied_total_mean_gap_pct)
+                _shift = None if _base is None or _tot is None else _tot - _base
+                _scol = C["danger"] if _ex.structure_widens_gap else C["teal"]
+                st.markdown(
+                    f'<div style="font-size:14px;color:{C["ink"]}">'
+                    f'Base pay: <b>{_base:+.1f}%</b> &nbsp;→&nbsp; '
+                    f'on-target total pay: <b style="color:{_scol}">{_tot:+.1f}%</b> &nbsp;·&nbsp; '
+                    f'the pay structure moves the gap by <b style="color:{_scol}">{_shift:+.1f} pp</b>'
+                    f'</div>', unsafe_allow_html=True)
+
+                _tiles = [
+                    ("Target variable · women", f"{_ex.mean_target_var_f:.1f}%", C["ink"]),
+                    ("Target variable · men", f"{_ex.mean_target_var_m:.1f}%", C["ink"]),
+                    ("LTI-eligible · women", f"{_ex.pct_women_lti_eligible:.0f}%",
+                     C["danger"] if (_ex.lti_access_gap_pp or 0) > 0 else C["ink"]),
+                    ("LTI-eligible · men", f"{_ex.pct_men_lti_eligible:.0f}%", C["ink"]),
+                ]
+                _trow = "".join(
+                    f'<div style="flex:1;min-width:120px;background:{C["surface"]};border:1px solid {C["line"]};'
+                    f'border-radius:12px;padding:12px 14px">'
+                    f'<div style="font-family:{FONT_SERIF};font-size:26px;font-weight:700;color:{col}">{val}</div>'
+                    f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:.08em;'
+                    f'text-transform:uppercase;color:{C["muted"]};margin-top:2px">{lab}</div></div>'
+                    for lab, val, col in _tiles)
+                st.markdown(f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 4px">'
+                            f'{_trow}</div>', unsafe_allow_html=True)
+
+                with st.expander("Entitlement by cohort"):
+                    st.dataframe(pd.DataFrame([{
+                        "Function": c.function, "Level": c.level,
+                        "Men": c.n_m, "Women": c.n_f,
+                        "Target variable": f"{c.target_variable_pct:.0f}%",
+                        "13th month": f"{c.thirteenth_month_pct:.2f}%",
+                        "LTI": "Yes" if c.lti_eligible else "—",
+                    } for c in _ex.cohorts]), use_container_width=True, hide_index=True)
+
+            for _n in _ex.notes:
+                st.caption(_n)
 
     try:
         from services.pay_equity_export_service import PayEquityExportService
