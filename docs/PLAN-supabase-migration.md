@@ -197,6 +197,10 @@ Delivered as versioned migrations via `mcp__Supabase__apply_migration` (and comm
   sidebar Library panel.
 
 ### W5 — Tests & parity (2–3 days)
+- **Compare `updated_at`, not just counts.** A trigger silently replaced the workbook's
+  UpdatedAt with `now()` on re-import (fixed in `0006`), and nothing in a counts-only parity
+  check would have noticed. The freshness half of the Data Quality page depends on that column,
+  so the parity test must assert the DB frame's dates equal the Excel frame's.
 - **Parity test (the acceptance gate):** load the catalog from Excel and from a seeded DB;
   assert `Repository.statistics()`, job/salary/title counts, and a sample of
   `get_complete_job(...)` are identical. This proves the swap is behaviour-preserving.
