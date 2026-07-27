@@ -307,15 +307,59 @@ def build_rows(book: dict[str, pd.DataFrame], *, org_id: str,
     return out, report
 
 
+def key_kind(key: str | None) -> str:
+    """Which of Supabase's API keys is this?
+
+    The platform is retiring the legacy JWT keys (anon / service_role, the long
+    'eyJ...' tokens) in favour of sb_publishable_... and sb_secret_.... They are
+    not interchangeable here, and the failure mode of getting it wrong is the
+    quiet one — see _require_writable_key().
+    """
+    if not key:
+        return "missing"
+    if key.startswith("sb_secret_"):
+        return "secret"
+    if key.startswith("sb_publishable_"):
+        return "publishable"
+    if key.startswith("eyJ"):
+        return "legacy-jwt"
+    return "unknown"
+
+
+def _require_writable_key(key: str | None) -> list[str]:
+    """Refuse a key that cannot write, and say why. Returns advisory notes.
+
+    A publishable key is the dangerous one: every reference table has RLS on
+    with no policy for anon, so the client would connect, accept every upsert
+    and persist NOTHING — an import that reports success over an empty
+    database. Better to stop at the door.
+    """
+    kind = key_kind(key)
+    if kind == "publishable":
+        raise RuntimeError(
+            "That is a publishable key (sb_publishable_...). Every table has RLS on with no "
+            "anon policy, so it would connect, accept every write and store nothing — an "
+            "import that looks like it worked. Use the secret key (sb_secret_...).")
+    if kind == "legacy-jwt":
+        return ["Using a LEGACY JWT key. Supabase is retiring these in favour of "
+                "sb_secret_... — switch before they are removed, and disable the legacy "
+                "keys on the project once nothing depends on them."]
+    if kind == "unknown":
+        return ["Key format not recognised — expected sb_secret_.... Continuing, but if the "
+                "import writes nothing this is the first thing to check."]
+    return []
+
+
 def _resolve_credentials() -> tuple[str | None, str | None]:
     """Environment first, Streamlit secrets second.
 
-    A CLI run has no Streamlit context, and the key this needs is the SERVICE
-    key: every reference table has RLS on with no anon policy, so an anon key
-    reads and writes nothing at all rather than failing loudly.
+    A CLI run has no Streamlit context, and the key this needs is the SECRET
+    key (sb_secret_...): every reference table has RLS on with no anon policy,
+    so a publishable key reads and writes nothing rather than failing loudly.
     """
     url = os.environ.get("SUPABASE_URL")
-    key = (os.environ.get("SUPABASE_SERVICE_KEY")
+    key = (os.environ.get("SUPABASE_SECRET_KEY")            # current naming
+           or os.environ.get("SUPABASE_SERVICE_KEY")        # legacy naming, same role
            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
            or os.environ.get("SUPABASE_KEY"))
     if url and key:
@@ -349,9 +393,11 @@ def import_library(path: str = DEFAULT_WORKBOOK, *, write: bool = False,
     url, key = _resolve_credentials()
     if not url or not key:
         raise RuntimeError(
-            "SUPABASE_URL and a SERVICE key are required to write. Set SUPABASE_URL and "
-            "SUPABASE_SERVICE_KEY in the environment. The anon key will not work: RLS is on "
-            "with no anon policy, so it would silently read and write nothing.")
+            "SUPABASE_URL and a SECRET key are required to write. Set SUPABASE_URL and "
+            "SUPABASE_SECRET_KEY (the sb_secret_... key) in the environment. A publishable "
+            "key will not work: RLS is on with no anon policy, so it would silently write "
+            "nothing.")
+    key_notes = _require_writable_key(key)
 
     from supabase import create_client
     client = create_client(url, key)
@@ -376,6 +422,20 @@ def import_library(path: str = DEFAULT_WORKBOOK, *, write: bool = False,
 
     report.written = True
     report.notes.append(f"revision {revision_id}")
+    report.notes.extend(key_notes)
+
+    # An import that reports 2,578 rows over an empty table is the failure this
+    # guards against. Count what is actually there, from the database's answer
+    # rather than from what we believed we sent.
+    empty = [spec.table for spec in SPECS
+             if (payload.get(spec.table) or [])
+             and (client.table(spec.table).select("id", count="exact")
+                  .limit(1).execute().count or 0) == 0]
+    if empty:
+        raise RuntimeError(
+            f"The import reported rows but these tables are still empty: {', '.join(empty)}. "
+            "That is the signature of a key without write access — check it is the "
+            "sb_secret_... key, not the publishable one.")
     return report
 
 

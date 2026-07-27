@@ -152,3 +152,33 @@ def test_levels_maps_to_sort_order_not_the_reserved_word():
     row = payload["levels"][0]
     assert row["sort_order"] == 1
     assert "order" not in row
+
+
+# ── API key format ────────────────────────────────────────────────────────
+# Supabase is retiring the legacy JWT keys. The publishable key is the one that
+# fails silently, so it is the one worth a test.
+
+def test_key_kind_recognises_each_format():
+    from services.library_import_service import key_kind
+    assert key_kind("sb_secret_abc123") == "secret"
+    assert key_kind("sb_publishable_abc123") == "publishable"
+    assert key_kind("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.x.y") == "legacy-jwt"
+    assert key_kind(None) == "missing"
+    assert key_kind("hunter2") == "unknown"
+
+
+def test_a_publishable_key_is_refused_before_it_can_write_nothing():
+    from services.library_import_service import _require_writable_key
+    with pytest.raises(RuntimeError, match="publishable key"):
+        _require_writable_key("sb_publishable_abc123")
+
+
+def test_a_legacy_jwt_key_works_but_is_called_out():
+    from services.library_import_service import _require_writable_key
+    notes = _require_writable_key("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.x.y")
+    assert notes and "LEGACY" in notes[0]
+
+
+def test_the_secret_key_passes_without_comment():
+    from services.library_import_service import _require_writable_key
+    assert _require_writable_key("sb_secret_abc123") == []

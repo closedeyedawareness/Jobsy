@@ -12,8 +12,21 @@ Setup:
   1. requirements.txt must include:  supabase>=2.4.0
   2. .streamlit/secrets.toml (or Streamlit Cloud → Settings → Secrets):
        SUPABASE_URL = "https://your-project.supabase.co"
-       SUPABASE_KEY = "your-anon-key"
+       SUPABASE_KEY = "sb_secret_..."
   3. Run SUPABASE_SETUP.sql once in the Supabase SQL Editor.
+
+Which key, and why the SECRET one:
+
+  Supabase is retiring the legacy JWT keys (anon / service_role, the long
+  'eyJ...' tokens) in favour of sb_publishable_... and sb_secret_.... Use the
+  new format here; the legacy keys still work today but not indefinitely.
+
+  It has to be the SECRET key. jobsy_sessions has RLS enabled with no policy
+  for anon, so a publishable key would connect happily and then read and write
+  nothing — sessions would silently stop persisting rather than error. That is
+  safe to expose only because Jobsy is server-rendered Streamlit: the secret
+  lives in secrets.toml on the server and never reaches a browser, which is
+  not true of a client-side app.
 """
 from __future__ import annotations
 

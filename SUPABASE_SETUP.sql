@@ -59,12 +59,17 @@ create trigger jobsy_sessions_set_updated_at
 -- the protection here is the code's unguessability, not a policy.
 --
 -- RLS is on with no anon/authenticated policy, which means the app must reach
--- this table with the service key. Jobsy is server-rendered Streamlit, so its
--- SUPABASE_KEY is a server-side secret and that is a legitimate choice — unlike
--- in a browser app, where it would hand every visitor the whole table.
+-- this table with the SECRET key — sb_secret_..., in Supabase's current key
+-- format. The legacy JWT keys (anon / service_role, the long 'eyJ...' tokens)
+-- are being retired; do not start anything new on them.
 --
--- If you instead put an anon key in secrets.toml, every call here fails closed
--- and the app falls back to no persistence. That is the safe failure, but it is
--- silent: check the Library panel's database status if sessions stop saving.
+-- Jobsy is server-rendered Streamlit, so its SUPABASE_KEY is a server-side
+-- secret and using the secret key is legitimate here — unlike in a browser app,
+-- where it would hand every visitor the whole table.
+--
+-- If you put the PUBLISHABLE key in secrets.toml instead, every call here fails
+-- closed and the app falls back to no persistence. That is the safe failure,
+-- but it is silent: check the Library panel's database status if sessions stop
+-- saving.
 
 alter table jobsy_sessions enable row level security;
