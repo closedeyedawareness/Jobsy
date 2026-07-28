@@ -19,3 +19,16 @@ docs/delivery-log.*
 provenance-inventory.*
 jobsy_reference_library.backup-*.xlsx
 jobsy_reference_library.pre-*.xlsx
+
+# Employee rosters — customer data, never reference data. Name + gender + salary
+# is the one genuinely personal combination this project handles, and it is why
+# RLS is on the employees table rather than theoretical. A roster dropped in the
+# working directory to test with must not become a commit.
+#
+# A DELIBERATE demo roster is welcome, but under fixtures/ with a name that says
+# it is synthetic — so nothing loose in the repo root is ever ambiguous.
+*people*.csv
+*employees*.csv
+/Employees*.xlsx
+/Employees*.csv
+!fixtures/synthetic-*.csv
