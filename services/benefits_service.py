@@ -82,6 +82,14 @@ class BenefitsService:
     # ── comparison vs. an actual package ─────────────────────────────────
     def compare(self, category: str, actual: float, industry_id: Optional[str],
                 level: Optional[str]) -> Optional[BenefitComparison]:
+        # A non-finite actual has no place on the percentile ladder below, and
+        # silence is the dangerous answer: every comparison against NaN is
+        # false, so it would fall past P25, the median, P75 and P90 and come out
+        # the far end labelled "Above P90" — a company that left a field blank
+        # told it sits in the top decile. Refused here as well as filtered by
+        # compare_package, because the ladder must not depend on its callers.
+        if actual is None or actual != actual or actual in (float("inf"), float("-inf")):
+            return None
         band = self.get_band(category, industry_id, level)
         if band is None:
             return None
@@ -111,7 +119,10 @@ class BenefitsService:
         out = []
         for category in self.categories():
             value = package.get(category)
-            if value is None:
+            # None is the documented "not offered". NaN means the same thing and
+            # arrives more often: Streamlit's NumberColumn yields NaN, not None,
+            # for a cell the user ticked but left empty, so `is None` never saw it.
+            if value is None or value != value:      # NaN is never equal to itself
                 continue
             comp = self.compare(category, float(value), industry_id, level)
             if comp:

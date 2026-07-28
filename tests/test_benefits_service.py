@@ -93,6 +93,29 @@ def test_compare_package_skips_unoffered_categories(service):
     assert service.compare_package({}, "IND-A", None) == []
 
 
+def test_a_blank_value_is_not_a_top_decile_package(service):
+    """Streamlit's NumberColumn hands back NaN — not None — for a cell the user
+    ticked as offered but left empty. Every comparison against NaN is false, so
+    it used to fall past P25, the median, P75 and P90 and land on "Above P90":
+    leave a field blank, be told you are in the top decile. In an advice tool
+    that is the most flattering possible answer and the least true one.
+
+    Blank means not offered, at both layers — the ladder refuses it, and the
+    package filter never sends it."""
+    nan = float("nan")
+    assert service.compare("Wellness", nan, "IND-A", None) is None
+    assert service.compare_package({"Wellness": nan}, "IND-A", None) == []
+
+    # A ticked-but-blank category must not be counted at all, while a real value
+    # alongside it still is.
+    comps = service.compare_package({"Wellness": 550, "Pension": nan}, "IND-A", None)
+    assert [c.category for c in comps] == ["Wellness"]
+
+    # Infinities take the same path: off the ladder, not at the top of it.
+    assert service.compare("Wellness", float("inf"), "IND-A", None) is None
+    assert service.compare("Wellness", float("-inf"), "IND-A", None) is None
+
+
 def test_benefits_richness_index(service):
     comps = service.compare_package({"Wellness": 550}, "IND-A", None)
     idx = service.benefits_richness_index(comps)
