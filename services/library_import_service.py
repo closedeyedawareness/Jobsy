@@ -24,6 +24,15 @@ refused rather than partially loaded — the schema would reject most of it
 anyway, but failing at the door gives one clear error instead of a scatter of
 constraint violations halfway through a table.
 
+THE WORKBOOK'S SOURCE IS NOT OVERWRITTEN
+----------------------------------------
+Source records where a row's CONTENT came from. Which import run put the row in
+the database is a different fact, and it already lives in library_revisions and
+library_audit. An earlier version of this file wrote the import label over both,
+erasing citations like "Calibrated to CBS bedrijfstak wages 2024 +
+RobertHalf/RobertWalters NL 2026" — the same two-facts-one-column mistake
+migration 0006 fixed for updated_at.
+
 STATUS IS LOWERCASED
 --------------------
 The workbook writes "Active"; the check constraint accepts 'active'. That is
@@ -252,11 +261,18 @@ def build_rows(book: dict[str, pd.DataFrame], *, org_id: str,
                     row[db_col] = _normalise_status(src[wb_col])
                 else:
                     row[db_col] = _clean(src[wb_col])
-            # Provenance of THIS import wins over whatever the sheet recorded:
-            # the sheet's Source says where the content came from originally,
-            # which matters, but the row in the database was put there by this
-            # run and needs to say so.
-            row["source"] = source
+            # The sheet's Source is KEPT. It says where the content came from —
+            # "Calibrated to CBS bedrijfstak wages 2024 + RobertHalf/RobertWalters
+            # NL 2026" is the citation for the pay factors, and overwriting it
+            # with the name of the file it arrived in destroys the only record of
+            # that. Which run wrote the row is a different fact and already has a
+            # home: library_revisions.label and library_audit. Two facts, one
+            # column — the same mistake migration 0006 fixed for updated_at.
+            #
+            # Only a missing or blank Source falls back to the import label, so
+            # the column is never left empty.
+            if row.get("source") in (None, ""):
+                row["source"] = source
             row["updated_by"] = "importer"
             row.setdefault("status", "active")
 

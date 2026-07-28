@@ -95,15 +95,31 @@ def test_blank_and_nan_cells_become_null_not_the_string_nan():
     assert row["isco_title"] is None
 
 
-def test_this_import_stamps_its_own_provenance():
+def test_the_workbook_s_source_is_not_overwritten():
+    """Source records where the CONTENT came from, and the import must not erase
+    it. An earlier version stamped the import label over every row, destroying
+    citations like the CBS/RobertHalf calibration behind IndustrySalaryFactors.
+    Which run wrote the row is a separate fact, kept in library_revisions and
+    library_audit — the two-facts-one-column mistake 0006 fixed for updated_at."""
     payload, _ = _rows(_book(Jobs=[{
         "JobID": "J-1", "StandardTitle": "Dev", "Function": "Eng", "Level": "Medior",
         "Source": "Seed v1 (pay)"}]))
     row = payload["jobs"][0]
-    # The sheet's Source says where the CONTENT came from; the row in the
-    # database was put there by this run and has to say so.
-    assert row["source"] == "import:test.xlsx"
+    assert row["source"] == "Seed v1 (pay)"
     assert row["updated_by"] == "importer"
+
+
+def test_a_row_with_no_source_falls_back_to_the_import_label():
+    """The column is never left empty: nothing to preserve means the import
+    label is the best provenance available."""
+    blank, _ = _rows(_book(Jobs=[{
+        "JobID": "J-1", "StandardTitle": "Dev", "Function": "Eng", "Level": "Medior",
+        "Source": "   "}]))
+    assert blank["jobs"][0]["source"] == "import:test.xlsx"
+
+    absent, _ = _rows(_book(Jobs=[{
+        "JobID": "J-2", "StandardTitle": "Dev", "Function": "Eng", "Level": "Medior"}]))
+    assert absent["jobs"][0]["source"] == "import:test.xlsx"
 
 
 def test_specs_are_in_dependency_order():

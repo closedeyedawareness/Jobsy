@@ -10,7 +10,7 @@ without a database or a key. The real comparison is tests/test_library_parity.py
 import pandas as pd
 import pytest
 
-from core.db_loader import load_frames, _to_text, PAGE
+from core.db_loader import load_frames, _to_text, _render, PAGE
 
 
 class _FakeQuery:
@@ -46,9 +46,13 @@ class _FakeClient:
 
 
 def _row(**kw):
+    # updated_at is timestamptz and PostgREST renders it in full; effective_from
+    # is a date and comes back bare. Faking updated_at as a bare date is what let
+    # the ISO-timestamp difference reach the parity run unnoticed, so the fake
+    # says what the database actually says.
     base = {"id": "row-1", "org_id": "org-1", "status": "active", "owner": "Job Architecture",
-            "source": "import:x.xlsx", "effective_from": "2026-07-02",
-            "updated_at": "2026-07-02", "updated_by": "importer"}
+            "source": "Seed v1", "effective_from": "2026-07-02",
+            "updated_at": "2026-07-02T00:00:00+00:00", "updated_by": "importer"}
     base.update(kw)
     return base
 
@@ -76,6 +80,19 @@ def test_a_decimal_that_is_a_whole_number_loses_its_trailing_zero():
     from decimal import Decimal
     assert _to_text(Decimal("1.00")) == "1"
     assert _to_text(Decimal("1.15")) == "1.15"
+
+
+def test_a_timestamp_column_comes_back_as_the_date_the_workbook_holds():
+    """The workbook's UpdatedAt is a date; Postgres stores timestamptz and renders
+    '2026-07-02T00:00:00+00:00'. The importer only ever writes date-only values,
+    so the time is always midnight and truncating loses nothing — but the frames
+    are not equal until it is truncated, and an ISO timestamp would otherwise
+    land in anything the app exports back to Excel."""
+    assert _render("updated_at", "2026-07-02T00:00:00+00:00") == "2026-07-02"
+    assert _render("effective_from", "2026-07-02") == "2026-07-02"
+    assert _render("updated_at", None) is None
+    # Only the date columns. A value that merely contains a T is untouched.
+    assert _render("standard_title", "T-Shaped Engineer") == "T-Shaped Engineer"
 
 
 # ── shape ─────────────────────────────────────────────────────────────────

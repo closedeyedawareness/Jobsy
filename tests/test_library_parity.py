@@ -33,6 +33,17 @@ WORKBOOK = "jobsy_reference_library.xlsx"
 # three byte-identical duplicate rows that the import collapses on purpose.
 KNOWN_ROW_DELTAS = {"titles": 3}
 
+# The ONE value difference the cutover accepts, and it is deliberate: the
+# workbook writes "Active", the check constraint takes 'active', and the
+# importer lowercases at the boundary (library_import_service._normalise_status)
+# so the database speaks one vocabulary. Compared case-insensitively rather than
+# re-capitalised in db_loader — a loader that renders "Active" back would be
+# being more helpful than the thing it replaces, which is the failure its own
+# docstring warns against, and after cutover 'active' is simply the truth.
+# Nothing in the app reads this column; the Status comparisons in ui/app.py are
+# a computed pay-range status, unrelated.
+CASE_INSENSITIVE_COLUMNS = {"Status"}
+
 
 @pytest.fixture(scope="module")
 def excel_catalog():
@@ -111,7 +122,10 @@ def test_values_match_row_for_row(frames):
             mismatches.append(f"{key}: {len(a)} vs {len(b)} rows")
             continue
         for col in cols:
-            diff = a[col].fillna("") != b[col].fillna("")
+            left, right = a[col].fillna(""), b[col].fillna("")
+            if col in CASE_INSENSITIVE_COLUMNS:
+                left, right = left.str.lower(), right.str.lower()
+            diff = left != right
             if diff.any():
                 i = diff.idxmax()
                 mismatches.append(

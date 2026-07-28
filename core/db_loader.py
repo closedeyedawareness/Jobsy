@@ -59,6 +59,14 @@ INTERNAL_COLUMNS = frozenset({
     "path_status",
 })
 
+# Governance columns the workbook holds as plain dates. Postgres stores them as
+# timestamptz and PostgREST renders '2026-07-02T00:00:00+00:00' where Excel says
+# '2026-07-02'. The importer writes date-only (_clean calls .date().isoformat()),
+# so every one of those times is midnight and the date is the whole value —
+# rendering it back as a date loses nothing and keeps an ISO timestamp out of
+# anything the app exports to Excel.
+DATE_COLUMNS = ("effective_from", "updated_at", "effective_to")
+
 PAGE = 1000  # PostgREST caps a response; benefits_observations alone is 1008 rows
 
 
@@ -99,6 +107,14 @@ def _to_text(value: Any) -> Any:
             return str(int(f)) if f.is_integer() else text
         except ValueError:
             pass
+    return text
+
+
+def _render(db_col: str, value: Any) -> Any:
+    """_to_text(), plus the date truncation the timestamptz columns need."""
+    text = _to_text(value)
+    if db_col in DATE_COLUMNS and isinstance(text, str) and "T" in text:
+        return text.split("T", 1)[0]
     return text
 
 
@@ -150,14 +166,14 @@ def load_frames(client, org_id: str, *, include_all: bool = False) -> dict[str, 
         for row in rows:
             rec = {}
             for db_col, wb_col in db_to_workbook.items():
-                rec[wb_col] = _to_text(row.get(db_col))
+                rec[wb_col] = _render(db_col, row.get(db_col))
             # The governance columns are real workbook columns too, and the
             # Data Quality page reads UpdatedAt to judge staleness.
             for db_col, wb_col in (("owner", "Owner"), ("status", "Status"),
                                    ("effective_from", "EffectiveFrom"),
                                    ("source", "Source"), ("updated_at", "UpdatedAt")):
                 if db_col in row:
-                    rec[wb_col] = _to_text(row.get(db_col))
+                    rec[wb_col] = _render(db_col, row.get(db_col))
             # CareerPaths' Status means top-of-ladder, not lifecycle — see 0002.
             if spec.status_column and spec.status_column in row:
                 rec["Status"] = _to_text(row.get(spec.status_column))
