@@ -93,7 +93,7 @@ LEVEL_C = {
 GMIN, GMAX = 30000, 140000
 
 # ── fonts (centralised in ui/theme.py) ──
-FONT_SERIF = THEME_FONT["serif"]
+FONT_SERIF = THEME_FONT["display"]
 FONT_SANS  = THEME_FONT["sans"]
 FONT_MONO  = THEME_FONT["mono"]
 
@@ -413,11 +413,17 @@ LEVEL_TEXT_MAP = {
 
 
 def load_fonts():
+    """Second copy of theme.load_fonts(), kept in step with it deliberately.
+
+    Both exist and both run; if they disagree the page fetches two display faces
+    and renders whichever loses the race, which is how Fraunces could linger
+    after the theme moved on. Change them together.
+    """
     st.markdown(
         '<link rel="preconnect" href="https://fonts.googleapis.com">'
         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-        '<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&'
-        'family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">',
+        '<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&'
+        'family=Sacramento&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">',
         unsafe_allow_html=True,
     )
 
@@ -1558,15 +1564,15 @@ def job_family_page(catalog):
         tips = ["Role", "Level"] + [_alt.Tooltip(f"{f}:Q", format=",.0f")
                                     for f in ("Min", "P25", "Median", "P75", "Max")]
         base = _alt.Chart(df).encode(x=_alt.X("Role:N", sort=order, axis=_alt.Axis(labelAngle=-20, title=None)))
-        rule = base.mark_rule(color="#6F3CFF", strokeWidth=2, opacity=0.45).encode(
+        rule = base.mark_rule(color="#8850EF", strokeWidth=2, opacity=0.45).encode(
             y=_alt.Y("Min:Q", title="Base salary (€)"), y2="Max:Q")
         def _pt(field, shape, color, size=70):
             return base.mark_point(shape=shape, filled=True, color=color, size=size, opacity=0.9).encode(
                 y=f"{field}:Q", tooltip=tips)
-        chart = (rule + _pt("P25", "triangle-down", "#34B5FF") + _pt("P75", "triangle-up", "#34B5FF")
-                 + _pt("Median", "circle", "#E85BB0", 170)).properties(height=340)
+        chart = (rule + _pt("P25", "triangle-down", "#67E8F9") + _pt("P75", "triangle-up", "#67E8F9")
+                 + _pt("Median", "circle", "#F565BF", 170)).properties(height=340)
         chart = chart.configure_view(strokeOpacity=0).configure_axis(
-            labelColor="#C9B8E8", titleColor="#C9B8E8", gridColor="#FFFFFF14", domainColor="#FFFFFF30")
+            labelColor="#B9A6DD", titleColor="#B9A6DD", gridColor="#FFFFFF14", domainColor="#FFFFFF30")
         st.altair_chart(chart, use_container_width=True)
         st.caption("● median (P50)   ▲ P75   ▼ P25   │ min–max band")
 
@@ -2451,7 +2457,7 @@ def pay_equity_page(catalog, service):
 
     # ── compa-ratio scatter ─────────────────────────────────────────────
     STATUS_COLOR = {"Below range": "#E0555F", "Below market": "#D9932B", "At market": "#0E9E7E",
-                    "Above market": "#34B5FF", "Above range": "#8A63D6", "No match": "#8A93A5"}
+                    "Above market": "#67E8F9", "Above range": "#A87CFF", "No match": "#8A93A5"}
     if len(priced):
         try:
             import altair as _alt
@@ -2464,7 +2470,7 @@ def pay_equity_page(catalog, service):
                 color=_alt.Color("Status:N", scale=_alt.Scale(domain=list(STATUS_COLOR), range=list(STATUS_COLOR.values())), legend=_alt.Legend(orient="bottom")),
                 tooltip=["Name", "Role", _alt.Tooltip("Actual:Q", format=",.0f"), "Compa-ratio", "Status"])
             rule = _alt.Chart(_pd.DataFrame({"x": [1.0]})).mark_rule(color="#8A93A5", strokeDash=[4, 4]).encode(x="x:Q")
-            chart = (rule + pts).properties(height=max(220, 26 * ch["Role"].nunique())).configure_view(strokeOpacity=0).configure_axis(labelColor="#C9B8E8", titleColor="#C9B8E8", gridColor="#FFFFFF14").configure_legend(labelColor="#C9B8E8", titleColor="#C9B8E8")
+            chart = (rule + pts).properties(height=max(220, 26 * ch["Role"].nunique())).configure_view(strokeOpacity=0).configure_axis(labelColor="#B9A6DD", titleColor="#B9A6DD", gridColor="#FFFFFF14").configure_legend(labelColor="#B9A6DD", titleColor="#B9A6DD")
             st.altair_chart(chart, use_container_width=True)
         except Exception:
             pass
@@ -2851,7 +2857,7 @@ def benefits_benchmarking_page(catalog, benefits_svc):
 
     # ── chart: your value vs P25/median/P75/P90 per category ─────────────
     STATUS_COLOR = {"Below P25": "#E0555F", "Below median": "#D9932B", "At market": "#0E9E7E",
-                    "Above P75": "#34B5FF", "Above P90": "#8A63D6"}
+                    "Above P75": "#67E8F9", "Above P90": "#A87CFF"}
     chart_rows = [{"Category": c.category, "Your value": c.actual, "P25": c.band.p25,
                    "Median": c.band.p50, "P75": c.band.p75, "P90": c.band.p90,
                    "Status": c.status, "Unit": c.unit} for c in comparisons]
@@ -2859,9 +2865,9 @@ def benefits_benchmarking_page(catalog, benefits_svc):
     try:
         import altair as _alt
         base = _alt.Chart(cdf).encode(y=_alt.Y("Category:N", title=None))
-        rule = base.mark_rule(color="#6F3CFF", strokeWidth=2, opacity=0.4).encode(
+        rule = base.mark_rule(color="#8850EF", strokeWidth=2, opacity=0.4).encode(
             x=_alt.X("P25:Q", title="Value (category-specific unit)"), x2="P90:Q")
-        median_tick = base.mark_tick(color="#E85BB0", thickness=3, size=22).encode(x="Median:Q")
+        median_tick = base.mark_tick(color="#F565BF", thickness=3, size=22).encode(x="Median:Q")
         actual_pt = base.mark_point(shape="diamond", filled=True, size=140, opacity=0.95).encode(
             x="Your value:Q",
             color=_alt.Color("Status:N", scale=_alt.Scale(domain=list(STATUS_COLOR), range=list(STATUS_COLOR.values())),
@@ -2869,8 +2875,8 @@ def benefits_benchmarking_page(catalog, benefits_svc):
             tooltip=["Category", "Your value", "P25", "Median", "P75", "P90", "Status"])
         chart = (rule + median_tick + actual_pt).properties(height=max(220, 40 * len(cdf)))
         chart = chart.configure_view(strokeOpacity=0).configure_axis(
-            labelColor="#C9B8E8", titleColor="#C9B8E8", gridColor="#FFFFFF14", domainColor="#FFFFFF30"
-        ).configure_legend(labelColor="#C9B8E8", titleColor="#C9B8E8")
+            labelColor="#B9A6DD", titleColor="#B9A6DD", gridColor="#FFFFFF14", domainColor="#FFFFFF30"
+        ).configure_legend(labelColor="#B9A6DD", titleColor="#B9A6DD")
         st.altair_chart(chart, use_container_width=True)
         st.caption("─ P25–P90 range   | median tick   ◆ your value, colored by status")
     except Exception:
@@ -3699,7 +3705,7 @@ def skill_gap_page(catalog, service):
                     st.info("No eligible candidates found for this role.")
                 else:
                     cards=""
-                    LVC={"Lead":("#ECE7F7","#6A53B0"),"Senior":("#E2F1ED","#0E7C66"),"Medior":("#E6EDF7","#2B5FA6"),"Junior":("#F7EEDD","#B9791A")}
+                    LVC={"Lead":("#ECE7F7","#A87CFF"),"Senior":("#E2F1ED","#0E7C66"),"Medior":("#E6EDF7","#2B5FA6"),"Junior":("#F7EEDD","#B9791A")}
                     for i,c in enumerate(candidates[:12]):
                         lb,lf=LVC.get(c["level"],("#F4F6F8","#5A6B7A"))
                         chips="".join(f'<span style="font-family:{FONT_MONO};font-size:10px;background:#F7EEDD;color:{C["amber"]};border-radius:6px;padding:2px 8px;margin:2px 3px 0 0">{s}</span>' for s in c["top_gaps"]) or f'<span style="font-family:{FONT_MONO};font-size:10px;color:{C["teal"]}">All skills met ✓</span>'
@@ -3979,7 +3985,7 @@ def skills_dashboard_page(catalog):
     else:
         items = [(s.skill_name, float(s.n_holders if _sa else s.n_roles)) for s in subset]
     rects = squarify(items, 0, 0, 100, 56)
-    _PALETTE = ["#6F3CFF", "#5C35A3", "#A77BFF", "#4A2A80", "#8850EF", "#3B2064", "#34B5FF", "#22103F"]
+    _PALETTE = ["#A87CFF", "#8850EF", "#67E8F9", "#F472B6", "#6EE7B7", "#4d2c80", "#3a2064", "#271052"]  # pillars first, then the PH panel ramp
     cells = []
     for i, r in enumerate(sorted(rects, key=lambda r: -(r.w * r.h))):
         fs = max(9, min(15, (r.w * r.h) ** 0.5 * 0.55))
@@ -4669,9 +4675,9 @@ def _build_org_json(df_input, results, title_col):
     fn_col  = next((c for c in ["FirstName","first_name"] if c in df_input.columns), None)
     ln_col  = next((c for c in ["LastName","last_name"]   if c in df_input.columns), None)
     LSORT={"Lead":0,"Senior":1,"Medior":2,"Junior":3}
-    LCOL={"Lead":"#6A53B0","Senior":"#0E7C66","Medior":"#2B5FA6","Junior":"#B9791A"}
+    LCOL={"Lead":"#A87CFF","Senior":"#0E7C66","Medior":"#2B5FA6","Junior":"#B9791A"}
     DCOL={"Executive":"#17212E","Finance":"#0E7C66","HR":"#2B5FA6","IT":"#B9791A",
-          "Engineering":"#0E7C66","Sales":"#A8443A","Marketing":"#6A53B0",
+          "Engineering":"#0E7C66","Sales":"#A8443A","Marketing":"#A87CFF",
           "Operations":"#5A6B7A","Warehouse":"#8B6914","Legal":"#2B5FA6",
           "Customer Service":"#0E7C66","Support":"#5A6B7A"}
     def gname(row):
@@ -4782,7 +4788,7 @@ svg{{width:100%;height:100%}}
   <div class="cb" id="zr">⌂</div>
 </div>
 <div id="leg">
-  <div class="li"><div class="ld" style="background:#6A53B0"></div>Lead</div>
+  <div class="li"><div class="ld" style="background:#A87CFF"></div>Lead</div>
   <div class="li"><div class="ld" style="background:#0E7C66"></div>Senior</div>
   <div class="li"><div class="ld" style="background:#2B5FA6"></div>Medior</div>
   <div class="li"><div class="ld" style="background:#B9791A"></div>Junior</div>

@@ -1,8 +1,12 @@
+# People Harmonics tokens. Streamlit paints widget internals from this block
+# itself, and injected CSS can only partly reach them -- so if this disagrees
+# with ui/assets/jobsy.css the two fight and the widgets stay the old colour.
+# Keep in step with :root there.
 [theme]
-primaryColor = "#6F3CFF"
-backgroundColor = "#160A2B"
-secondaryBackgroundColor = "#22103F"
-textColor = "#FFFFFF"
+primaryColor = "#8850EF"            # --ac
+backgroundColor = "#150226"         # --ground
+secondaryBackgroundColor = "#1d0b38" # --panel
+textColor = "#EDE6FF"               # --ink
 font = "sans serif"
 
 [server]

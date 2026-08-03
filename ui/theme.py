@@ -10,46 +10,70 @@ from __future__ import annotations
 from pathlib import Path
 import streamlit as st
 
+# The People Harmonics palette, verbatim from PH-www/styles.css, which in turn
+# takes it from hrs.peopleharmonics.com. Jobsy had its own near-miss of this
+# palette -- close enough to look like a mistake rather than a decision -- so
+# these are now the same hex values the front door and the engine use.
+#
+# Every key that existed before is kept, including the aliases, because they are
+# read ~500 times across app.py and the services. They are REPOINTED, not
+# renamed: nothing downstream has to change for the charts to follow the brand.
 COLORS = {
-    # Core surfaces
-    "bg": "#160A2B",
-    "surface": "#22103F",
-    "surface2": "#2C1652",
-    "surface3": "#351B63",
+    # Core surfaces — PH ground/panel ramp
+    "bg": "#150226",          # --ground
+    "bg2": "#0b0016",         # --ground2
+    "surface": "#1d0b38",     # --panel
+    "surface2": "#271052",    # --panel2
+    "surface3": "#2C1652",
 
-    # Text
-    "ink": "#FFFFFF",
-    "text": "#FFFFFF",
-    "muted": "#C9B8E8",
-    "subtle": "#9E87C9",
-    "line": "#4D2F75",
-    "border": "#4D2F75",
+    # Text — PH ink ramp
+    "ink": "#EDE6FF",
+    "text": "#EDE6FF",
+    "muted": "#B9A6DD",
+    "subtle": "#8A78B0",      # --faint
+    "line": "#3a2064",
+    "line2": "#4d2c80",
+    "border": "#3a2064",
 
     # Brand accents
-    "primary": "#6F3CFF",
-    "secondary": "#34B5FF",
-    "accent": "#FF73D0",
-    "gold": "#CFA46A",
+    "primary": "#8850EF",     # --ac
+    "secondary": "#67E8F9",
+    "accent": "#F565BF",      # --script-pink
+    "gold": "#E6B25E",
 
-    # Backwards-compatible aliases used by app.py
-    "teal": "#34B5FF",
-    "teal2": "#70D6FF",
-    "blue": "#6F3CFF",
-    "violet": "#A77BFF",
-    "amber": "#F4B942",
-    "clay": "#FF5A7A",
+    # The four pillars — the same tokens the HRS engine scores on
+    "iai": "#A87CFF",         # Inner Alignment Index
+    "rri": "#F472B6",         # Relational Resonance Index
+    "lhi": "#67E8F9",         # Leadership Harmonic Impact
+    "ohb": "#6EE7B7",         # Organizational Harmonics Baseline
+
+    # Aliases kept for app.py and the report services, repointed onto the
+    # pillar palette so every existing chart inherits the brand for free.
+    "teal": "#67E8F9",        # -> lhi
+    "teal2": "#9BF0FA",
+    "blue": "#8850EF",        # -> ac
+    "violet": "#A87CFF",      # -> iai
+    "amber": "#E6B25E",       # -> gold
+    "clay": "#F472B6",        # -> rri
 
     # Semantic
-    "success": "#00C897",
-    "warning": "#F4B942",
+    "success": "#6EE7B7",     # -> ohb
+    "warning": "#E6B25E",
     "danger": "#FF5A7A",
 }
 
 FONT = {
-    "serif": "'Fraunces', Georgia, serif",
-    "sans": "'IBM Plex Sans', system-ui, sans-serif",
-    "mono": "'IBM Plex Mono', 'Courier New', monospace",
+    # PH leads on Quicksand for display and plain system sans for body text;
+    # Jobsy was on Fraunces, a serif, which was the loudest single thing making
+    # the two products look unrelated.
+    "display": "'Quicksand', system-ui, sans-serif",
+    "script": "'Sacramento', cursive",
+    "sans": "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    "mono": "'IBM Plex Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace",
 }
+# Deprecated: "serif" is what the display face used to be called here. Kept as an
+# alias so nothing breaks, but it now resolves to Quicksand, which is not a serif.
+FONT["serif"] = FONT["display"]
 
 RADIUS = {
     "sm": 8,
@@ -68,12 +92,17 @@ SPACING = {
 
 
 def load_fonts() -> None:
-    """Load Jobsy web fonts."""
+    """Load the People Harmonics web fonts.
+
+    Quicksand (display) and Sacramento (script accent) replace Fraunces; IBM Plex
+    Mono stays, since PH uses it too. IBM Plex Sans is dropped because PH sets
+    body copy in the system stack, which also means one less font to fetch.
+    """
     st.markdown(
         '<link rel="preconnect" href="https://fonts.googleapis.com">'
         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-        '<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&'
-        'family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">',
+        '<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&'
+        'family=Sacramento&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">',
         unsafe_allow_html=True,
     )
 

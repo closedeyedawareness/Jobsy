@@ -1,504 +1,296 @@
-/* Jobsy UI v2 — People Harmonics-inspired theme */
+/*  Jobsy — People Harmonics design system
+    ------------------------------------------------------------------
+    Aligned to PH-www/styles.css, which inherits from hrs.peopleharmonics.com.
+    Same tokens, same fonts, same grammar, so Jobsy reads as one company with
+    the front door and the engine rather than a cousin of them:
 
-:root {
-  --jobsy-bg: #160A2B;
-  --jobsy-surface: #22103F;
-  --jobsy-surface-2: #2C1652;
-  --jobsy-surface-3: #351B63;
-  --jobsy-text: #FFFFFF;
-  --jobsy-muted: #C9B8E8;
-  --jobsy-subtle: #9E87C9;
-  --jobsy-border: #4D2F75;
-  --jobsy-primary: #6F3CFF;
-  --jobsy-secondary: #34B5FF;
-  --jobsy-accent: #FF73D0;
-  --jobsy-gold: #CFA46A;
-  --jobsy-success: #00C897;
-  --jobsy-warning: #F4B942;
-  --jobsy-danger: #FF5A7A;
-  --jobsy-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
-  --jobsy-glow: 0 0 32px rgba(111, 60, 255, 0.28);
+      - gold mono eyebrow with a leading rule (not a coloured pill)
+      - Quicksand display, system sans body, IBM Plex Mono for labels
+      - cards with a coloured 3px left border drawn from the pillar palette
+      - buttons in mono uppercase with a gold trailing arrow
+      - left-aligned, 16px radii, panel gradient on a fixed radial ground
+
+    Deliberately NOT brought over: the PH logo and wordmark. Jobsy keeps its own
+    identity in the masthead for now; this is the visual system, not the badge.
+
+    This file previously grew by appending "V3.1", "V3.1.1 fixed" and "V3.2"
+    blocks that re-declared the same selectors with different values, so which
+    rule won depended on source order. It is one pass now. Keep it that way.
+*/
+
+:root{
+  /* ground + panels — identical to PH-www and the HRS suite */
+  --ground:#150226; --ground2:#0b0016; --panel:#1d0b38; --panel2:#271052;
+  --line:#3a2064; --line2:#4d2c80;
+  /* ink ramp */
+  --ink:#EDE6FF; --muted:#B9A6DD; --faint:#8A78B0;
+  /* accents */
+  --ac:#8850EF; --gold:#E6B25E; --gold-soft:rgba(230,178,94,.13); --script-pink:#F565BF;
+  /* the four pillars — same tokens the engine scores on */
+  --iai:#A87CFF;   /* Inner Alignment Index      */
+  --rri:#F472B6;   /* Relational Resonance Index */
+  --lhi:#67E8F9;   /* Leadership Harmonic Impact */
+  --ohb:#6EE7B7;   /* Organizational Harmonics Baseline */
+  --display:'Quicksand',system-ui,sans-serif;
+  --script:'Sacramento',cursive;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:"IBM Plex Mono","SF Mono",ui-monospace,Menlo,Consolas,monospace;
+
+  /* Legacy --jobsy-* names, kept so any stray inline style still resolves.
+     Aliases only: never set a value here that is not one of the tokens above. */
+  --jobsy-bg:var(--ground); --jobsy-surface:var(--panel);
+  --jobsy-surface-2:var(--panel2); --jobsy-surface-3:var(--panel2);
+  --jobsy-text:var(--ink); --jobsy-muted:var(--muted); --jobsy-subtle:var(--faint);
+  --jobsy-border:var(--line); --jobsy-primary:var(--ac); --jobsy-secondary:var(--lhi);
+  --jobsy-accent:var(--script-pink); --jobsy-gold:var(--gold);
+  --jobsy-success:var(--ohb); --jobsy-warning:var(--gold); --jobsy-danger:#FF5A7A;
+  --jobsy-shadow:0 24px 80px rgba(0,0,0,.38);
+  --jobsy-glow:0 0 32px rgba(136,80,239,.28);
 }
 
-html, body, [class*="css"] {
-  font-family: 'IBM Plex Sans', system-ui, sans-serif;
-}
+html, body, [class*="css"]{ font-family:var(--sans); }
 
-.stApp {
-  color: var(--jobsy-text);
+/* PH's ground: three fixed radial washes over a vertical ramp. */
+.stApp{
+  color:var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(111, 60, 255, 0.30), transparent 36rem),
-    radial-gradient(circle at top right, rgba(52, 181, 255, 0.20), transparent 32rem),
-    linear-gradient(135deg, #160A2B 0%, #120821 48%, #090512 100%);
+    radial-gradient(1100px 680px at 82% -6%, rgba(245,101,191,.15), transparent 58%),
+    radial-gradient(940px 560px at 6% 3%, rgba(168,124,255,.12), transparent 55%),
+    radial-gradient(1000px 820px at 50% 116%, rgba(103,232,249,.06), transparent 60%),
+    linear-gradient(180deg,var(--ground),var(--ground2));
+  background-attachment:fixed;
 }
 
-.main .block-container {
-  padding-top: 2rem;
-  padding-bottom: 4rem;
-  max-width: 1180px;
-}
+.main .block-container{ padding-top:2rem; padding-bottom:4rem; max-width:1180px; }
 
-div[data-testid="stSidebar"] {
-  background:
-    linear-gradient(180deg, rgba(34,16,63,0.98) 0%, rgba(22,10,43,0.98) 100%);
-  border-right: 1px solid rgba(255,255,255,0.08);
-}
+/* ── type ────────────────────────────────────────────────────────── */
+h1,h2,h3{ font-family:var(--display); font-weight:700; letter-spacing:-.012em; color:var(--ink); }
+h1{ font-size:clamp(2.1rem,5.4vw,3.2rem); line-height:1.04; }
+h2{ font-size:clamp(1.5rem,3.2vw,2.1rem); line-height:1.12; }
+p,label,span,div{ color:inherit; }
 
-div[data-testid="stSidebar"] * {
-  color: var(--jobsy-text);
-}
-
-div[data-testid="stSidebar"] .stRadio label,
-div[data-testid="stSidebar"] .stCheckbox label,
-div[data-testid="stSidebar"] .stSlider label {
-  color: var(--jobsy-muted) !important;
-}
-
-h1, h2, h3 {
-  font-family: 'Fraunces', Georgia, serif;
-  letter-spacing: -0.025em;
-}
-
-p, label, span, div {
-  color: inherit;
-}
-
-.stButton > button,
-button[kind="primary"] {
-  border-radius: 14px !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
-  color: white !important;
-  background: linear-gradient(90deg, var(--jobsy-primary), var(--jobsy-secondary)) !important;
-  box-shadow: 0 12px 30px rgba(111, 60, 255, 0.28);
-  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
-}
-
-.stButton > button:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.06);
-  box-shadow: 0 16px 40px rgba(52, 181, 255, 0.28);
-}
-
-.stTabs [data-baseweb="tab-list"] {
-  gap: .5rem;
-  border-bottom: 1px solid rgba(255,255,255,0.10);
-}
-
-.stTabs [data-baseweb="tab"] {
-  color: var(--jobsy-muted);
-  border-radius: 999px;
-  padding: .5rem 1rem;
-}
-
-.stTabs [aria-selected="true"] {
-  color: white !important;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12);
-}
-
-div[data-testid="stMetric"],
-.jobsy-card,
-.jobsy-metric-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.035));
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 18px;
-  box-shadow: var(--jobsy-shadow);
-}
-
-div[data-testid="stMetric"] {
-  padding: 1rem;
-}
-
-[data-testid="stDataFrame"],
-[data-testid="stTable"] {
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.10);
-}
-
-.stTextInput input,
-.stTextArea textarea,
-.stSelectbox div[data-baseweb="select"] > div,
-.stNumberInput input {
-  background: rgba(255,255,255,0.06) !important;
-  color: white !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
-  border-radius: 12px !important;
-}
-
-.stFileUploader {
-  background: rgba(255,255,255,0.04);
-  border: 1px dashed rgba(255,255,255,0.22);
-  border-radius: 18px;
-  padding: 1rem;
-}
-
-.stAlert {
-  border-radius: 14px;
-}
-
-hr {
-  border-color: rgba(255,255,255,0.10);
-}
-
-.jobsy-hero {
-  padding: 22px 24px;
-  border-radius: 24px;
-  background:
-    linear-gradient(135deg, rgba(111,60,255,0.26), rgba(52,181,255,0.12)),
-    rgba(255,255,255,0.035);
-  border: 1px solid rgba(255,255,255,0.12);
-  box-shadow: var(--jobsy-glow);
-}
-
-.jobsy-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: .4rem;
-  border-radius: 999px;
-  padding: .25rem .75rem;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: .7rem;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: white;
-  background: rgba(111,60,255,0.22);
-  border: 1px solid rgba(255,255,255,0.14);
-}
-
-.jobsy-gradient-text {
-  background: linear-gradient(90deg, #FFFFFF, #C9B8E8 45%, #34B5FF);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-
-/* Jobsy UI V3.1 — Dashboard and hero overhaul */
-
-.jobsy-v3-hero {
-  position: relative;
-  overflow: hidden;
-  margin: 0 0 26px 0;
-  padding: 34px;
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at 8% 8%, rgba(255, 115, 208, 0.22), transparent 28rem),
-    radial-gradient(circle at 86% 14%, rgba(52, 181, 255, 0.22), transparent 30rem),
-    linear-gradient(135deg, rgba(111, 60, 255, 0.26), rgba(255, 255, 255, 0.045));
-  border: 1px solid rgba(255,255,255,0.14);
-  box-shadow:
-    0 18px 44px rgba(0,0,0,0.34),
-    inset 0 1px 0 rgba(255,255,255,0.10);
-}
-
-.jobsy-v3-hero-top {
-  position: relative;
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
-  z-index: 1;
-}
-
-.jobsy-v3-eyebrow {
-  display: inline-flex;
-  width: fit-content;
-  margin-bottom: 12px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
-  letter-spacing: .16em;
-  text-transform: uppercase;
-  color: #34B5FF;
-  background: rgba(52,181,255,0.10);
-  border: 1px solid rgba(52,181,255,0.25);
-}
-
-.jobsy-v3-title {
-  margin: 0;
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: clamp(48px, 7vw, 76px);
-  line-height: .92;
-  font-weight: 700;
-  letter-spacing: -0.055em;
-  background: linear-gradient(90deg, #FFFFFF 0%, #E6D8FF 42%, #34B5FF 86%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.jobsy-v3-tagline {
-  margin-top: 16px;
-  max-width: 780px;
-  font-size: clamp(24px, 3vw, 38px);
-  line-height: 1.1;
-  font-weight: 650;
-  letter-spacing: -0.035em;
-  color: #FFFFFF;
-}
-
-.jobsy-v3-copy {
-  margin: 14px 0 0 0;
-  max-width: 720px;
-  font-size: 16px;
-  line-height: 1.6;
-  color: #C9B8E8;
-}
-
-.jobsy-v3-badge {
-  flex-shrink: 0;
-  padding: 9px 14px;
-  border-radius: 999px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: #CFA46A;
-  background: rgba(207,164,106,0.12);
-  border: 1px solid rgba(207,164,106,0.30);
-}
-
-.jobsy-v3-actions {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.jobsy-v3-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 46px;
-  padding: 0 18px;
-  border-radius: 14px;
-  font-family: 'IBM Plex Sans', system-ui, sans-serif;
-  font-weight: 650;
-  text-decoration: none !important;
-  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-}
-
-.jobsy-v3-action.primary {
-  color: #FFFFFF !important;
-  background: linear-gradient(90deg, #6F3CFF, #34B5FF);
-  box-shadow: 0 16px 40px rgba(111,60,255,.25);
-}
-
-.jobsy-v3-action.secondary {
-  color: #FFFFFF !important;
-  background: rgba(255,255,255,.06);
-  border: 1px solid rgba(255,255,255,.14);
-}
-
-.jobsy-v3-action:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 46px rgba(52,181,255,.22);
-}
-
-.jobsy-v3-kpi-grid {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 28px;
-}
-
-.jobsy-v3-kpi-card {
-  min-height: 118px;
-  padding: 18px;
-  border-radius: 20px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.035));
-  border: 1px solid rgba(255,255,255,0.12);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
-}
-
-.jobsy-v3-kpi-label {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: #C9B8E8;
-}
-
-.jobsy-v3-kpi-value {
-  margin-top: 10px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 34px;
-  line-height: 1;
-  font-weight: 700;
-  color: #FFFFFF;
-}
-
-.jobsy-v3-kpi-note {
-  margin-top: 9px;
-  font-size: 12px;
-  color: #9E87C9;
-}
-
-#workspace {
-  scroll-margin-top: 24px;
-}
-
-@media (max-width: 900px) {
-  .jobsy-v3-hero { padding: 24px; }
-  .jobsy-v3-hero-top { flex-direction: column; }
-  .jobsy-v3-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-@media (max-width: 560px) {
-  .jobsy-v3-kpi-grid { grid-template-columns: 1fr; }
-  .jobsy-v3-actions { flex-direction: column; }
-}
-
-
-/* Jobsy UI V3.1.1 fixed */
-
-.jobsy-v3-hero{max-width:980px;margin:0 auto 32px;padding:34px;border-radius:28px;background:radial-gradient(circle at 8% 8%,rgba(255,115,208,.22),transparent 28rem),radial-gradient(circle at 86% 14%,rgba(52,181,255,.22),transparent 30rem),linear-gradient(135deg,rgba(111,60,255,.26),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);box-shadow:0 18px 44px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.10)}
-.jobsy-v3-row{display:flex;justify-content:space-between;gap:24px;align-items:flex-start}
-.jobsy-v3-eyebrow{display:inline-flex;margin-bottom:12px;padding:5px 12px;border-radius:999px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#34B5FF;background:rgba(52,181,255,.10);border:1px solid rgba(52,181,255,.25)}
-.jobsy-v3-title{margin:0;font-family:'Fraunces',Georgia,serif;font-size:clamp(52px,7vw,82px);line-height:.92;font-weight:700;letter-spacing:-.055em;background:linear-gradient(90deg,#fff,#E6D8FF 42%,#34B5FF 86%);-webkit-background-clip:text;background-clip:text;color:transparent}
-.jobsy-v3-tagline{margin-top:16px;max-width:780px;font-size:clamp(24px,3vw,38px);line-height:1.1;font-weight:650;letter-spacing:-.035em;color:#fff}
-.jobsy-v3-copy{margin:14px 0 0;max-width:720px;font-size:16px;line-height:1.6;color:#C9B8E8}
-.jobsy-v3-badge{flex-shrink:0;padding:9px 14px;border-radius:999px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#CFA46A;background:rgba(207,164,106,.12);border:1px solid rgba(207,164,106,.30)}
-.jobsy-v3-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:28px}
-.jobsy-v3-kpi-card{min-height:112px;padding:18px;border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.075),rgba(255,255,255,.035));border:1px solid rgba(255,255,255,.12)}
-.jobsy-v3-kpi-label{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#C9B8E8}
-.jobsy-v3-kpi-value{margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:34px;line-height:1;font-weight:700;color:#fff}
-.jobsy-v3-kpi-note{margin-top:9px;font-size:12px;color:#9E87C9}
-.jobsy-v3-workspace-title{max-width:980px;margin:0 auto 14px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#CFA46A}
-.stTabs,.stTextArea,.stFileUploader,.stButton,.stAlert{max-width:980px;margin-left:auto;margin-right:auto}
-.stTextArea textarea{background:rgba(255,255,255,.065)!important;color:#fff!important;border:1px solid rgba(255,255,255,.14)!important;border-radius:18px!important;min-height:170px!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 18px 60px rgba(0,0,0,.18)}
-.stTextArea textarea:focus{border-color:rgba(52,181,255,.55)!important;box-shadow:0 0 0 1px rgba(52,181,255,.25),0 18px 60px rgba(0,0,0,.20)}
-.stFileUploader{background:rgba(255,255,255,.045)!important;border:1px dashed rgba(255,255,255,.24)!important;border-radius:22px!important;padding:18px!important}
-@media(max-width:900px){.jobsy-v3-hero{padding:24px}.jobsy-v3-row{flex-direction:column}.jobsy-v3-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:560px){.jobsy-v3-kpi-grid{grid-template-columns:1fr}}
-
-
-/* Jobsy UI V3.2 — mobile/sidebar polish */
-
-.jobsy-secret-card{
-  margin-top:10px;
-  padding:14px 14px;
-  border-radius:18px;
-  background:rgba(255,255,255,.045);
-  border:1px solid rgba(255,255,255,.10);
-}
-.jobsy-secret-title{
-  font-family:'IBM Plex Mono',monospace;
-  font-size:10px;
-  letter-spacing:.13em;
-  text-transform:uppercase;
-  color:#CFA46A;
-  margin-bottom:6px;
-}
-.jobsy-secret-copy{
-  color:#C9B8E8;
-  font-size:13px;
-  line-height:1.45;
-}
-.jobsy-secret-copy code{
-  color:#34B5FF;
-  background:rgba(52,181,255,.10);
-  border:1px solid rgba(52,181,255,.16);
-  border-radius:6px;
-  padding:1px 5px;
-}
-
-/* Sidebar feels more like an app rail */
+/* ── sidebar ─────────────────────────────────────────────────────── */
 div[data-testid="stSidebar"]{
+  background:linear-gradient(180deg,var(--panel) 0%,var(--ground) 100%);
+  border-right:1px solid var(--line);
   box-shadow:18px 0 60px rgba(0,0,0,.22);
 }
+div[data-testid="stSidebar"] *{ color:var(--ink); }
+div[data-testid="stSidebar"] h2,
+div[data-testid="stSidebar"] h3{ color:var(--ink)!important; font-family:var(--display); }
+div[data-testid="stSidebar"] .stRadio label,
+div[data-testid="stSidebar"] .stCheckbox label,
+div[data-testid="stSidebar"] .stSlider label{ color:var(--muted)!important; }
 div[data-testid="stSidebar"] [role="radiogroup"] label{
-  border-radius:14px;
-  padding:4px 2px;
+  border-radius:10px; padding:4px 6px;
   transition:background .18s ease, transform .18s ease;
 }
 div[data-testid="stSidebar"] [role="radiogroup"] label:hover{
-  background:rgba(255,255,255,.055);
-  transform:translateX(2px);
+  background:rgba(255,255,255,.05); transform:translateX(2px);
 }
-div[data-testid="stSidebar"] h2,
-div[data-testid="stSidebar"] h3{
-  color:#FFFFFF!important;
-}
-
-/* Give native Streamlit radio/check controls brand colour */
 .stCheckbox [data-testid="stMarkdownContainer"] p,
-.stRadio [data-testid="stMarkdownContainer"] p{
-  color:#FFFFFF!important;
+.stRadio [data-testid="stMarkdownContainer"] p{ color:var(--ink)!important; }
+
+/* ── buttons — PH .btn: mono uppercase, bordered, gold trailing arrow ── */
+.stButton > button,
+button[kind="primary"]{
+  display:inline-flex!important; align-items:center;
+  min-height:46px; padding:12px 20px!important;
+  border-radius:12px!important;
+  font-family:var(--mono)!important; font-size:12.5px!important;
+  letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ink)!important;
+  border:1px solid var(--line2)!important;
+  background:linear-gradient(120deg,rgba(136,80,239,.34),rgba(245,101,191,.18))!important;
+  box-shadow:none!important;
+  transition:border-color .2s, transform .2s;
+}
+.stButton > button:hover{
+  border-color:var(--ac)!important; transform:translateY(-1px); filter:none;
+}
+.stButton > button::after{ content:" →"; margin-left:8px; color:var(--gold); }
+
+/* ── tabs ────────────────────────────────────────────────────────── */
+.stTabs{ padding:4px 0 0; }
+.stTabs [data-baseweb="tab-list"]{ gap:.5rem; border-bottom:1px solid var(--line); }
+.stTabs [data-baseweb="tab"]{
+  color:var(--faint); border-radius:8px; padding:.5rem 1rem;
+  font-family:var(--mono); font-size:11.5px; letter-spacing:.08em; text-transform:uppercase;
+}
+.stTabs [aria-selected="true"]{
+  color:var(--gold)!important; background:rgba(255,255,255,.05);
+  border:1px solid var(--line);
 }
 
-/* Desktop workspace gets a little more presence */
-.stTabs{
-  padding:4px 0 0;
+/* ── cards — PH's signature coloured left border ─────────────────── */
+div[data-testid="stMetric"],
+.jobsy-card,
+.jobsy-metric-card{
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line);
+  border-left:3px solid var(--ac);
+  border-radius:16px;
+  box-shadow:none;
+}
+div[data-testid="stMetric"]{ padding:1rem; }
+/* pillar-coded variants, same four colours the engine scores on */
+.jobsy-card.iai{ --ac:var(--iai) } .jobsy-card.rri{ --ac:var(--rri) }
+.jobsy-card.lhi{ --ac:var(--lhi) } .jobsy-card.ohb{ --ac:var(--ohb) }
+.jobsy-card.gold{ --ac:var(--gold) }
+
+[data-testid="stDataFrame"],
+[data-testid="stTable"]{ border-radius:14px; overflow:hidden; border:1px solid var(--line); }
+
+/* ── inputs ──────────────────────────────────────────────────────── */
+.stTextInput input,
+.stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] > div,
+.stNumberInput input{
+  background:var(--panel)!important;
+  color:var(--ink)!important;
+  border:1px solid var(--line)!important;
+  border-radius:12px!important;
+}
+.stTextArea textarea{ min-height:170px!important; box-shadow:none!important; }
+.stTextArea textarea:focus,
+.stTextInput input:focus{
+  border-color:var(--ac)!important;
+  box-shadow:0 0 0 1px rgba(136,80,239,.25)!important;
+}
+.stFileUploader{
+  background:var(--panel)!important;
+  border:1px dashed var(--line2)!important;
+  border-radius:16px!important;
+  padding:18px!important;
+}
+.stAlert{ border-radius:12px; border:1px solid var(--line); }
+hr{ border:0; border-top:1px solid var(--line); }
+
+/* ── hero ────────────────────────────────────────────────────────── */
+.jobsy-hero,
+.jobsy-v3-hero{
+  position:relative; overflow:hidden;
+  max-width:980px; margin:0 auto 32px; padding:34px;
+  border-radius:16px;
+  background:linear-gradient(120deg,rgba(136,80,239,.20),rgba(245,101,191,.07) 55%,var(--panel));
+  border:1px solid var(--line);
+  border-left:3px solid var(--ac);
+  box-shadow:none;
+}
+.jobsy-v3-hero-top,
+.jobsy-v3-row{ position:relative; z-index:1; display:flex; justify-content:space-between; gap:24px; align-items:flex-start; }
+
+/* The PH eyebrow: gold, mono, wide tracking, with a short rule leading into it.
+   This replaced a blue rounded pill — the pill is a different design language
+   and was the second-most obvious tell, after the serif. */
+.jobsy-v3-eyebrow{
+  display:flex; align-items:center; gap:10px;
+  width:fit-content; margin:0 0 16px; padding:0;
+  border:0; background:none; border-radius:0;
+  font-family:var(--mono); font-size:12px; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--gold);
+}
+.jobsy-v3-eyebrow::before{ content:""; width:26px; height:1.5px; background:currentColor; opacity:.7; }
+
+.jobsy-v3-title{
+  margin:0;
+  font-family:var(--display); font-weight:700;
+  font-size:clamp(2.1rem,5.4vw,3.2rem); line-height:1.04; letter-spacing:-.012em;
+  /* PH sets headlines in solid ink. The gradient-clipped text this replaces is
+     not a PH motif anywhere on the front door or the suite. */
+  background:none; -webkit-background-clip:border-box; background-clip:border-box;
+  color:var(--ink);
+}
+.jobsy-v3-tagline{
+  margin-top:14px; max-width:60ch;
+  font-family:var(--display); font-weight:700;
+  font-size:clamp(1.5rem,3.2vw,2.1rem); line-height:1.12; letter-spacing:-.01em;
+  color:var(--ink);
+}
+.jobsy-v3-copy{ margin:14px 0 0; max-width:68ch; font-size:clamp(1.05rem,2vw,1.15rem); line-height:1.6; color:var(--muted); }
+.jobsy-v3-badge{
+  flex-shrink:0; padding:8px 12px; border-radius:8px;
+  font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--gold); background:var(--gold-soft); border:1px solid var(--line);
 }
 
-/* Mobile optimisation */
+/* ── hero actions — PH .btn ──────────────────────────────────────── */
+.jobsy-v3-actions{ position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:12px; margin-top:26px; }
+.jobsy-v3-action{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-height:46px; padding:12px 20px; border-radius:12px;
+  font-family:var(--mono); font-size:12.5px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ink)!important; text-decoration:none!important;
+  border:1px solid var(--line2); background:var(--panel2);
+  transition:border-color .2s, transform .2s;
+}
+.jobsy-v3-action::after{ content:" →"; margin-left:8px; color:var(--gold); }
+.jobsy-v3-action.primary{ background:linear-gradient(120deg,rgba(136,80,239,.34),rgba(245,101,191,.18)); border-color:var(--ac); }
+.jobsy-v3-action:hover{ border-color:var(--ac); transform:translateY(-1px); box-shadow:none; }
+
+/* ── KPI row — PH .stat ──────────────────────────────────────────── */
+.jobsy-v3-kpi-grid{ position:relative; z-index:1; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin-top:28px; }
+.jobsy-v3-kpi-card{
+  min-height:112px; padding:20px 22px; border-radius:14px;
+  background:var(--panel); border:1px solid var(--line); box-shadow:none;
+}
+.jobsy-v3-kpi-label{ font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
+.jobsy-v3-kpi-value{
+  margin-top:10px; font-family:var(--display); font-weight:700;
+  font-size:clamp(1.9rem,4.4vw,2.6rem); line-height:1; letter-spacing:-.02em; color:var(--ink);
+}
+.jobsy-v3-kpi-note{ margin-top:8px; font-size:13.5px; line-height:1.5; color:var(--muted); }
+
+.jobsy-v3-workspace-title{
+  max-width:980px; margin:0 auto 14px;
+  font-family:var(--mono); font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--gold);
+  display:flex; align-items:center; gap:10px;
+}
+.jobsy-v3-workspace-title::before{ content:""; width:26px; height:1.5px; background:currentColor; opacity:.7; }
+
+.stTabs,.stTextArea,.stFileUploader,.stButton,.stAlert{ max-width:980px; margin-left:auto; margin-right:auto; }
+#workspace{ scroll-margin-top:24px; }
+
+/* ── small pieces ────────────────────────────────────────────────── */
+.jobsy-pill{
+  display:inline-flex; align-items:center; gap:.4rem;
+  border-radius:8px; padding:.25rem .7rem;
+  font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ac); background:rgba(136,80,239,.14); border:1px solid var(--line);
+}
+/* Kept so existing markup resolves; PH has no gradient-clipped text, so this is
+   now simply ink. The class is a no-op by design rather than a removal. */
+.jobsy-gradient-text{ background:none; -webkit-background-clip:border-box; background-clip:border-box; color:var(--ink); }
+
+/* PH .note — gold left rule on a soft gold wash */
+.jobsy-secret-card{
+  margin-top:10px; padding:16px 18px;
+  border:1px solid var(--line); border-left:3px solid var(--gold);
+  border-radius:0 12px 12px 0; background:var(--gold-soft);
+}
+.jobsy-secret-title{ font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--gold); margin-bottom:6px; }
+.jobsy-secret-copy{ color:var(--muted); font-size:13.5px; line-height:1.55; }
+.jobsy-secret-copy code{
+  color:var(--lhi); background:rgba(103,232,249,.10);
+  border:1px solid var(--line); border-radius:6px; padding:1px 5px;
+}
+
+/* ── responsive ──────────────────────────────────────────────────── */
+@media(max-width:900px){
+  .jobsy-v3-hero{ padding:24px; }
+  .jobsy-v3-hero-top,.jobsy-v3-row{ flex-direction:column; }
+  .jobsy-v3-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
 @media(max-width:760px){
-  .main .block-container{
-    padding-left:16px!important;
-    padding-right:16px!important;
-    padding-top:24px!important;
-  }
-
-  .jobsy-v3-hero{
-    padding:22px;
-    border-radius:26px;
-    margin-top:0;
-    margin-bottom:24px;
-  }
-
-  .jobsy-v3-title{
-    font-size:58px;
-  }
-
-  .jobsy-v3-tagline{
-    font-size:28px;
-    line-height:1.13;
-  }
-
-  .jobsy-v3-copy{
-    font-size:15.5px;
-  }
-
-  .jobsy-v3-badge{
-    display:inline-flex;
-    width:fit-content;
-    margin-top:4px;
-  }
-
-  .jobsy-v3-kpi-grid{
-    display:flex!important;
-    overflow-x:auto;
-    gap:12px;
-    padding-bottom:8px;
-    scroll-snap-type:x mandatory;
-  }
-
-  .jobsy-v3-kpi-card{
-    min-width:210px;
-    scroll-snap-align:start;
-  }
-
-  .stTabs [data-baseweb="tab-list"]{
-    overflow-x:auto;
-    white-space:nowrap;
-  }
-
-  .stTextArea textarea{
-    min-height:180px!important;
-  }
+  .main .block-container{ padding-left:16px!important; padding-right:16px!important; padding-top:24px!important; }
+  .jobsy-v3-hero{ padding:22px; margin-top:0; margin-bottom:24px; }
+  .jobsy-v3-badge{ display:inline-flex; width:fit-content; margin-top:4px; }
+  /* horizontal scroll-snap rail rather than a cramped grid */
+  .jobsy-v3-kpi-grid{ display:flex!important; overflow-x:auto; gap:12px; padding-bottom:8px; scroll-snap-type:x mandatory; }
+  .jobsy-v3-kpi-card{ min-width:210px; scroll-snap-align:start; }
+  .stTabs [data-baseweb="tab-list"]{ overflow-x:auto; white-space:nowrap; }
+  .stTextArea textarea{ min-height:180px!important; }
 }
-
-/* Very small phones */
 @media(max-width:430px){
-  .jobsy-v3-title{font-size:50px;}
-  .jobsy-v3-tagline{font-size:25px;}
-  .jobsy-v3-kpi-card{min-width:190px;}
+  .jobsy-v3-kpi-card{ min-width:190px; }
 }

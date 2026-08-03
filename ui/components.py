@@ -41,7 +41,7 @@ def section_header(title: str, subtitle: str = "", pill: str | None = None) -> N
     )
     st.markdown(
         f'<div class="jobsy-hero" style="margin-bottom:20px">'
-        f'<div style="font-family:{FONT["serif"]};font-size:42px;font-weight:700;'
+        f'<div style="font-family:{FONT["display"]};font-size:42px;font-weight:700;'
         f'letter-spacing:-.03em;line-height:1.05" class="jobsy-gradient-text">{title}</div>'
         f'{pill_html}'
         f'<p style="color:{C["muted"]};font-size:15.5px;margin:12px 0 0;'
