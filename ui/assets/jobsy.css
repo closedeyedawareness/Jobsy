@@ -70,22 +70,22 @@ h2{ font-size:clamp(1.5rem,3.2vw,2.1rem); line-height:1.12; }
 p,label,span,div{ color:inherit; }
 
 /* ── sidebar ─────────────────────────────────────────────────────── */
-div[data-testid="stSidebar"]{
-  background:linear-gradient(180deg,var(--panel) 0%,var(--ground) 100%);
-  border-right:1px solid var(--line);
+[data-testid="stSidebar"]{
+  background:linear-gradient(180deg,var(--panel) 0%,var(--ground) 100%)!important;
+  border-right:1px solid var(--line)!important;
   box-shadow:18px 0 60px rgba(0,0,0,.22);
 }
-div[data-testid="stSidebar"] *{ color:var(--ink); }
-div[data-testid="stSidebar"] h2,
-div[data-testid="stSidebar"] h3{ color:var(--ink)!important; font-family:var(--display); }
-div[data-testid="stSidebar"] .stRadio label,
-div[data-testid="stSidebar"] .stCheckbox label,
-div[data-testid="stSidebar"] .stSlider label{ color:var(--muted)!important; }
-div[data-testid="stSidebar"] [role="radiogroup"] label{
+[data-testid="stSidebar"] *{ color:var(--ink); }
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3{ color:var(--ink)!important; font-family:var(--display); }
+[data-testid="stSidebar"] .stRadio label,
+[data-testid="stSidebar"] .stCheckbox label,
+[data-testid="stSidebar"] .stSlider label{ color:var(--muted)!important; }
+[data-testid="stSidebar"] [role="radiogroup"] label{
   border-radius:10px; padding:4px 6px;
   transition:background .18s ease, transform .18s ease;
 }
-div[data-testid="stSidebar"] [role="radiogroup"] label:hover{
+[data-testid="stSidebar"] [role="radiogroup"] label:hover{
   background:rgba(255,255,255,.05); transform:translateX(2px);
 }
 .stCheckbox [data-testid="stMarkdownContainer"] p,
@@ -123,7 +123,7 @@ button[kind="primary"]{
 }
 
 /* ── cards — PH's signature coloured left border ─────────────────── */
-div[data-testid="stMetric"],
+[data-testid="stMetric"],
 .jobsy-card,
 .jobsy-metric-card{
   background:linear-gradient(180deg,var(--panel2),var(--panel));
@@ -132,7 +132,7 @@ div[data-testid="stMetric"],
   border-radius:16px;
   box-shadow:none;
 }
-div[data-testid="stMetric"]{ padding:1rem; }
+[data-testid="stMetric"]{ padding:1rem; }
 /* pillar-coded variants, same four colours the engine scores on */
 .jobsy-card.iai{ --ac:var(--iai) } .jobsy-card.rri{ --ac:var(--rri) }
 .jobsy-card.lhi{ --ac:var(--lhi) } .jobsy-card.ohb{ --ac:var(--ohb) }
@@ -294,3 +294,9 @@ hr{ border:0; border-top:1px solid var(--line); }
 @media(max-width:430px){
   .jobsy-v3-kpi-card{ min-width:190px; }
 }
+
+/* ── top toolbar ─────────────────────────────────────────────────────────
+   Never styled before, so it sat as a white band above a dark app. */
+[data-testid="stHeader"]{ background:transparent!important; }
+[data-testid="stToolbar"]{ color:var(--faint); }
+[data-testid="stHeader"] *{ color:var(--muted); }

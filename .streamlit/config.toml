@@ -3,6 +3,11 @@
 # with ui/assets/jobsy.css the two fight and the widgets stay the old colour.
 # Keep in step with :root there.
 [theme]
+# base MUST be dark. Without it Streamlit builds its own chrome -- sidebar,
+# header, widget internals -- on the LIGHT base and only tints it, while
+# textColor still paints near-white text on top. The result is a white sidebar
+# with white text on it, which is exactly what happened.
+base = "dark"
 primaryColor = "#8850EF"            # --ac
 backgroundColor = "#150226"         # --ground
 secondaryBackgroundColor = "#1d0b38" # --panel

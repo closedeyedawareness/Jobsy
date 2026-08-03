@@ -60,6 +60,26 @@ COLORS = {
     "success": "#6EE7B7",     # -> ohb
     "warning": "#E6B25E",
     "danger": "#FF5A7A",
+
+    # ── ON LIGHT SURFACES ────────────────────────────────────────────────
+    # Some components render on a near-white card (#F8FAFB and friends) inside
+    # an otherwise dark app. Everything above is tuned for a dark ground and is
+    # illegible there -- "ink" on a white card is white on white.
+    #
+    # These come from People Harmonics' own LIGHT palette, corporate.css in the
+    # HRS suite, so a light card is still PH rather than an invention.
+    "on_light_ink": "#0B1729",     # headings/body on white  (--ink)
+    "on_light_body": "#3D4C60",    # secondary copy          (--body)
+    "on_light_muted": "#6B7A8F",   # captions, meta          (--muted)
+    "on_light_line": "#E3E8EF",    # hairlines               (--line)
+    "on_light_accent": "#1B4DD8",  # eyebrows, links         (--blue)
+    "on_light_tint": "#F4F7FE",    # accent wash             (--blue-tint)
+
+    # A fill dark enough to carry WHITE text. --lhi (#67E8F9) is a highlight,
+    # not a fill: white on it fails contrast badly. Use this instead anywhere
+    # the pattern is background=<accent>, color=#fff.
+    "fill_accent": "#1B4DD8",
+    "fill_accent_deep": "#0B2A5B",
 }
 
 FONT = {

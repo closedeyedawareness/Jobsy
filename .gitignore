@@ -32,3 +32,28 @@ jobsy_reference_library.pre-*.xlsx
 /Employees*.xlsx
 /Employees*.csv
 !fixtures/synthetic-*.csv
+
+# ── secrets ─────────────────────────────────────────────────────────────
+# .streamlit/secrets.toml is already covered above; these are the general
+# shapes, so a new credential file cannot be committed by accident. Nothing
+# here is retroactive: a key committed once survives deletion, and the only
+# real remedy then is to rotate it.
+.env
+.env.*
+!.env.example
+*.env
+secrets.*
+.secrets/
+config.local.*
+credentials*
+*.pem
+*.key
+*.p12
+*.pfx
+*_rsa
+*_rsa.pub
+id_*
+*service-account*.json
+*serviceaccount*.json
+.netrc
+.npmrc

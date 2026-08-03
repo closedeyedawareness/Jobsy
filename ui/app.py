@@ -158,16 +158,19 @@ def _pathway_html(gap):
         return ""
     action, method, duration = _get_pathway(gap.get("category","Professional"), gap["gap"])
     return (
+        # This card is near-white, so every colour on it comes from the
+        # on-light ramp. The dark-theme tokens are unreadable here: C["ink"]
+        # is #EDE6FF, which on #F8FAFB is white on white.
         f'<div style="margin-top:8px;padding:10px 12px;background:#F8FAFB;'
-        f'border:1px solid {C["line"]};border-radius:8px">'
+        f'border:1px solid {C["on_light_line"]};border-radius:8px">'
         f'<div style="font-family:{FONT_MONO};font-size:9.5px;letter-spacing:.1em;'
-        f'text-transform:uppercase;color:{C["teal"]};margin-bottom:5px">Development pathway</div>'
-        f'<div style="font-family:{FONT_SANS};font-size:12.5px;font-weight:600;color:{C["ink"]};margin-bottom:3px">{action}</div>'
-        f'<div style="font-family:{FONT_SANS};font-size:12px;color:#34424F;line-height:1.45;margin-bottom:5px">{method}</div>'
+        f'text-transform:uppercase;color:{C["on_light_accent"]};margin-bottom:5px">Development pathway</div>'
+        f'<div style="font-family:{FONT_SANS};font-size:12.5px;font-weight:600;color:{C["on_light_ink"]};margin-bottom:3px">{action}</div>'
+        f'<div style="font-family:{FONT_SANS};font-size:12px;color:{C["on_light_body"]};line-height:1.45;margin-bottom:5px">{method}</div>'
         f'<div style="display:flex;align-items:center;gap:6px">'
-        f'<span style="font-family:{FONT_MONO};font-size:10px;background:{C["teal"]}1A;'
-        f'color:{C["teal"]};border-radius:6px;padding:2px 8px">⏱ {duration}</span>'
-        f'<span style="font-family:{FONT_MONO};font-size:10px;color:{C["muted"]}">Gap +{gap["gap"]} level{"s" if gap["gap"]!=1 else ""}</span>'
+        f'<span style="font-family:{FONT_MONO};font-size:10px;background:{C["on_light_tint"]};'
+        f'color:{C["on_light_accent"]};border-radius:6px;padding:2px 8px">⏱ {duration}</span>'
+        f'<span style="font-family:{FONT_MONO};font-size:10px;color:{C["on_light_muted"]}">Gap +{gap["gap"]} level{"s" if gap["gap"]!=1 else ""}</span>'
         f'</div></div>'
     )
 
@@ -650,7 +653,7 @@ def render_getting_started() -> None:
         f'border-radius:12px;padding:14px 16px">'
         f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
         f'<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;'
-        f'border-radius:50%;background:{C["teal"]};color:#fff;font-family:{FONT_MONO};font-size:12px;font-weight:700">{n}</span>'
+        f'border-radius:50%;background:{C["fill_accent"]};color:#fff;font-family:{FONT_MONO};font-size:12px;font-weight:700">{n}</span>'
         f'<span style="font-family:{FONT_SANS};font-weight:700;font-size:14px;color:{C["ink"]}">{t}</span></div>'
         f'<div style="font-size:12.5px;color:{C["muted"]};line-height:1.5">{d}</div></div>'
         for n, t, d in steps)
@@ -1508,7 +1511,7 @@ def job_family_page(catalog):
 
     def _th(c):
         return (f'<th style="min-width:200px;text-align:left;padding:10px 12px;'
-                f'background:{C["teal"]};color:#fff;border:1px solid {C["line"]}">'
+                f'background:{C["fill_accent"]};color:#fff;border:1px solid {C["line"]}">'
                 f'<div style="font-family:{FONT_SANS};font-weight:700;font-size:13px">{c["title"]}</div>'
                 f'<div style="font-family:{FONT_MONO};font-size:10px;opacity:.85;margin-top:2px">'
                 f'{c["level"]} · {c["code"]}</div></th>')
@@ -4838,7 +4841,12 @@ function update(src){{
     .on("touchstart",showTip,{{passive:true}}).on("touchend",()=>tip.style.opacity=0);
   nE.append("rect").attr("x",-NW/2).attr("y",-NH/2).attr("width",NW).attr("height",NH)
     .attr("fill",d=>d.data.color||"#5A6B7A").attr("opacity",0.92);
-  nE.append("text").attr("dy",d=>d.data.type==="department"?5:-8).attr("text-anchor","middle")
+  // dy was `type==="department" ? 5 : -8` while .sub below is always at 8, so a
+  // department drew its title 3px from its subtitle and the two overlapped --
+  // "Engineering" printed straight through "29 people". Departments presumably
+  // once had no subtitle, where a centred title was right; they have one now.
+  // Every node with a subtitle uses the same two-line offsets.
+  nE.append("text").attr("dy",-8).attr("text-anchor","middle")
     .attr("fill","#fff").attr("font-size",d=>d.data.type==="department"?12:11).attr("font-weight","bold")
     .text(d=>{{const n=d.data.name||d.data.id;return n.length>20?n.substring(0,19)+"…":n;}});
   nE.append("text").attr("class","sub").attr("dy",8).attr("text-anchor","middle")
