@@ -1,5 +1,12 @@
 """Jobsy core configuration."""
+
+# The country the app opens in. It is a default, not a boundary: since migration
+# 0007 the reference library is split into a global spine and a per-country
+# market layer, and core/countries.py is the source of truth for which markets
+# exist and which of them have data. This name is kept because several modules
+# import it; new code should ask core.countries.
 COUNTRY           = "NL"
+DEFAULT_COUNTRY   = COUNTRY
 DEFAULT_THRESHOLD = 85
 WORKBOOK_PATH     = "jobsy_reference_library.xlsx"
 
