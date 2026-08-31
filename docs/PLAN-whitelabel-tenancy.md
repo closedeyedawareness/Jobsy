@@ -2,7 +2,7 @@
 
 **Trigger:** Jobsy may be resold white-label by a large multinational as part of their services.
 **Goal:** Give Jobsy real logins and a real fence between clients, **without rewriting the app.**
-Status: **Stages 1-6 done (`0007`-`0011`, 190 SQL assertions + 12 CI guards green) — Stage 7 next** · Owner: Eng
+Status: **Stages 1-6 done — 190 SQL assertions, 12 CI guards, 22 browser assertions green. Stage 7 next** · Owner: Eng
 
 **Supabase project `Jobsy` — ref `qpprcmmdeqlbursogosu`** (eu-central-1, org `nubdeiwupcofidifrbfn`,
 Pro plan). The older free-tier `Jobsy` (`ocornnoqosxjwxubrcgk`, org "People Harmonics") is a dead
@@ -599,6 +599,68 @@ Both failures were mine, in the tests. One asserted `"acme-"` should fall back w
 `"reward-"` is accepted — `code_prefix()` upper-cases before validating, so lower case is a typo it
 fixes, not a value it rejects; the expectation was wrong, not the code. The other flagged three
 **docstrings** as user-facing strings, which they are not.
+
+---
+
+## 3.6 Driven in a browser, as four different people
+
+`supabase/tests/*.sql` prove the policies. They cannot prove the *application*
+asks the right questions — and it did not. `tests/e2e/` signs in as a client
+admin, a partner consultant, a read-only viewer and a new starter on a temporary
+password, and makes 22 assertions about what each of them can see. **22 passed,
+0 failed** — after fixing one real defect and two harness bugs.
+
+**What is real in that harness**, because a test that quietly fakes the thing
+under test is worse than no test: PostgreSQL 16 with all migrations applied;
+PostgREST 12.2.3, the official binary, so resource embedding and upserts behave
+exactly as against Supabase; row-level security, with every request carrying a
+signed JWT; the application, unmodified; and Chromium driving the real UI.
+**Stubbed:** token minting and password checking — about sixty lines standing in
+for GoTrue. That is the part *not* under test.
+
+### The defect it found
+
+`accessible_orgs()` selected from `memberships` **without filtering to the
+signed-in user**, relying on RLS to scope it. But `memberships_read` (0009)
+deliberately lets an org admin read other people's membership rows — they have
+to, in order to administer their client. So the browser showed a
+`partner_admin` consultant this:
+
+```
+['Contoso NV · partner admin', 'Northwind BV · client admin']
+```
+
+"client admin" is a **colleague's** role, picked up because their row came back
+first. No data leaked — the database was never the weak point, and `role` here
+only decides which buttons are offered — but the UI answered "what am I on this
+client" from whatever RLS happened to return.
+
+The SQL tests could not catch it: at the database level nothing was wrong. It
+needed a browser and two people holding different roles on the same client. The
+fix asks for the user's own rows explicitly.
+
+### Two harness bugs, also worth recording
+
+Both made a test pass while proving nothing, which is the failure mode that
+matters most in a suite whose whole job is to prove absence.
+
+- A Streamlit `text_input` commits on blur or Enter, **not** on `fill()`. The
+  "open somebody else's session code" test typed into the void, then asserted
+  against a page that had never been asked the question.
+- A Streamlit `selectbox` renders only the *selected* option until opened, so
+  reading page text proved nothing about what the switcher offered.
+
+### What it confirms end to end
+
+| | |
+|---|---|
+| Signed out | a sign-in form, no application content behind it |
+| A wrong password | refused, without revealing whether the address exists |
+| Northwind's HR | their own client only — no sibling under the same partner, no rival |
+| Holding another client's session code | nothing; the code is no longer access |
+| A consultant | both their partner's clients, labelled with **their own** role |
+| A viewer | reads; no Save button is rendered at all |
+| A temporary password | must be changed before anything else renders |
 
 ---
 

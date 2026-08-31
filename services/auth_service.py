@@ -364,8 +364,21 @@ def accessible_orgs(refresh: bool = False) -> list[dict]:
     if client is None:
         return []
     try:
+        # .eq("user_id", ...) is NOT redundant with RLS, and leaving it out was a
+        # bug that only browser testing caught. memberships_read (0009)
+        # deliberately lets an ORG ADMIN read other people's membership rows --
+        # they have to, to administer their client. So an unfiltered select
+        # returns colleagues' rows too, and this function labelled a client with
+        # somebody ELSE'S role: a partner_admin was shown "client admin" for one
+        # of their own clients, because a client_admin's row came back first.
+        #
+        # No data leaked -- the database is still the enforcement point, and role
+        # here only decides which buttons are offered -- but "what am I on this
+        # client" has to be answered from THIS user's row, so it is asked for
+        # rather than inferred from whatever RLS happens to permit.
         resp = (client.table("memberships")
                 .select("role, org_id, partner_id, orgs(id, name, slug, pseudonymise_names, retention_days), partners(id, name)")
+                .eq("user_id", (current_user() or {}).get("id"))
                 .execute())
     except Exception:
         return []
