@@ -2971,6 +2971,8 @@ def _require_sign_in():
     expiry_msg = auth_service.touch()
 
     if auth_service.current_user():
+        if auth_service.must_change_password():
+            _force_password_change()
         return
 
     st.markdown("### 🔒 Jobsy")
@@ -2995,6 +2997,34 @@ def _require_sign_in():
         st.error(message)
 
     st.caption("No account? Accounts are created by your administrator — Jobsy has no self-registration.")
+    st.stop()
+
+
+def _force_password_change():
+    """The account is still on the password an operator issued by hand.
+
+    That password was delivered out of band -- read down a phone, pasted into a
+    message -- so it has existed outside the system at least once. Nothing else
+    in the app renders until it is replaced.
+    """
+    from services import auth_service
+
+    st.markdown("### Choose a password")
+    st.caption("Your account was set up with a temporary password. "
+               "Pick your own before continuing.")
+    with st.form("change_password"):
+        pw1 = st.text_input("New password", type="password", autocomplete="new-password")
+        pw2 = st.text_input("Repeat it", type="password", autocomplete="new-password")
+        submitted = st.form_submit_button("Save password", type="primary", use_container_width=True)
+    if submitted:
+        ok, message = auth_service.change_password(pw1, pw2)
+        if ok:
+            st.success(message)
+            (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+        st.error(message)
+    if st.button("Sign out instead"):
+        auth_service.sign_out()
+        (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
     st.stop()
 
 
@@ -3077,8 +3107,12 @@ def main():
                     unsafe_allow_html=True,
                 )
                 st.caption("Share this code to resume on any device.")
-                if st.button("💾 Save progress", use_container_width=True):
-                    from services import auth_service as _auth
+                from services import auth_service as _auth
+                if not _auth.can_edit():
+                    # A viewer reads. 0009's policy refuses the write regardless;
+                    # this only avoids offering a button that would fail.
+                    st.caption("Read-only access — saving is disabled for your role.")
+                elif st.button("💾 Save progress", use_container_width=True):
                     _org = _auth.active_org()
                     ok = _ps_save(code, _capture_session(),
                                   (_org or {}).get("name", ""), (_org or {}).get("id"))
@@ -3103,6 +3137,11 @@ def main():
                 if loaded:
                     _restore_session(loaded["payload"])
                     st.session_state["session_code"] = load_code.strip().upper()
+                    # A SELECT fires no trigger, so opening somebody's roster is
+                    # recorded here or nowhere. This is the read half of D-1.
+                    from services import auth_service as _auth
+                    _auth.log("session.open", subject=load_code.strip().upper(),
+                              org_id=loaded.get("org_id"))
                     st.success(f"Session restored (created {loaded['created_at'][:10]}).")
                     st.rerun()
                 else:

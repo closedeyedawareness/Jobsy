@@ -120,16 +120,41 @@ def cmd_add_user(sb, a):
             "email": a.email,
             "password": password,
             "email_confirm": True,   # an operator vouched for this address
+            # The app refuses to render anything until this is cleared. The
+            # password below gets read down a phone or pasted into a chat, so it
+            # exists outside the system from the moment it is issued.
+            "user_metadata": {"must_change_password": True},
         })
         print(f"account created for {a.email}")
         print()
         print(f"    temporary password:  {password}")
         print()
-        print("Hand that over through a channel that is not email, and have them")
-        print("change it after first sign-in. It is shown once and not stored here.")
+        print("Hand that over through a channel that is not email. Jobsy will")
+        print("require them to replace it before showing them anything, so it")
+        print("only has to survive one sign-in. It is shown once and not stored here.")
 
+    audit(sb, "account.created", None, a.email, {"invited": bool(a.invite)})
     print(f"\n{a.email} cannot reach anything yet — grant them a client next:")
     print(f"    python tools/manage_users.py grant --email {a.email} --client <slug> --role viewer")
+
+
+def audit(sb, action: str, org_id=None, subject: str = None, detail: dict = None):
+    """Record an administrative act.
+
+    D-2: invites, grants and revocations are the actions that widen access, so
+    they belong in the trail more than routine reads do. auth.uid() is null here
+    -- this runs with the secret key, not as a signed-in user -- so the row is
+    attributed to the operator by the detail rather than to a person, which is
+    honest about what actually happened: somebody with the admin credential did
+    this from a shell.
+    """
+    try:
+        sb.rpc("log_activity", {
+            "p_action": action, "p_org": org_id,
+            "p_subject": subject, "p_detail": {"via": "manage_users.py", **(detail or {})},
+        }).execute()
+    except Exception as exc:
+        print(f"warning: the action succeeded but was not logged: {exc}", file=sys.stderr)
 
 
 def cmd_grant(sb, a):
@@ -147,6 +172,8 @@ def cmd_grant(sb, a):
         sb.table("memberships").insert({
             "user_id": str(user.id), "partner_id": partner["id"], "role": a.role}).execute()
         n = len(sb.table("orgs").select("id").eq("partner_id", partner["id"]).execute().data or [])
+        audit(sb, "membership.grant", None, a.email,
+              {"scope": "partner", "partner": a.partner, "role": a.role})
         print(f"{a.email} is now {a.role} at {partner['name']} — reaching {n} client(s)")
     else:
         if a.role not in ROLES_CLIENT:
@@ -154,6 +181,8 @@ def cmd_grant(sb, a):
         org = one(sb, "orgs", "slug", a.client, "client")
         sb.table("memberships").insert({
             "user_id": str(user.id), "org_id": org["id"], "role": a.role}).execute()
+        audit(sb, "membership.grant", org["id"], a.email,
+              {"scope": "client", "client": a.client, "role": a.role})
         print(f"{a.email} is now {a.role} at {org['name']}")
 
 
@@ -169,9 +198,55 @@ def cmd_revoke(sb, a):
     else:
         die("give --client, --partner, or --all to remove every grant.")
     removed = len(q.execute().data or [])
+    audit(sb, "membership.revoke", None, a.email,
+          {"client": a.client, "partner": a.partner, "removed": removed})
     print(f"{removed} grant(s) removed from {a.email}")
     print("Effective immediately: access is read from memberships on every query,")
     print("not from a claim baked into their token.")
+
+
+def cmd_suspend(sb, a):
+    """Lock an account without deleting it.
+
+    Deleting the user would be tidier and worse: activity_log keeps the email
+    rather than a foreign key precisely so history survives, but there is no
+    reason to destroy the account itself while an incident is being looked at.
+    A suspension is reversible; a deletion is a decision made under time
+    pressure that cannot be walked back.
+    """
+    user = find_user(sb, a.email)
+    if not user:
+        die(f"no account for {a.email}.")
+    sb.auth.admin.update_user_by_id(str(user.id), {"ban_duration": "876000h"})  # 100 years
+    audit(sb, "account.suspended", None, a.email)
+    print(f"{a.email} is suspended. Their grants are untouched — reinstate restores access.")
+    print("To remove access permanently instead, use revoke --all.")
+
+
+def cmd_reinstate(sb, a):
+    user = find_user(sb, a.email)
+    if not user:
+        die(f"no account for {a.email}.")
+    sb.auth.admin.update_user_by_id(str(user.id), {"ban_duration": "none"})
+    audit(sb, "account.reinstated", None, a.email)
+    print(f"{a.email} can sign in again.")
+
+
+def cmd_log(sb, a):
+    """Read the trail. Nobody can write to it, including this script -- rows
+    arrive only through triggers and app.log()."""
+    q = sb.table("activity_log").select("at, actor, action, subject, org_id") \
+          .order("at", desc=True).limit(a.limit)
+    if a.client:
+        q = q.eq("org_id", one(sb, "orgs", "slug", a.client, "client")["id"])
+    if a.action:
+        q = q.eq("action", a.action)
+    rows = q.execute().data or []
+    if not rows:
+        print("nothing recorded yet.")
+        return
+    for r in rows:
+        print(f"{r['at'][:19]}  {(r.get('actor') or '—'):<32} {r['action']:<26} {r.get('subject') or ''}")
 
 
 def cmd_list_users(sb, a):
@@ -240,6 +315,17 @@ def main():
     p.add_argument("--client"); p.add_argument("--partner")
     p.add_argument("--all", action="store_true", help="remove every grant this account has")
     p.set_defaults(fn=cmd_revoke)
+
+    p = sub.add_parser("suspend", help="lock an account, keeping its grants and its history")
+    p.add_argument("--email", required=True); p.set_defaults(fn=cmd_suspend)
+
+    p = sub.add_parser("reinstate", help="undo a suspension")
+    p.add_argument("--email", required=True); p.set_defaults(fn=cmd_reinstate)
+
+    p = sub.add_parser("log", help="read the activity trail")
+    p.add_argument("--client"); p.add_argument("--action")
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(fn=cmd_log)
 
     sub.add_parser("list-users", help="every account and what it can reach").set_defaults(fn=cmd_list_users)
     sub.add_parser("list-clients", help="every client company").set_defaults(fn=cmd_list_clients)

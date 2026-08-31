@@ -2,7 +2,7 @@
 
 **Trigger:** Jobsy may be resold white-label by a large multinational as part of their services.
 **Goal:** Give Jobsy real logins and a real fence between clients, **without rewriting the app.**
-Status: **Stages 1-3 done (`0007`+`0008`, 87 SQL assertions + 4 CI guards green) — Stage 4 next** · Owner: Eng
+Status: **Stages 1-4 done (`0007`-`0009`, 128 SQL assertions + 4 CI guards green) — Stage 5 next** · Owner: Eng
 
 **Supabase project `Jobsy` — ref `qpprcmmdeqlbursogosu`** (eu-central-1, org `nubdeiwupcofidifrbfn`,
 Pro plan). The older free-tier `Jobsy` (`ocornnoqosxjwxubrcgk`, org "People Harmonics") is a dead
@@ -134,8 +134,8 @@ standard security question is today "no", in a way that stops the sale.
 | ID | Requirement | Today | Pri |
 |---|---|---|---|
 | A-1 | Named user accounts | **Done in Stage 2** — Supabase Auth, invite-only, `services/auth_service.py` | P0 |
-| A-2 | Individual provisioning and same-day revocation | A shared password cannot be revoked for one leaver | P0 |
-| A-3 | Roles, least privilege | Every authenticated visitor has identical rights | P0 |
+| A-2 | Individual provisioning and same-day revocation | **Done** — `manage_users.py` add/grant/revoke/suspend/reinstate, plus forced password rotation on first sign-in | P0 |
+| A-3 | Roles, least privilege | **Done in `0009`** — read / edit / admin, enforced in Postgres. Fixes a real gap `0008` shipped, see §3.3 | P0 |
 | A-4 | Session expiry and logout | **Done** — 1h idle, 12h absolute, explicit sign-out | P0 |
 | A-5 | Constant-time credential comparison | **Moot** — the app no longer compares a password at all; Supabase Auth does | P0 |
 | A-6 | MFA for admin roles | None | P1 |
@@ -169,10 +169,10 @@ standard security question is today "no", in a way that stops the sale.
 
 | ID | Requirement | Today | Pri |
 |---|---|---|---|
-| D-1 | Access log for client data | `library_audit` covers the shared library only | P0 |
-| D-2 | Administrative actions logged | None — and these are the actions that widen access | P0 |
-| D-3 | Tamper evidence on the trail | Solved once for the library (`0003`); reuse that reasoning | P1 |
-| D-4 | Export log | Exports leave no trace | P1 |
+| D-1 | Access log for client data | **Done in `0009`** — `activity_log`. Writes by trigger; reads and exports logged by the app, which is the honest limit | P0 |
+| D-2 | Administrative actions logged | **Done** — grants, revocations, suspensions and account creation, from `manage_users.py` | P0 |
+| D-3 | Tamper evidence on the trail | **Done** — no write grant for anon, authenticated **or service_role**; no write policy; rows arrive only via definer functions | P1 |
+| D-4 | Export log | **Partial** — `public.log_activity()` exists and session opens are logged; each export button still needs wiring | P1 |
 
 ### E — Operations
 
@@ -206,7 +206,7 @@ Sequenced so each stage is independently demonstrable and the sale-blocking item
 | 1 ✅ | **Tenancy schema.** Partners, clients, memberships, roles. `client_id` on every table holding client data, backfilled. No behaviour change — this is the vocabulary everything else needs. | B-1 |
 | 2 ✅ | **Real logins.** Supabase Auth replaces the shared password. Per-session client carrying the user's token; session expiry; sign-out. Secret key retired from every user-facing path. | A-1, A-4, A-5, B-3, B-4 |
 | 3 ✅ | **The fence, and the proof of it.** RLS policies on every table, plus the two-user test that fails to cross. Session codes regenerated cryptographically and demoted to convenience. | B-2, B-5, B-6, B-7 |
-| 4 | **Roles, administration, trail.** Invite, suspend, remove. Role enforcement in UI and database. Access and admin logging on the `0003` append-only pattern. | A-2, A-3, D-1…D-4 |
+| 4 ✅ | **Roles, administration, trail.** Invite, suspend, remove. Role enforcement in UI and database. Access and admin logging on the `0003` append-only pattern. | A-2, A-3, D-1…D-4 |
 | 5 | **Retention and minimisation.** Per-client purge, session expiry, pseudonymised names at ingest — what makes a deletion clause true rather than aspirational. | C-3, C-4 |
 | 6 | **White-label surface.** Per-partner name, logo, palette; every hard-coded "Jobsy" behind config. | F-1, F-2 |
 | 7 | **Enterprise readiness.** SSO, MFA, the documentation pack, external pen test. | A-6, A-7, C-1, C-2, C-6, E-3, E-5 |
@@ -353,6 +353,100 @@ an unambiguous alphabet. Each was checked by reintroducing the defect and confir
 - **`0008` is not applied to the live database.** It is applied and attacked locally on every run of
   `run.sh`. Applying it to production is a deployment decision, and it must land in the same change
   as the app — see the top of this section.
+
+---
+
+## 3.3 Stage 4 — done, and it started by fixing Stage 3
+
+**`0008` shipped a defect, and `0009` opens by fixing it.** The policy was:
+
+```sql
+create policy jobsy_sessions_isolation on jobsy_sessions for all
+  using (app.can_access_org(org_id))
+```
+
+`for all` with a membership-only test means **every member can write** — including a `viewer`, the
+one role whose entire purpose is to be read-only. Same on `employees`. Demonstrated before writing
+the fix, not deduced:
+
+```
+set role authenticated;
+select set_config('request.jwt.claim.sub', '<a viewer>', false);
+insert into jobsy_sessions (org_id, session_code) select id, 'VIEWER-WRITE-TEST' ...
+-- INSERT 0 1
+```
+
+`0008`'s own test *did* check a viewer against reference data and correctly found it blocked — that
+path goes through `can_write_org()`, which requires admin. It never tried a viewer against **client**
+data, so the gap sat precisely where the test was not looking. The lesson is not "write more tests";
+it is that **a role is not tested until it has been tried against every table it can reach.**
+
+### Three levels of permission, not two
+
+| | Function | Who |
+|---|---|---|
+| read | `can_access_org()` | any member — viewers stop here |
+| edit | `can_edit_org()` | analysts and admins — rosters, employees |
+| admin | `is_org_admin()` | admins only — reference data, the audit trail |
+
+### The trail
+
+`activity_log` records who touched whose client data. Writes to `jobsy_sessions` and `employees` are
+recorded **by trigger**, so they cannot be forgotten. Reads and exports are recorded by the app,
+because a `SELECT` fires no trigger — that is a real limit of D-1 and is stated rather than glossed.
+
+Three deliberate choices:
+
+- **`actor_id` is not a foreign key to `auth.users`, and the email is copied in.** Deleting a user
+  must not delete or blank the record of what they did. An audit trail that a `delete from
+  auth.users` can edit is not evidence of anything. Tested: the history survives the user.
+- **The roster payload is stripped from the log.** Copying names, salaries and gender into a second
+  table on every save would double the personal data held, in a table nobody can delete from, for no
+  investigative gain. "Who changed this, and when" is answered without it.
+- **`service_role` cannot write, update, delete or truncate it either.** That is the credential
+  `manage_users.py` and the importer hold, and it bypasses RLS — so leaving it able to `DELETE` would
+  mean the one key an operator holds could erase the record of an operator's own actions. Rows still
+  arrive: the trigger and `app.log()` are `SECURITY DEFINER` and run as the owner.
+
+### One door into the private schema
+
+`app.*` is not served over HTTP, which is why it exists. But the app must record reads. So exactly
+one wrapper is exposed — `public.log_activity()` — which calls straight through and adds no
+capability: the actor still comes from `auth.uid()` rather than an argument, and the org is checked
+against membership. Moving `app.log()` into `public` would have been simpler and would also have
+published `member_org_ids()`, `is_org_admin()` and `can_edit_org()` as REST endpoints.
+
+### What the tests found this time
+
+**`0005`'s finding, reintroduced by me.** `0005` revoked `execute` on `log_library_change()` after
+finding PostgREST had published it at `/rest/v1/rpc/`, calling it *"precisely the wrong function to
+leave callable"*. `log_client_data_change()` is the same kind of function and arrived with the same
+default grant to `PUBLIC`. It was caught immediately — by `0007`'s own assertion that **no** `app`
+function is executable by `anon`, which had been written as a property rather than a count and so
+failed the moment a new migration broke it. Revoked, and the triggers were then verified still to
+fire rather than assumed to.
+
+### Verified
+
+`./supabase/tests/run.sh` — **128 assertions, 0 failed.** New in `0009_privilege_and_audit_test.sql`:
+
+| Attempt | Result |
+|---|---|
+| A **viewer** inserts / updates / deletes a roster in their own client | blocked (was allowed before `0009`) |
+| A **viewer** inserts or deletes an employee | blocked |
+| An **analyst** writes a roster and an employee | allowed |
+| An **analyst** edits reference data | blocked — admin only |
+| An **analyst** reads the audit trail | sees nothing |
+| A **client_admin** deletes, rewrites or forges a log row | blocked |
+| **`service_role`** deletes, truncates or rewrites the trail | blocked; may still read |
+| `log_activity()` against a client you cannot reach | blocked |
+| Deleting the user | history survives, email still readable |
+
+### Not done
+
+- **Wiring every export button** to `log_activity()`. The mechanism and the session-open call are in;
+  each export path still needs its line (D-4).
+- **A trail viewer in the app.** `manage_users.py log` reads it from a shell today.
 
 ---
 

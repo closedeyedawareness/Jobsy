@@ -55,6 +55,7 @@ _SS_ORGS = "_auth_orgs"          # [{id, name, slug, role, partner_name}]
 _SS_ACTIVE = "_auth_active_org"  # the org id currently being worked on
 _SS_LAST_SEEN = "_auth_last_seen"
 _SS_SIGNED_IN_AT = "_auth_signed_in_at"
+_SS_MUST_CHANGE = "_auth_must_change_password"
 
 
 @dataclass
@@ -223,7 +224,88 @@ def sign_in(email: str, password: str) -> tuple[bool, str]:
         return False, ("This account has no client assigned to it yet. "
                        "Ask your administrator to grant access.")
     ss[_SS_ACTIVE] = orgs[0]["id"]
+
+    # Set by tools/manage_users.py when it creates the account with a temporary
+    # password. The password was handed over out of band, so it has been spoken
+    # aloud or typed into a chat window at least once; it should not stay valid.
+    meta = getattr(user, "user_metadata", None) or {}
+    ss[_SS_MUST_CHANGE] = bool(meta.get("must_change_password"))
+
+    log("auth.sign_in", subject=user.email)
     return True, f"Signed in as {user.email}"
+
+
+def must_change_password() -> bool:
+    """True while the account is still on the password an operator issued."""
+    return bool(_ss().get(_SS_MUST_CHANGE))
+
+
+def change_password(new_password: str, confirm: str) -> tuple[bool, str]:
+    """Set a new password and clear the rotation flag.
+
+    The length floor is deliberately the only rule. Composition requirements
+    (an uppercase, a digit, a symbol) measurably push people toward
+    Password1! and its cousins; length is what actually costs an attacker.
+    """
+    if new_password != confirm:
+        return False, "The two passwords do not match."
+    if len(new_password or "") < 12:
+        return False, "Use at least 12 characters. Length beats punctuation."
+
+    client = db()
+    if client is None:
+        return False, "Your session has expired. Sign in again."
+    try:
+        client.auth.update_user({
+            "password": new_password,
+            "data": {"must_change_password": False},
+        })
+    except Exception as exc:
+        # Supabase rejects a password identical to the current one, among other
+        # things; passing its reason through is more use than a generic failure.
+        return False, f"Could not change the password: {exc}"
+
+    _ss()[_SS_MUST_CHANGE] = False
+    log("auth.password_changed")
+    return True, "Password changed."
+
+
+def can_edit() -> bool:
+    """May this user change client data, or only read it?
+
+    A `viewer` reads. The database enforces this too — migration 0009 splits
+    read from write on jobsy_sessions and employees — and that is the boundary
+    that actually holds. This function exists so the interface does not offer
+    buttons that will fail, not to be the control.
+    """
+    org = active_org()
+    return bool(org) and org["role"] in (
+        "partner_admin", "partner_analyst", "client_admin", "analyst")
+
+
+def log(action: str, subject: Optional[str] = None,
+        detail: Optional[dict] = None, org_id: Optional[str] = None) -> None:
+    """Record something no database trigger can see.
+
+    Writes to client data log themselves through triggers (0009). A SELECT fires
+    nothing, so opening and exporting a roster are recorded here or not at all —
+    which is the honest limit of D-1 and worth knowing when reading the trail.
+
+    Never raises. A failure to log must not take the app down, but it also must
+    not pass unnoticed, so it goes to the console rather than being swallowed.
+    """
+    client = db()
+    if client is None:
+        return
+    try:
+        client.rpc("log_activity", {
+            "p_action": action,
+            "p_org": org_id or active_org_id(),
+            "p_subject": subject,
+            "p_detail": detail or {},
+        }).execute()
+    except Exception as exc:
+        print(f"[audit] failed to record {action!r}: {exc}")
 
 
 def sign_out() -> None:
@@ -236,7 +318,8 @@ def sign_out() -> None:
             client.auth.sign_out()
         except Exception:
             pass  # the local session is going regardless
-    for k in (_SS_CLIENT, _SS_USER, _SS_ORGS, _SS_ACTIVE, _SS_LAST_SEEN, _SS_SIGNED_IN_AT):
+    for k in (_SS_CLIENT, _SS_USER, _SS_ORGS, _SS_ACTIVE, _SS_LAST_SEEN,
+              _SS_SIGNED_IN_AT, _SS_MUST_CHANGE):
         ss.pop(k, None)
 
 
