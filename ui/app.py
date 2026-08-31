@@ -77,6 +77,16 @@ from services.matching_service import MatchingService
 
 # ── colours (centralised in ui/theme.py and mirrored in .streamlit/config.toml) ──
 C = THEME_COLORS
+
+
+def _brand_name() -> str:
+    """The product's name for whoever is signed in. F-2: never hard-code it in
+    something a user reads."""
+    try:
+        from services import branding_service
+        return branding_service.name()
+    except Exception:
+        return "Jobsy"
 STAGE_C = {
     "exact": C["success"],
     "normalized": C["secondary"],
@@ -615,7 +625,7 @@ def _hero_dashboard_html(stats: dict) -> str:
         '<div class="jobsy-v3-hero-top">'
         '<div>'
         '<div class="jobsy-v3-eyebrow">Workforce intelligence platform</div>'
-        '<h1 class="jobsy-v3-title">Jobsy</h1>'
+        f'<h1 class="jobsy-v3-title">{_brand_name()}</h1>'
         '<div class="jobsy-v3-tagline">Jobs, skills &amp; talent strategy made easy.</div>'
         '<p class="jobsy-v3-copy">Standardise jobs • Map skills • Build workforce intelligence</p>'
         '</div>'
@@ -644,7 +654,7 @@ def render_workspace_anchor() -> None:
 def render_getting_started() -> None:
     """A 3-step orientation + page guide for first-time business users."""
     steps = [
-        ("1", "Standardise", "Paste or upload job titles below — Jobsy matches them to canonical roles with salary, grade and skills."),
+        ("1", "Standardise", "Paste or upload job titles below — matched to canonical roles with salary, grade and skills."),
         ("2", "Analyse", "Explore pay & levels (Job Family), pay equity/compa-ratio (Pay Equity), and capability (Skills, Skill Gap, 9-Box)."),
         ("3", "Report", "Generate a board-ready Excel (Architecture Report) and keep the library clean (Data Quality)."),
     ]
@@ -659,7 +669,7 @@ def render_getting_started() -> None:
         for n, t, d in steps)
     st.markdown(
         f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;text-transform:uppercase;'
-        f'color:{C["muted"]};margin:6px 0 8px">How Jobsy works</div>'
+        f'color:{C["muted"]};margin:6px 0 8px">How it works</div>'
         f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">{cards}</div>',
         unsafe_allow_html=True)
     with st.expander("What each page does"):
@@ -1153,7 +1163,7 @@ def connect_page():
         use_raas = st.checkbox("Use Custom Report (RaaS) instead of REST workers endpoint", key="wd_raas")
         raas_name = ""
         if use_raas:
-            raas_name = st.text_input("Report name", placeholder="Jobsy_Worker_Extract", key="wd_raas_name",
+            raas_name = st.text_input("Report name", placeholder=f"{_brand_name()}_Worker_Extract", key="wd_raas_name",
                                        help="Report name configured by your Workday admin")
 
         st.caption("Credentials are masked and exist only in this browser session.")
@@ -1392,7 +1402,7 @@ def architecture_report_page(catalog):
                 import re
                 safe_label = re.sub(r"[^a-zA-Z0-9_-]","_", org_label)[:30]
                 from datetime import date
-                fname = f"Jobsy_Architecture_Report_{safe_label}_{date.today().strftime('%Y%m%d')}.xlsx"
+                fname = f"{_brand_name()}_Architecture_Report_{safe_label}_{date.today().strftime('%Y%m%d')}.xlsx"
                 st.success("✓ Report generated. Download below.")
                 st.download_button(
                     "⬇  Download Architecture Report (.xlsx)",
@@ -2490,7 +2500,7 @@ def pay_equity_page(catalog, service):
         st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
                     f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
                     f'CAO crosswalk — ISF / CATS® (indicative)</div>', unsafe_allow_html=True)
-        st.caption("Positions Jobsy's own grade against the PUBLIC salary-group structure of a "
+        st.caption(f"Positions {_brand_name()}'s own grade against the PUBLIC salary-group structure of a "
                    "sector CAO — never a reproduced ISF/CATS® scoring method (that's FME's / De "
                    "Leeuw Consult's protected IP; see docs/cao-metalektro-isf-reference.md). "
                    "Always indicative — official classification needs a certified weging.")
@@ -2520,7 +2530,7 @@ def pay_equity_page(catalog, service):
             st.dataframe(_shown[["Name", "Matched role", "Function", "Level", "Grade",
                                  "Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]],
                         use_container_width=True, hide_index=True)
-            st.caption("Indicatief: positionering van Jobsy's eigen gradering binnen de publieke "
+            st.caption(f"Indicatief: positionering van {_brand_name()}'s eigen gradering binnen de publieke "
                        "ISF-bandbreedtes — geen berekende ISF-score. Officiële ISF-indeling vereist "
                        "een gecertificeerde weging.")
         else:
@@ -2975,7 +2985,11 @@ def _require_sign_in():
             _force_password_change()
         return
 
-    st.markdown("### 🔒 Jobsy")
+    from services import branding_service
+    st.markdown(f"### 🔒 {branding_service.name()}")
+    _logo = branding_service.logo_url()
+    if _logo:
+        st.image(_logo, width=180)
     if expiry_msg:
         st.info(expiry_msg)
 
@@ -2996,7 +3010,10 @@ def _require_sign_in():
             (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
         st.error(message)
 
-    st.caption("No account? Accounts are created by your administrator — Jobsy has no self-registration.")
+    _support = branding_service.support_email()
+    st.caption(f"No account? Accounts are created by your administrator — "
+               f"{branding_service.name()} has no self-registration."
+               + (f" Contact {_support}." if _support else ""))
     st.stop()
 
 
@@ -3065,9 +3082,17 @@ def _sidebar_account():
 
 
 def main():
-    st.set_page_config(page_title="Jobsy", page_icon="📊",
+    # F-2. set_page_config runs before sign-in, so on a shared instance this is
+    # the neutral default and on a dedicated deployment it is BRAND_NAME from
+    # secrets. Once somebody signs in, the hero and the rest follow their
+    # partner -- see services/branding_service.py for why the front door cannot.
+    from services import branding_service as _brand
+    st.set_page_config(page_title=_brand.name(), page_icon="📊",
                        layout="centered", initial_sidebar_state="auto")
     apply_theme()
+    _css = _brand.css_overrides()
+    if _css:
+        st.markdown(_css, unsafe_allow_html=True)
     _require_sign_in()
     _sidebar_account()
 
@@ -3402,7 +3427,7 @@ def main():
                 "Add ActualSalary + Gender to unlock the Pay Equity page from this same file — no second upload needed.",
                 "Add Bonus / Allowances / LTI to see the gender gap on TOTAL pay (base + variable), not just base — the EU Directive basis.",
                 "Spelling wobbles are fine (fuzzy matching handles them), but cleaner titles score higher.",
-                "Keep these exact headers so Jobsy auto-detects each column; extra columns you add are preserved too.",
+                f"Keep these exact headers so {_brand_name()} auto-detects each column; extra columns you add are preserved too.",
                 "ActualSalary must be a plain number (68000, not '€68.000' or '68k'). FTE as 1.0 / 0.8. Dates as YYYY-MM-DD.",
                 "Add Performance + Potential (1-3) to auto-place people on the 9-Box grid — no re-entry needed.",
                 "Put skills in one cell as 'Skill:Level; Skill:Level' under SkillProficiency, or use the dedicated Skills template for a per-skill grid.",
@@ -3475,12 +3500,12 @@ def main():
                 # ── Data-readiness panel: what this file unlocks, assumes, and needs ──
                 _rep = _assess_import(col_opts, title_col=col)
                 _sections = [
-                    ("✅ Jobsy can give you now", C["success"], _rep["ready"]),
+                    (f"✅ {_brand_name()} can give you now", C["success"], _rep["ready"]),
                     ("◐ Assumed from partial data", C["amber"], _rep["assumed"]),
                     ("➕ Add to unlock more", C["accent"], _rep["unlock"]),
                 ]
                 with st.expander(
-                    f"📋 What Jobsy can do with this file — "
+                    f"📋 What {_brand_name()} can do with this file — "
                     f"{len(_rep['ready'])} ready · {len(_rep['assumed'])} assumed · "
                     f"{len(_rep['unlock'])} to unlock",
                     expanded=True,

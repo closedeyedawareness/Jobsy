@@ -231,6 +231,13 @@ def sign_in(email: str, password: str) -> tuple[bool, str]:
     meta = getattr(user, "user_metadata", None) or {}
     ss[_SS_MUST_CHANGE] = bool(meta.get("must_change_password"))
 
+    # Signing in may change whose product this is.
+    try:
+        from services import branding_service
+        branding_service.reset()
+    except Exception:
+        pass
+
     log("auth.sign_in", subject=user.email)
     return True, f"Signed in as {user.email}"
 
@@ -321,6 +328,11 @@ def sign_out() -> None:
     for k in (_SS_CLIENT, _SS_USER, _SS_ORGS, _SS_ACTIVE, _SS_LAST_SEEN,
               _SS_SIGNED_IN_AT, _SS_MUST_CHANGE):
         ss.pop(k, None)
+    try:
+        from services import branding_service
+        branding_service.reset()
+    except Exception:
+        pass
 
 
 def current_user() -> Optional[dict]:
@@ -408,6 +420,12 @@ def set_active_org(org_id: str) -> bool:
     list is not an access control, so this checks rather than trusts."""
     if any(o["id"] == org_id for o in accessible_orgs()):
         _ss()[_SS_ACTIVE] = org_id
+        # Two clients can belong to different partners, so the brand moves too.
+        try:
+            from services import branding_service
+            branding_service.reset()
+        except Exception:
+            pass
         return True
     return False
 

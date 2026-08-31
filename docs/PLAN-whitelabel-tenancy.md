@@ -2,7 +2,7 @@
 
 **Trigger:** Jobsy may be resold white-label by a large multinational as part of their services.
 **Goal:** Give Jobsy real logins and a real fence between clients, **without rewriting the app.**
-Status: **Stages 1-5 done (`0007`-`0010`, 165 SQL assertions + 7 CI guards green) — Stage 6 next** · Owner: Eng
+Status: **Stages 1-6 done (`0007`-`0011`, 190 SQL assertions + 12 CI guards green) — Stage 7 next** · Owner: Eng
 
 **Supabase project `Jobsy` — ref `qpprcmmdeqlbursogosu`** (eu-central-1, org `nubdeiwupcofidifrbfn`,
 Pro plan). The older free-tier `Jobsy` (`ocornnoqosxjwxubrcgk`, org "People Harmonics") is a dead
@@ -188,8 +188,8 @@ standard security question is today "no", in a way that stops the sale.
 
 | ID | Requirement | Today | Pri |
 |---|---|---|---|
-| F-1 | Per-partner branding | People Harmonics palette hard-coded in `.streamlit/config.toml` | P1 |
-| F-2 | "Jobsy" fully removable | Page title, auth screen, and the `JOBSY-` code prefix | P1 |
+| F-1 | Per-partner branding | **Done in `0011`** — name, logo, accents, support address, per partner. Two limits, see §3.5 | P1 |
+| F-2 | "Jobsy" fully removable | **Done** — every user-visible string routes through `branding_service`; a CI guard fails the build if one is hard-coded again | P1 |
 | F-3 | Per-client reference data | Library is DB-backed already, but shared by everyone | P2 |
 | F-4 | Usage metering per client | None. Cheap now, awkward to retrofit | P2 |
 
@@ -208,7 +208,7 @@ Sequenced so each stage is independently demonstrable and the sale-blocking item
 | 3 ✅ | **The fence, and the proof of it.** RLS policies on every table, plus the two-user test that fails to cross. Session codes regenerated cryptographically and demoted to convenience. | B-2, B-5, B-6, B-7 |
 | 4 ✅ | **Roles, administration, trail.** Invite, suspend, remove. Role enforcement in UI and database. Access and admin logging on the `0003` append-only pattern. | A-2, A-3, D-1…D-4 |
 | 5 ✅ | **Retention and minimisation.** Per-client purge, session expiry, pseudonymised names at ingest — what makes a deletion clause true rather than aspirational. | C-3, C-4 |
-| 6 | **White-label surface.** Per-partner name, logo, palette; every hard-coded "Jobsy" behind config. | F-1, F-2 |
+| 6 ✅ | **White-label surface.** Per-partner name, logo, palette; every hard-coded "Jobsy" behind config. | F-1, F-2 |
 | 7 | **Enterprise readiness.** SSO, MFA, the documentation pack, external pen test. | A-6, A-7, C-1, C-2, C-6, E-3, E-5 |
 
 ---
@@ -532,6 +532,73 @@ by touching a column.
   retention that runs only when somebody remembers is not retention.
 - **Re-saving sessions stored before minimisation was turned on** — they still hold the names they
   were saved with. `minimise` says so when you enable it.
+
+---
+
+## 3.5 Stage 6 — done
+
+`0011` plus `services/branding_service.py`. Branding lives on the **partner**, because that is who
+resells. Product name, logo, accent colours, support address, and the session-code prefix — so a
+client is handed `REWARD-K7M2XQ4PBN`, not something that says JOBSY.
+
+### Two things white-labelling does not reach
+
+Worth knowing before somebody promises otherwise in a sales meeting.
+
+1. **The sign-in page.** Before sign-in there is no identity, so there is no partner to look up.
+   Resolving one from the URL would mean letting an unauthenticated caller read the `partners` table
+   — and **the partner list is a customer list**. Not worth it. A dedicated deployment brands its own
+   front door from Streamlit secrets (`BRAND_NAME`, `BRAND_LOGO`, `BRAND_PRIMARY`, `BRAND_PREFIX`);
+   a shared instance shows a neutral one and picks up the right brand the moment somebody signs in.
+
+2. **Streamlit's own widget chrome.** `.streamlit/config.toml` already says why: *"Streamlit paints
+   widget internals from this block itself, and injected CSS can only partly reach them"*. That block
+   is read once at server start and cannot vary per request, so sliders and select boxes keep one
+   base palette however many partners share the instance. Accents move; the surface ramp does not.
+
+Both point the same way: **a partner who wants the whole surface gets their own deployment**, which
+is the normal white-label arrangement anyway. This stage makes a shared instance work properly and
+makes a dedicated one a configuration rather than a fork.
+
+### Resolution order
+
+1. The signed-in user's partner, from the database — a client's HR staff see the reseller's brand.
+2. Instance defaults from Streamlit secrets — for a deployment dedicated to one partner.
+3. The built-in default.
+
+It never raises. A branding failure degrades to the default rather than to a stack trace on the
+sign-in page, which is the one screen entirely about looking trustworthy.
+
+### Verified — 190 assertions, 0 failed
+
+| Attempt | Result |
+|---|---|
+| An empty or 60-character product name | rejected |
+| A lower-case prefix, one with no separator, or one of punctuation | rejected |
+| `darkish green`, or a three-digit hex CSS would accept | rejected |
+| A logo over plain `http` | rejected — mixed content on the sign-in page |
+| Two partners choosing the same prefix | **allowed**, deliberately |
+| Northwind HR reading the brand of the reseller serving them | allowed |
+| ...and seeing a competing reseller at all | invisible |
+| A `client_admin` or a consultant rebranding from a browser | blocked |
+| `anon` reading the partner list | permission denied — this is why the front door is neutral |
+
+Prefix uniqueness is deliberately **not** enforced: uniqueness lives in the code body (31¹⁰), and the
+prefix is a human-facing label. A unique constraint would only fail at the moment an operator is
+onboarding a customer.
+
+Five new CI guards: a malformed prefix falls back rather than producing codes nobody can dictate; a
+branded prefix reaches the generated code while the body keeps its entropy; an insecure or broken
+logo is dropped, not rendered; bad colours fall back rather than emitting broken CSS; and **no
+user-facing string hard-codes the product name** — docstrings and comments excluded, since those are
+for whoever maintains this rather than whoever uses it.
+
+### What the tests found
+
+Both failures were mine, in the tests. One asserted `"acme-"` should fall back while also asserting
+`"reward-"` is accepted — `code_prefix()` upper-cases before validating, so lower case is a typo it
+fixes, not a value it rejects; the expectation was wrong, not the code. The other flagged three
+**docstrings** as user-facing strings, which they are not.
 
 ---
 

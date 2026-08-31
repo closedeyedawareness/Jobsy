@@ -320,6 +320,53 @@ def cmd_purge(sb, a):
     print("Recorded in the activity trail, which survives even if the client is later removed.")
 
 
+def cmd_brand(sb, a):
+    """Set what the product calls itself for one reseller.
+
+    Everything a signed-in user sees follows this. Two things do not, and it is
+    better to say so now than in a sales meeting: the sign-in page, which has no
+    identity yet to look a partner up by, and Streamlit's own widget chrome,
+    which is painted from a config file read once at server start. A partner who
+    wants the whole surface gets their own deployment -- which is the normal
+    white-label arrangement anyway.
+    """
+    partner = one(sb, "partners", "slug", a.partner, "partner")
+    fields = {}
+    if a.name:    fields["product_name"] = a.name
+    if a.prefix:  fields["code_prefix"] = a.prefix.upper()
+    if a.logo:    fields["logo_url"] = a.logo
+    if a.primary: fields["primary_color"] = a.primary
+    if a.accent:  fields["accent_color"] = a.accent
+    if a.support: fields["support_email"] = a.support
+
+    if not fields:
+        print(f"{partner['name']}")
+        for k in ("product_name", "code_prefix", "logo_url",
+                  "primary_color", "accent_color", "support_email"):
+            print(f"    {k:<16} {partner.get(k) or '—'}")
+        return
+
+    # The database constraints are the real check -- a bad hex or a malformed
+    # prefix is rejected there, not here -- so this just reports it usefully
+    # instead of showing an operator a raw Postgres error.
+    try:
+        sb.table("partners").update(fields).eq("id", partner["id"]).execute()
+    except Exception as exc:
+        die(f"rejected: {exc}\n"
+            "  product_name  1-40 characters\n"
+            "  code_prefix   upper case, 2-10 chars, ending in '-', e.g. ACME-\n"
+            "  colors        #RRGGBB\n"
+            "  logo_url      https:// only")
+
+    audit(sb, "branding.changed", None, partner["slug"], fields)
+    print(f"{partner['name']} updated:")
+    for k, v in fields.items():
+        print(f"    {k:<16} {v}")
+    if "code_prefix" in fields:
+        print("\nExisting session codes keep the prefix they were issued with.")
+        print("Only new ones use this.")
+
+
 def cmd_list_users(sb, a):
     rows = sb.table("memberships").select(
         "role, user_id, orgs(name, slug), partners(name, slug)").execute().data or []
@@ -413,6 +460,16 @@ def main():
     p.add_argument("--client", help="everything for this client (end of contract)")
     p.add_argument("--yes", action="store_true", help="required to actually delete")
     p.set_defaults(fn=cmd_purge)
+
+    p = sub.add_parser("brand", help="what the product calls itself for one reseller")
+    p.add_argument("--partner", required=True)
+    p.add_argument("--name", help='product name, e.g. "Reward Insight"')
+    p.add_argument("--prefix", help="session code prefix, e.g. REWARD-")
+    p.add_argument("--logo", help="https:// URL")
+    p.add_argument("--primary", help="#RRGGBB")
+    p.add_argument("--accent", help="#RRGGBB")
+    p.add_argument("--support", help="support email shown on the sign-in page")
+    p.set_defaults(fn=cmd_brand)
 
     sub.add_parser("list-users", help="every account and what it can reach").set_defaults(fn=cmd_list_users)
     sub.add_parser("list-clients", help="every client company").set_defaults(fn=cmd_list_clients)

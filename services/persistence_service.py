@@ -50,7 +50,7 @@ from typing import Any, Optional
 # typed by hand, and a code that cannot be transcribed is a support ticket.
 _CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 _CODE_LENGTH = 10
-_CODE_PREFIX = "JOBSY-"   # F-2 makes this per-partner; it is the last hard-coded name here.
+_CODE_PREFIX = "JOBSY-"   # Fallback only. The live value comes from branding_service.
 
 # Column names that hold a person's name, across the languages this app is used
 # in. Matched case-insensitively against the keys of the uploaded rows.
@@ -185,7 +185,15 @@ def generate_code() -> str:
     belt to that pair of braces.
     """
     body = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LENGTH))
-    return _CODE_PREFIX + body
+
+    # F-2: a partner reselling this does not hand their client codes that say
+    # JOBSY. The prefix is theirs; the body and its entropy are not negotiable.
+    try:
+        from services import branding_service
+        prefix = branding_service.code_prefix()
+    except Exception:
+        prefix = _CODE_PREFIX
+    return prefix + body
 
 
 def _pseudonymise_names(payload: dict, salt: str, name_col: Optional[str] = None) -> dict:

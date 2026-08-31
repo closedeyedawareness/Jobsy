@@ -212,3 +212,98 @@ def test_pseudonymisation_is_not_reversible_by_a_stored_mapping():
         "persistence_service exposes a reversal path"
     out = ps._pseudonymise_names({"r": [{"name": "Anna de Vries"}]}, salt="s")
     assert "Vries" not in json.dumps(out)
+
+
+# ── F-1/F-2: branding must degrade, never break ───────────────────────────
+def _brand(monkeypatch, **overrides):
+    """branding_service with a fixed brand, bypassing Streamlit session state."""
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from services import branding_service
+    brand = dict(branding_service.DEFAULT)
+    brand.update(overrides)
+    monkeypatch.setattr(branding_service, "current", lambda refresh=False: brand)
+    return branding_service
+
+
+def test_a_malformed_prefix_falls_back_instead_of_producing_undictatable_codes(monkeypatch):
+    """The prefix is concatenated into a code somebody reads down a phone. The
+    database constrains partner rows; BRAND_PREFIX in Streamlit secrets is
+    reachable by no constraint, so it is validated here too."""
+    # Note "acme-" is NOT here: code_prefix() upper-cases before validating, so
+    # lower case in a secret is a typo it fixes rather than a value it rejects.
+    for bad in ("ACME", "**-", "", "A-", "TOOLONGAPREFIX-", "AC ME-", None):
+        b = _brand(monkeypatch, code_prefix=bad)
+        assert b.code_prefix() == "JOBSY-", f"{bad!r} should have fallen back"
+    assert _brand(monkeypatch, code_prefix="REWARD-").code_prefix() == "REWARD-"
+    # Lower case in a secret is a typo, not a rejection.
+    assert _brand(monkeypatch, code_prefix="reward-").code_prefix() == "REWARD-"
+
+
+def test_a_branded_prefix_reaches_the_generated_code(monkeypatch):
+    """F-2 is only done if the code a client is handed stops saying JOBSY."""
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from services import branding_service, persistence_service
+    monkeypatch.setattr(branding_service, "code_prefix", lambda: "REWARD-")
+    code = persistence_service.generate_code()
+    assert code.startswith("REWARD-"), code
+    assert "JOBSY" not in code
+    # The body is not negotiable: branding changes the label, not the entropy.
+    body = code.split("-", 1)[1]
+    assert len(body) == persistence_service._CODE_LENGTH
+    assert set(body) <= set(persistence_service._CODE_ALPHABET)
+
+
+def test_an_insecure_or_broken_logo_is_dropped_not_rendered(monkeypatch):
+    """A logo is fetched by the browser. Mixed content on the sign-in page is a
+    bad look on the one screen that is entirely about looking trustworthy."""
+    for bad in ("http://cdn.example/logo.svg", "javascript:alert(1)",
+                "//cdn.example/logo.svg", "", None):
+        assert _brand(monkeypatch, logo_url=bad).logo_url() is None, bad
+    ok = "https://cdn.example/logo.svg"
+    assert _brand(monkeypatch, logo_url=ok).logo_url() == ok
+
+
+def test_bad_colours_fall_back_rather_than_emitting_broken_css(monkeypatch):
+    """These values are interpolated into a <style> block. A malformed one would
+    either break the rule or, worse, escape it."""
+    b = _brand(monkeypatch, primary_color="darkish green", accent_color="#abc")
+    assert b.colors() == ("#8850EF", "#67E8F9")
+    b = _brand(monkeypatch, primary_color="#0F6E5C", accent_color="#8FD6C4")
+    assert b.colors() == ("#0F6E5C", "#8FD6C4")
+    css = b.css_overrides()
+    assert "#0F6E5C" in css and "<style>" in css
+    # An unbranded deployment emits nothing at all, rather than a no-op block.
+    assert _brand(monkeypatch).css_overrides() == ""
+
+
+def test_no_user_facing_string_hard_codes_the_product_name():
+    """F-2. Every remaining "Jobsy" in app.py must be a comment, a docstring, or
+    the single fallback in _brand_name() — never something a user reads."""
+    source = (ROOT / "ui" / "app.py").read_text()
+    tree = ast.parse(source)
+
+    # Docstrings are for whoever maintains this, not for whoever uses it. They
+    # are collected by identity rather than by value, so a docstring that happens
+    # to match a real UI string does not excuse the real one.
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = getattr(node, "body", None)
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                    and isinstance(body[0].value.value, str):
+                docstrings.add(id(body[0].value))
+
+    offenders = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and id(node) not in docstrings:
+            if "Jobsy" in node.value and node.value.strip() != "Jobsy":
+                offenders.append((node.lineno, node.value[:70]))
+    # A bare "Jobsy" is the fallback; anything longer is a sentence somebody sees.
+    assert not offenders, (
+        "user-visible strings still hard-code the product name: "
+        + "; ".join(f"line {ln}: {t!r}" for ln, t in offenders)
+        + " — route them through _brand_name()"
+    )
