@@ -2,7 +2,7 @@
 
 **Trigger:** Jobsy may be resold white-label by a large multinational as part of their services.
 **Goal:** Give Jobsy real logins and a real fence between clients, **without rewriting the app.**
-Status: **Requirements drafted — no code yet** · Owner: Eng
+Status: **Stage 1 done (`0007`, 40 assertions green) — Stage 2 next** · Owner: Eng
 
 **Supabase project `Jobsy` — ref `qpprcmmdeqlbursogosu`** (eu-central-1, org `nubdeiwupcofidifrbfn`,
 Pro plan). The older free-tier `Jobsy` (`ocornnoqosxjwxubrcgk`, org "People Harmonics") is a dead
@@ -38,6 +38,43 @@ Two things this repo already got right, and this plan builds on rather than repl
 - **`Employees` was called out from the start.** `PLAN-supabase-migration.md` §0: *"the table that
   will hold personal data and therefore the one where RLS stops being theoretical."* It is no longer
   theoretical.
+
+### 0.1 Corrections, after building Stage 1
+
+Two claims in the first draft of this plan were wrong. Both were wrong in the same direction — the
+schema was in better shape than the app was — and both were found by reading the migrations properly
+rather than by reading `ui/app.py` and generalising.
+
+- **"No table models a partner or a client" was half wrong.** `orgs` has existed since `0001`, and
+  `org_id uuid not null references orgs(id)` is threaded through **all 20** reference tables, each
+  with its own index and composite unique constraints. `0001` says why: *"retrofitting a tenant key
+  onto populated tables with live foreign keys is the kind of migration that goes wrong; carrying an
+  unused column is cheap by comparison. Enforcement arrives with auth (Phase 0.3)."* That decision,
+  taken before there was any reason for it, is why Stage 1 was a day's work instead of a fortnight's.
+  What was genuinely missing was the level *above* a client (partners) and the level *below* it
+  (memberships) — plus a tenant key on the one table that holds actual rosters.
+
+- **The rosters are not in this database.** `jobsy_sessions` does not exist in project
+  `qpprcmmdeqlbursogosu` at all — `SUPABASE_SETUP.sql` instructs an operator to run it by hand in the
+  SQL editor, and nobody ever did. Verified 2026-08-31:
+
+  | table | rows |
+  |---|---|
+  | `orgs` | 1 (the seeded default) |
+  | `jobs` | 81 |
+  | `salary_bands` | 45 |
+  | `library_audit` | 10,468 |
+  | `employees` | 0 |
+  | `auth.users` | 0 |
+  | `jobsy_sessions` | **table absent** |
+
+  So **there is no personal data in this database**, and the fence is being built before anything
+  lands behind it rather than after. That is the comfortable order, and it will not come round again.
+
+  It also means session persistence has never worked against this project: `save_session()` returns
+  `False` and the UI reports "Save failed." That is unchanged by `0007` — the table now exists but
+  requires an `org_id` the app cannot yet supply, because it does not know who is using it. Stage 2
+  is what makes saving work, and it is the first time it ever will against this project.
 
 One correction to an assumption in the current code, worth recording because the comment is
 confident and load-bearing:
@@ -100,7 +137,7 @@ standard security question is today "no", in a way that stops the sale.
 
 | ID | Requirement | Today | Pri |
 |---|---|---|---|
-| B-1 | Three-level tenancy in the schema | No table models a partner or a client | P0 |
+| B-1 | Three-level tenancy in the schema | ~~No table models a partner or a client~~ — **wrong, see §0.1**. `orgs` and `org_id` existed already; partner + membership did not. **Done in `0007`** | P0 |
 | B-2 | RLS policies on every table carrying client data | RLS on, zero policies (deliberate — `0005`) | P0 |
 | B-3 | User traffic stops using the secret key | Every query bypasses RLS. **Gates B-2.** | P0 |
 | B-4 | Per-session DB client, never a module global | Module-level global, one process, all users | P0 |
@@ -158,13 +195,71 @@ Sequenced so each stage is independently demonstrable and the sale-blocking item
 
 | Stage | What lands | Covers |
 |---|---|---|
-| 1 | **Tenancy schema.** Partners, clients, memberships, roles. `client_id` on every table holding client data, backfilled. No behaviour change — this is the vocabulary everything else needs. | B-1 |
+| 1 ✅ | **Tenancy schema.** Partners, clients, memberships, roles. `client_id` on every table holding client data, backfilled. No behaviour change — this is the vocabulary everything else needs. | B-1 |
 | 2 | **Real logins.** Supabase Auth replaces the shared password. Per-session client carrying the user's token; session expiry; sign-out. Secret key retired from every user-facing path. | A-1, A-4, A-5, B-3, B-4 |
 | 3 | **The fence, and the proof of it.** RLS policies on every table, plus the two-user test that fails to cross. Session codes regenerated cryptographically and demoted to convenience. | B-2, B-5, B-6, B-7 |
 | 4 | **Roles, administration, trail.** Invite, suspend, remove. Role enforcement in UI and database. Access and admin logging on the `0003` append-only pattern. | A-2, A-3, D-1…D-4 |
 | 5 | **Retention and minimisation.** Per-client purge, session expiry, pseudonymised names at ingest — what makes a deletion clause true rather than aspirational. | C-3, C-4 |
 | 6 | **White-label surface.** Per-partner name, logo, palette; every hard-coded "Jobsy" behind config. | F-1, F-2 |
 | 7 | **Enterprise readiness.** SSO, MFA, the documentation pack, external pen test. | A-6, A-7, C-1, C-2, C-6, E-3, E-5 |
+
+---
+
+## 3.1 Stage 1 — done
+
+`supabase/migrations/0007_partners_users_and_membership.sql`. No behaviour change; no policy written.
+
+- **`partners`**, and `orgs.partner_id` not-null, backfilled to a seeded `default` partner exactly as
+  `0001` seeded a `default` org.
+- **`memberships`**, scoped to *either* a partner *or* a client, never both. Partner staff get one
+  row that reaches every client the partner has — because a consultant with forty clients otherwise
+  needs forty rows kept in step, and the row somebody forgets to delete is the one that matters.
+  Roles are constrained to the scope that can hold them, so "partner_admin on one client" and
+  "viewer across an entire partner" are unrepresentable rather than discouraged.
+- **`app.member_org_ids()` / `app.can_access_org()` / `app.is_org_admin()`** — what `0008`'s policies
+  will ask. Three deliberate choices, each one an existing lesson from this repo applied:
+  - `SECURITY DEFINER`, because `memberships` gets RLS in `0008` and a policy that reads it would be
+    filtered by its own policy — infinite recursion, reported as a stack-depth error far from the
+    cause.
+  - **a private `app` schema**, because `0005` had to revoke execute on `log_library_change()` after
+    PostgREST published it at `/rest/v1/rpc/`. Every function in `public` is an API endpoint by
+    default; `app` is not served over HTTP but is perfectly callable from inside a policy.
+  - **pinned `search_path`**, the same finding `0005` fixed on two other functions.
+- **`jobsy_sessions`**, created with `org_id` from birth, superseding the hand-run
+  `SUPABASE_SETUP.sql`. A table the app depends on belongs in the migration series rather than in a
+  manual step that can be skipped — which is demonstrably what happened.
+
+**Verified by attack, not by reading the DDL back** — `./supabase/tests/run.sh` stands up a
+throwaway Postgres, applies all seven migrations and runs 40 assertions. **40 passed, 0 failed.**
+
+| Attempted write | Result |
+|---|---|
+| Membership scoped to both a partner and an org | rejected (check) |
+| Membership scoped to neither | rejected (check) |
+| `partner_admin` granted at client scope | rejected (check) |
+| `viewer` granted across a whole partner | rejected (check) |
+| An invented role | rejected (check) |
+| Second membership for the same user + org | rejected (partial unique) |
+| Second membership for the same user + partner | rejected (partial unique) |
+| Membership for a user that does not exist | rejected (foreign key) |
+| An org with no partner | rejected (not null) |
+| A session with no org | rejected (not null) |
+| A session pointing at a non-existent org | rejected (foreign key) |
+| Duplicate `session_code` across two different orgs | rejected (unique) |
+| A legitimate session, and a second in another org | accepted — the constraints are not over-tight |
+
+And the access questions, which are the ones the fence turns on:
+
+| Who | Sees | Blocked from |
+|---|---|---|
+| Acme consultant (`partner_admin`) | both Acme clients | Initech — **different partner** |
+| Northwind HR (`client_admin`) | Northwind only | Contoso — **same partner, different client** |
+| Initech viewer | Initech, admins nothing | — |
+| User with no membership | nothing | everything |
+| Anonymous (no JWT) | nothing | everything |
+
+This is **not** B-7 yet. It proves the membership logic; B-7 needs the same two users to collide
+through *RLS on live tables*, which cannot exist until `0008`. The test file is where that goes.
 
 ---
 
