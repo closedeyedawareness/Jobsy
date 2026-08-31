@@ -353,7 +353,7 @@ def accessible_orgs(refresh: bool = False) -> list[dict]:
         return []
     try:
         resp = (client.table("memberships")
-                .select("role, org_id, partner_id, orgs(id, name, slug), partners(id, name)")
+                .select("role, org_id, partner_id, orgs(id, name, slug, pseudonymise_names, retention_days), partners(id, name)")
                 .execute())
     except Exception:
         return []
@@ -366,13 +366,15 @@ def accessible_orgs(refresh: bool = False) -> list[dict]:
             if o["id"] not in seen:
                 seen.add(o["id"])
                 orgs.append({"id": o["id"], "name": o["name"], "slug": o["slug"],
-                             "role": row["role"], "partner_name": None})
+                             "role": row["role"], "partner_name": None,
+                             "pseudonymise_names": o.get("pseudonymise_names", False),
+                             "retention_days": o.get("retention_days")})
         elif row.get("partner_id"):
             # Partner-scoped membership: one row, many clients. The orgs it
             # reaches are whatever RLS lets us read for that partner.
             try:
                 sub = (client.table("orgs")
-                       .select("id, name, slug")
+                       .select("id, name, slug, pseudonymise_names, retention_days")
                        .eq("partner_id", row["partner_id"])
                        .execute())
             except Exception:
@@ -382,7 +384,9 @@ def accessible_orgs(refresh: bool = False) -> list[dict]:
                 if o["id"] not in seen:
                     seen.add(o["id"])
                     orgs.append({"id": o["id"], "name": o["name"], "slug": o["slug"],
-                                 "role": row["role"], "partner_name": pname})
+                                 "role": row["role"], "partner_name": pname,
+                                 "pseudonymise_names": o.get("pseudonymise_names", False),
+                                 "retention_days": o.get("retention_days")})
 
     orgs.sort(key=lambda o: (o["name"] or "").lower())
     ss[_SS_ORGS] = orgs

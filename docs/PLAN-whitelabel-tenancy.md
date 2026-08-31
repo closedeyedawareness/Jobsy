@@ -2,7 +2,7 @@
 
 **Trigger:** Jobsy may be resold white-label by a large multinational as part of their services.
 **Goal:** Give Jobsy real logins and a real fence between clients, **without rewriting the app.**
-Status: **Stages 1-4 done (`0007`-`0009`, 128 SQL assertions + 4 CI guards green) — Stage 5 next** · Owner: Eng
+Status: **Stages 1-5 done (`0007`-`0010`, 165 SQL assertions + 7 CI guards green) — Stage 6 next** · Owner: Eng
 
 **Supabase project `Jobsy` — ref `qpprcmmdeqlbursogosu`** (eu-central-1, org `nubdeiwupcofidifrbfn`,
 Pro plan). The older free-tier `Jobsy` (`ocornnoqosxjwxubrcgk`, org "People Harmonics") is a dead
@@ -159,8 +159,8 @@ standard security question is today "no", in a way that stops the sale.
 |---|---|---|---|
 | C-1 | Processor agreement and sub-processor register | Nothing written | P0 |
 | C-2 | Records of processing (Art. 30) and a DPIA | Nothing written. Salary × gender at scale triggers one | P0 |
-| C-3 | Retention, deletion, end-of-contract purge | Sessions stored indefinitely; no delete path | P0 |
-| C-4 | Data minimisation / pseudonymisation | Full names captured into the payload; analytics don't need them | P1 |
+| C-3 | Retention, deletion, end-of-contract purge | **Done in `0010`** — per-client `retention_days`, `purge --due`, `purge --client`. **365 days is a placeholder** until the partner gives a number | P0 |
+| C-4 | Data minimisation / pseudonymisation | **Done in `0010`** — names tokenised on write, per client. Moved from ingest to save; see §3.4 | P1 |
 | C-5 | EU data residency | `eu-central-1`. Confirm the app host too | P1 |
 | C-6 | Encryption in transit and at rest | Platform-provided, undocumented | P1 |
 | C-7 | Breach detection and 72-hour notification | No process, and no logging to characterise one | P1 |
@@ -207,7 +207,7 @@ Sequenced so each stage is independently demonstrable and the sale-blocking item
 | 2 ✅ | **Real logins.** Supabase Auth replaces the shared password. Per-session client carrying the user's token; session expiry; sign-out. Secret key retired from every user-facing path. | A-1, A-4, A-5, B-3, B-4 |
 | 3 ✅ | **The fence, and the proof of it.** RLS policies on every table, plus the two-user test that fails to cross. Session codes regenerated cryptographically and demoted to convenience. | B-2, B-5, B-6, B-7 |
 | 4 ✅ | **Roles, administration, trail.** Invite, suspend, remove. Role enforcement in UI and database. Access and admin logging on the `0003` append-only pattern. | A-2, A-3, D-1…D-4 |
-| 5 | **Retention and minimisation.** Per-client purge, session expiry, pseudonymised names at ingest — what makes a deletion clause true rather than aspirational. | C-3, C-4 |
+| 5 ✅ | **Retention and minimisation.** Per-client purge, session expiry, pseudonymised names at ingest — what makes a deletion clause true rather than aspirational. | C-3, C-4 |
 | 6 | **White-label surface.** Per-partner name, logo, palette; every hard-coded "Jobsy" behind config. | F-1, F-2 |
 | 7 | **Enterprise readiness.** SSO, MFA, the documentation pack, external pen test. | A-6, A-7, C-1, C-2, C-6, E-3, E-5 |
 
@@ -447,6 +447,91 @@ fire rather than assumed to.
 - **Wiring every export button** to `log_activity()`. The mechanism and the session-open call are in;
   each export path still needs its line (D-4).
 - **A trail viewer in the app.** `manage_users.py log` reads it from a shell today.
+
+---
+
+## 3.4 Stage 5 — done
+
+`0010`. *"The processor shall return or delete all personal data at the end of the contract"* is in
+every processor agreement Jobsy will be asked to sign. Until this, it could not be performed:
+sessions were stored forever and there was no delete path at all. **A clause you cannot perform is
+worse than one you have not signed.**
+
+### Retention
+
+`orgs.retention_days`, per client, because retention is a contract term and contracts differ. A
+session's clock runs from its **last update**, not its creation — a roster somebody is still working
+on is not stale.
+
+> **365 days is a placeholder, not an answer.** The partner has not given a number (§4). A default is
+> still worth having: the mechanism is the part that takes engineering, the number is the part that
+> takes an email. A year is chosen for comparability — pay-equity reporting is annual, so re-running
+> last year's cohort is a real workflow. When the number arrives it is an `UPDATE`, not a migration.
+
+`purge --due` sweeps what is past its limit; `purge --client <slug> --yes` is the end-of-contract
+erasure. That one deletes sessions and employee records and **keeps** the org row, the memberships
+and the whole activity trail — deleting a client's *data* is not deleting a *customer*, and the
+record of the purge is the thing that proves it happened.
+
+### Minimisation: moved from ingest to save, deliberately
+
+The plan said "pseudonymise at ingest". **Ingest is the wrong moment.** `ui/app.py:2340` detects a
+name column and the analysis displays it; an analyst looking at a pay-equity outlier needs to know
+who it is, and a screen of `EMP-4821` makes the product useless for its own job.
+
+What C-4 asks is that Jobsy not **hold** what it does not need. So names are stripped on the way to
+the database — the copy that persists, sits in backups, and is what a breach reaches. The browser
+session keeps the real names while the work is happening, on the client's own screen.
+
+Tokens are stable **within** a session so a table still reads, and salted with the session code so
+the same person in two sessions does **not** produce the same token — otherwise the tokens themselves
+become a way to correlate one client's staff list against another's. One-way, with no stored mapping:
+a reversible mapping kept beside the data is the names again, wearing a hat.
+
+Off by default (`minimise --client <slug>` turns it on), so enabling it is a decision somebody makes
+rather than a surprise. The honest cost: reloading a saved session then shows tokens, not names.
+
+### The trail had to outlive its subject
+
+`activity_log.org_id` is `on delete set null`, which keeps the row but loses **which client** it was
+about — and the row proving an end-of-contract purge is exactly the one that must still say whose
+data was purged. `org_name` is now captured at write time, the same reasoning as `actor`/`actor_id`
+in `0009`. Tested: delete the client, and the purge record still names them.
+
+### Verified — 165 assertions, 0 failed
+
+| Attempt | Result |
+|---|---|
+| Retention of 0, 40000, or −30 days | rejected (check constraint) |
+| A stale session | listed as expired, with days over |
+| A session touched today | not expired |
+| Another client's sessions | never swept up |
+| Purge, then purge again | second run is a no-op, not an error |
+| The deletion | logged by the `0009` trigger, naming the client |
+| The purged roster's contents | never copied into the trail |
+| `purge_client` | data gone, **client row kept**, purge recorded |
+| Delete the client afterwards | the purge record survives and still names them |
+| A `client_admin` calling any purge function | permission denied |
+| A `client_admin` lengthening their own retention | blocked |
+
+Plus 3 new CI guards: names removed while salary, gender and employee id survive; tokens stable
+within a session and different across sessions; no reversal path exists.
+
+### What the test found
+
+**A trigger silently reset my fixture.** Backdating a session with
+`update ... set updated_at = now() - 400 days` did nothing, because `0007` attached a `BEFORE UPDATE`
+trigger setting `updated_at := now()` — the fixture overwrote itself in the same statement. Rather
+than only working around it, that is now asserted as a property: **a user with write access cannot
+move a session's clock in either direction**, so an analyst cannot postpone their client's retention
+by touching a column.
+
+### Not done
+
+- **Scheduling the sweep.** `0010` documents the `pg_cron` line; enabling it is an operator step, and
+  retention that runs only when somebody remembers is not retention.
+- **Re-saving sessions stored before minimisation was turned on** — they still hold the names they
+  were saved with. `minimise` says so when you enable it.
 
 ---
 

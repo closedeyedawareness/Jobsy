@@ -249,6 +249,77 @@ def cmd_log(sb, a):
         print(f"{r['at'][:19]}  {(r.get('actor') or '—'):<32} {r['action']:<26} {r.get('subject') or ''}")
 
 
+def cmd_retention(sb, a):
+    """Set or show how long a client's saved sessions live.
+
+    This is a contract term, so it is read off the DPA rather than guessed. The
+    365-day default in 0010 is a placeholder chosen for annual comparability,
+    not an answer.
+    """
+    org = one(sb, "orgs", "slug", a.client, "client")
+    if a.days is None:
+        print(f"{org['name']}: {org['retention_days']} days")
+        return
+    sb.table("orgs").update({"retention_days": a.days}).eq("id", org["id"]).execute()
+    audit(sb, "retention.changed", org["id"], org["slug"],
+          {"from": org["retention_days"], "to": a.days})
+    print(f"{org['name']}: sessions now kept {a.days} days after last use "
+          f"(was {org['retention_days']})")
+
+
+def cmd_minimise(sb, a):
+    """Turn name pseudonymisation on or off for a client.
+
+    On: the application replaces names with stable tokens before writing a
+    session, so the database never holds them. The analyst's screen is
+    unaffected. Off: names are stored as uploaded.
+    """
+    org = one(sb, "orgs", "slug", a.client, "client")
+    want = not a.off
+    sb.table("orgs").update({"pseudonymise_names": want}).eq("id", org["id"]).execute()
+    audit(sb, "minimisation.changed", org["id"], org["slug"], {"pseudonymise_names": want})
+    print(f"{org['name']}: names are {'pseudonymised' if want else 'stored as uploaded'}")
+    if want:
+        print("Sessions saved BEFORE now still hold the names they were saved with.")
+        print("Re-save them, or purge them, if that matters.")
+
+
+def cmd_purge(sb, a):
+    """Delete data. Two modes, and neither is reachable from a browser.
+
+    --due     everything past its client's retention period
+    --client  everything for one client, for the end of a contract
+    """
+    if bool(a.due) == bool(a.client):
+        die("give exactly one of --due or --client <slug>.")
+
+    if a.due:
+        due = sb.rpc("expired_sessions", {}).execute().data or []
+        if not due:
+            print("nothing is past its retention period.")
+            return
+        for r in due:
+            print(f"  {r['org_name']:<24} {r['session_code']:<18} "
+                  f"{r['days_over']} day(s) over a {r['retention_days']}-day limit")
+        if not a.yes:
+            print(f"\n{len(due)} session(s) would be deleted. Re-run with --yes to proceed.")
+            return
+        n = sb.rpc("purge_expired_sessions", {}).execute().data
+        print(f"{n} expired session(s) deleted.")
+        print("Each deletion is in the activity trail; see `manage_users.py log --action jobsy_sessions.delete`.")
+        return
+
+    org = one(sb, "orgs", "slug", a.client, "client")
+    if not a.yes:
+        print(f"About to delete ALL saved sessions and employee records for {org['name']}.")
+        print("The client, their memberships and the activity trail are kept.")
+        print("This cannot be undone. Re-run with --yes to proceed.")
+        return
+    result = sb.rpc("purge_client", {"p_org": org["id"]}).execute().data
+    print(f"{org['name']}: {result}")
+    print("Recorded in the activity trail, which survives even if the client is later removed.")
+
+
 def cmd_list_users(sb, a):
     rows = sb.table("memberships").select(
         "role, user_id, orgs(name, slug), partners(name, slug)").execute().data or []
@@ -326,6 +397,22 @@ def main():
     p.add_argument("--client"); p.add_argument("--action")
     p.add_argument("--limit", type=int, default=50)
     p.set_defaults(fn=cmd_log)
+
+    p = sub.add_parser("retention", help="show or set how long a client's sessions live")
+    p.add_argument("--client", required=True)
+    p.add_argument("--days", type=int, help="omit to show the current value")
+    p.set_defaults(fn=cmd_retention)
+
+    p = sub.add_parser("minimise", help="pseudonymise employee names before storing them")
+    p.add_argument("--client", required=True)
+    p.add_argument("--off", action="store_true", help="turn it back off")
+    p.set_defaults(fn=cmd_minimise)
+
+    p = sub.add_parser("purge", help="delete expired sessions, or everything for one client")
+    p.add_argument("--due", action="store_true", help="everything past its retention period")
+    p.add_argument("--client", help="everything for this client (end of contract)")
+    p.add_argument("--yes", action="store_true", help="required to actually delete")
+    p.set_defaults(fn=cmd_purge)
 
     sub.add_parser("list-users", help="every account and what it can reach").set_defaults(fn=cmd_list_users)
     sub.add_parser("list-clients", help="every client company").set_defaults(fn=cmd_list_clients)

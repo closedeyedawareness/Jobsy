@@ -39,6 +39,7 @@ why, because the diff touches almost every line:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import time
@@ -50,6 +51,14 @@ from typing import Any, Optional
 _CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 _CODE_LENGTH = 10
 _CODE_PREFIX = "JOBSY-"   # F-2 makes this per-partner; it is the last hard-coded name here.
+
+# Column names that hold a person's name, across the languages this app is used
+# in. Matched case-insensitively against the keys of the uploaded rows.
+_NAME_KEYS = {
+    "name", "naam", "fullname", "full name", "full_name", "employee",
+    "employee name", "employee_name", "medewerker", "werknemer",
+    "first name", "last name", "voornaam", "achternaam", "surname",
+}
 
 
 @dataclass
@@ -179,6 +188,48 @@ def generate_code() -> str:
     return _CODE_PREFIX + body
 
 
+def _pseudonymise_names(payload: dict, salt: str, name_col: Optional[str] = None) -> dict:
+    """Replace people's names with stable tokens before the payload is stored.
+
+    C-4. The analysis does not need names — pay equity works on id, function,
+    level, gender and salary — but the ANALYST does: ui/app.py detects a name
+    column and shows it, and somebody looking at an outlier needs to know who it
+    is. So names are not stripped at upload; they are stripped on the way to the
+    database, which is the copy that persists, sits in backups, and is what a
+    breach would reach. The browser session keeps the real thing for as long as
+    the work is happening.
+
+    Tokens are stable WITHIN a session, so the same person reads the same on
+    every row and a table still makes sense. They are salted with the session
+    code, so the same person in two different sessions does not produce the same
+    token — otherwise the tokens themselves would become a way to correlate one
+    client's staff list against another's.
+
+    This is one-way. There is no un-pseudonymise, and no key kept anywhere that
+    would allow one; a reversible mapping stored beside the data would simply be
+    the names again, wearing a hat.
+    """
+    def token(value: str) -> str:
+        digest = hashlib.blake2b(str(value).strip().lower().encode("utf-8"),
+                                 key=salt.encode("utf-8")[:64], digest_size=4)
+        return "EMP-" + digest.hexdigest().upper()
+
+    def is_name_key(key: str) -> bool:
+        k = str(key).strip().lower()
+        return k in _NAME_KEYS or (name_col is not None and k == str(name_col).strip().lower())
+
+    def walk(node):
+        if isinstance(node, dict):
+            return {k: (token(v) if (is_name_key(k) and isinstance(v, str) and v.strip())
+                        else walk(v))
+                    for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        return node
+
+    return walk(payload)
+
+
 def save_session(code: str, payload: dict, org_label: str = "",
                  org_id: Optional[str] = None) -> bool:
     """Upsert a session for a client. True on success.
@@ -195,12 +246,27 @@ def save_session(code: str, payload: dict, org_label: str = "",
     org = org_id or _active_org_id()
     if not org:
         return False
+
+    body = _safe_json(payload)
+
+    # Per-client, and off unless somebody turned it on — see 0010. Read from the
+    # org record rather than a local setting, so it is a property of the client
+    # and travels with them rather than with whoever happens to be signed in.
+    try:
+        from services import auth_service
+        active = auth_service.active_org() or {}
+    except Exception:
+        active = {}
+    if active.get("pseudonymise_names"):
+        body = _pseudonymise_names(body, salt=code,
+                                   name_col=body.get("upload_name_col"))
+
     try:
         client.table("jobsy_sessions").upsert({
             "session_code": code,
             "org_id":       org,
             "org_label":    org_label or "",
-            "payload":      _safe_json(payload),
+            "payload":      body,
         }, on_conflict="session_code").execute()
         return True
     except Exception:

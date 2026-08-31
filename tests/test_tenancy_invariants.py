@@ -8,6 +8,7 @@ works perfectly while doing the wrong thing.
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -148,3 +149,66 @@ def test_session_codes_are_not_guessable():
         assert set(body) <= set(_CODE_ALPHABET)
         # Unambiguous alphabet: these get read down a phone and typed by hand.
         assert not (set(body) & set("O0I1L")), f"ambiguous character in {c}"
+
+
+# ── C-4: what reaches the database ────────────────────────────────────────
+def _ps():
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from services import persistence_service
+    return persistence_service
+
+
+def test_pseudonymisation_removes_names_and_keeps_the_analysis():
+    """Names go; everything the pay-equity analysis needs stays.
+
+    Stripping too much would be as bad as stripping nothing — a payload with no
+    salary or gender is not a session anyone can reload.
+    """
+    ps = _ps()
+    payload = {
+        "upload_name_col": "Naam",
+        "upload_df": [
+            {"Naam": "Anna de Vries", "Titel": "Analist", "salary": 61000,
+             "gender": "F", "employee_id": "E-1"},
+            {"Naam": "Bram Jansen", "Titel": "Analist", "salary": 67000,
+             "gender": "M", "employee_id": "E-2"},
+        ],
+        "last_results": [{"name": "Anna de Vries", "matched": "Data Analyst", "score": 91}],
+    }
+    out = ps._pseudonymise_names(payload, salt="JOBSY-ABCDEFGHJK", name_col="Naam")
+    blob = json.dumps(out)
+
+    assert "Anna de Vries" not in blob and "Bram Jansen" not in blob
+    assert out["upload_df"][0]["Naam"].startswith("EMP-")
+    assert out["last_results"][0]["name"].startswith("EMP-")   # matched by _NAME_KEYS
+    # Everything the analysis runs on survives untouched.
+    assert out["upload_df"][0]["salary"] == 61000
+    assert out["upload_df"][0]["gender"] == "F"
+    assert out["upload_df"][0]["employee_id"] == "E-1"
+    assert out["upload_df"][0]["Titel"] == "Analist"
+    assert out["upload_name_col"] == "Naam"
+
+
+def test_pseudonyms_are_stable_within_a_session_and_not_across_them():
+    """Stable inside one session, or a table stops making sense. Different
+    across sessions, or the tokens themselves become a way to correlate one
+    client's staff against another's."""
+    ps = _ps()
+    row = {"name": "Anna de Vries"}
+    a1 = ps._pseudonymise_names({"r": [row]}, salt="JOBSY-AAAAAAAAAA")["r"][0]["name"]
+    a2 = ps._pseudonymise_names({"r": [row]}, salt="JOBSY-AAAAAAAAAA")["r"][0]["name"]
+    b1 = ps._pseudonymise_names({"r": [row]}, salt="JOBSY-BBBBBBBBBB")["r"][0]["name"]
+    assert a1 == a2, "the same person must read the same way across a session"
+    assert a1 != b1, "the same person must NOT be linkable across sessions"
+
+
+def test_pseudonymisation_is_not_reversible_by_a_stored_mapping():
+    """A reversible mapping kept beside the data is the names again, wearing a
+    hat. There must be no un-pseudonymise anywhere."""
+    ps = _ps()
+    assert not any(hasattr(ps, n) for n in
+                   ("_depseudonymise", "depseudonymise", "unpseudonymise", "_name_map")), \
+        "persistence_service exposes a reversal path"
+    out = ps._pseudonymise_names({"r": [{"name": "Anna de Vries"}]}, salt="s")
+    assert "Vries" not in json.dumps(out)
