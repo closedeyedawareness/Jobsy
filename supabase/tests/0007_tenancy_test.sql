@@ -158,24 +158,28 @@ select t_eq('  can_access_org(null) is false, not null', app.can_access_org(null
 
 select '';
 select '── the shape of the thing ──────────────────────────────────────────';
-select t_eq('functions live outside the API schema',
+-- Stated as "none of them break the rule" rather than "there are exactly three",
+-- so these keep holding as later migrations add helpers. The first version
+-- counted to 3 and started failing the moment 0008 added its own -- which is a
+-- test reporting its own staleness, not a defect in the code.
+select t_eq('the app schema has helpers in it',
             (select count(*)::int from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-              where n.nspname='app'), 3);
-select t_eq('every app function pins its search_path',
+              where n.nspname='app') >= 3, true);
+select t_eq('NO app function leaves search_path unpinned',
             (select count(*)::int from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-              where n.nspname='app' and p.proconfig is not null), 3);
-select t_eq('every app function is SECURITY DEFINER',
+              where n.nspname='app' and p.proconfig is null), 0);
+select t_eq('NO app function is SECURITY INVOKER',
             (select count(*)::int from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-              where n.nspname='app' and p.prosecdef), 3);
+              where n.nspname='app' and not p.prosecdef), 0);
 select t_eq('anon cannot execute them',
             (select bool_or(has_function_privilege('anon', p.oid, 'execute'))
                from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='app'), false);
 select t_eq('RLS on partners',       (select relrowsecurity from pg_class where relname='partners'), true);
 select t_eq('RLS on memberships',    (select relrowsecurity from pg_class where relname='memberships'), true);
 select t_eq('RLS on jobsy_sessions', (select relrowsecurity from pg_class where relname='jobsy_sessions'), true);
-select t_eq('no policies yet (0008 writes them)',
-            (select count(*)::int from pg_policies
-              where tablename in ('partners','memberships','jobsy_sessions')), 0);
+-- 0007 deliberately wrote no policies; 0008 writes them and its own test file
+-- proves what they do. Asserting "zero policies" here only held until the next
+-- migration landed, so what stays true is that RLS is on -- checked above.
 select t_eq('anon has no grant on jobsy_sessions',
             (select bool_or(has_table_privilege('anon','jobsy_sessions', p))
                from unnest(array['select','insert','update','delete']) p), false);

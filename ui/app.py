@@ -2954,40 +2954,92 @@ def benefits_benchmarking_page(catalog, benefits_svc):
                    "an early step toward bringing Pay and Benefits Benchmarking together in one center.")
 
 
-def _require_password():
-    """Shared-password gate. Set `app_password` in Streamlit Secrets
-    (Settings → Secrets on Streamlit Cloud) or a JOBSY_PASSWORD env var.
-    Fail-closed: if no password is configured, the app stays locked."""
-    import os
-    if st.session_state.get("_auth_ok"):
+def _require_sign_in():
+    """Named sign-in, replacing the shared password that used to guard this app.
+
+    B2B, invite-only: there is no "create account" here and no OAuth button,
+    because accounts are registered by an operator against addresses the client
+    has asked for (tools/manage_users.py). See services/auth_service.py.
+
+    The old gate compared `pw != expected` against one password held in secrets.
+    Everyone who got in was the same anonymous user, nobody could be revoked
+    individually, and the session never expired. All three are A-1 to A-5 in
+    docs/PLAN-whitelabel-tenancy.md.
+    """
+    from services import auth_service
+
+    expiry_msg = auth_service.touch()
+
+    if auth_service.current_user():
         return
-    try:
-        expected = st.secrets.get("app_password", None)
-    except Exception:
-        expected = None
-    if not expected:
-        expected = os.environ.get("JOBSY_PASSWORD")
+
     st.markdown("### 🔒 Jobsy")
-    if not expected:
-        st.error("This app is password-protected, but no password is configured yet. "
-                 "Add **app_password** under Settings → Secrets (then Reboot), "
-                 "or set a JOBSY_PASSWORD environment variable for local use.")
+    if expiry_msg:
+        st.info(expiry_msg)
+
+    status = auth_service.status()
+    if not status.package_installed or not status.configured:
+        st.error(status.reason)
         st.stop()
-    st.caption("Enter the access password to continue.")
-    pw = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Password")
-    if not pw:
-        st.stop()
-    if pw != expected:
-        st.error("Incorrect password."); st.stop()
-    st.session_state["_auth_ok"] = True
-    (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+
+    st.caption("Sign in with the account your administrator set up for you.")
+    with st.form("sign_in", clear_on_submit=False):
+        email = st.text_input("Email", autocomplete="username")
+        password = st.text_input("Password", type="password", autocomplete="current-password")
+        submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+
+    if submitted:
+        ok, message = auth_service.sign_in(email, password)
+        if ok:
+            (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+        st.error(message)
+
+    st.caption("No account? Accounts are created by your administrator — Jobsy has no self-registration.")
+    st.stop()
+
+
+def _sidebar_account():
+    """Who you are, which client you are working on, and the way out."""
+    from services import auth_service
+
+    user = auth_service.current_user()
+    if not user:
+        return
+    orgs = auth_service.accessible_orgs()
+    active = auth_service.active_org()
+
+    with st.sidebar:
+        st.divider()
+        st.caption(user["email"])
+        if len(orgs) > 1:
+            # A consultant works across several clients. Which one is loaded
+            # decides which roster is on screen, so it is a deliberate choice
+            # rather than something inferred from a URL.
+            labels = {o["id"]: f'{o["name"]}  ·  {o["role"].replace("_", " ")}' for o in orgs}
+            ids = [o["id"] for o in orgs]
+            current = active["id"] if active else ids[0]
+            chosen = st.selectbox("Client", ids, index=ids.index(current),
+                                  format_func=lambda i: labels[i], key="_org_switcher")
+            if chosen != current and auth_service.set_active_org(chosen):
+                # Another client's data must not stay on screen after a switch.
+                for k in ("last_results", "last_summary", "upload_df", "session_code",
+                          "skill_assessments", "ninebox_ratings"):
+                    st.session_state.pop(k, None)
+                (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+        elif active:
+            st.caption(f'{active["name"]} · {active["role"].replace("_", " ")}')
+
+        if st.button("Sign out", use_container_width=True):
+            auth_service.sign_out()
+            (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
 
 
 def main():
     st.set_page_config(page_title="Jobsy", page_icon="📊",
                        layout="centered", initial_sidebar_state="auto")
     apply_theme()
-    _require_password()
+    _require_sign_in()
+    _sidebar_account()
 
     # page navigation
     page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Dashboard", "Skills Assessment", "Skill Gap", "Job Family", "Pay Equity", "Benefits Benchmarking", "9-Box Grid", "Architecture Report", "Data Quality", "Organisation", "Organigram"], label_visibility="collapsed")
@@ -3007,15 +3059,14 @@ def main():
         if _ps_available():
             st.markdown(status_card("Database", "ok", badge_label="Online"), unsafe_allow_html=True)
             st.subheader("Session")
-            # Auto-load from URL param
-            qp = st.query_params
-            if "session" in qp and "session_loaded" not in st.session_state:
-                loaded = _ps_load(qp["session"])
-                if loaded:
-                    _restore_session(loaded["payload"])
-                    st.session_state["session_code"]   = qp["session"]
-                    st.session_state["session_loaded"] = True
-                    st.caption(f"✓ Session {qp['session']} restored.")
+            # B-6: the session code no longer travels in the URL, and a session
+            # is no longer auto-loaded from one. It used to be that holding a
+            # code was sufficient to open a roster, so the code in the address
+            # bar was a live key sitting in browser history, bookmarks and
+            # referrer headers. Access is now decided by membership (0008), so
+            # the code addresses a row rather than unlocking it -- and there is
+            # no longer any reason to put it in the URL at all.
+            st.query_params.pop("session", None)
 
             code = st.session_state.get("session_code","")
             if code:
@@ -3027,28 +3078,38 @@ def main():
                 )
                 st.caption("Share this code to resume on any device.")
                 if st.button("💾 Save progress", use_container_width=True):
-                    ok = _ps_save(code, _capture_session(), st.session_state.get("org_label",""))
+                    from services import auth_service as _auth
+                    _org = _auth.active_org()
+                    ok = _ps_save(code, _capture_session(),
+                                  (_org or {}).get("name", ""), (_org or {}).get("id"))
                     st.success("Saved.") if ok else st.error("Save failed.")
             else:
-                org = st.text_input("Organisation label (optional)", key="org_label",
-                                    placeholder="Acme BV")
+                # The organisation is no longer typed in. It is the client you
+                # are signed in against, which is also the one the database will
+                # accept a write for -- a free-text label could disagree with
+                # both, and used to be the only thing telling two clients apart.
+                from services import auth_service as _auth
+                _org = _auth.active_org()
+                if _org:
+                    st.caption(f'New session for **{_org["name"]}**')
                 if st.button("▶ Start new session", use_container_width=True, type="primary"):
                     new_code = _ps_generate()
                     st.session_state["session_code"] = new_code
-                    st.query_params["session"] = new_code
                     st.rerun()
 
-            load_code = st.text_input("Load session code", placeholder="JOBSY-XXXXX", key="load_input")
+            load_code = st.text_input("Load session code", placeholder="JOBSY-XXXXXXXXXX", key="load_input")
             if st.button("Load →", use_container_width=True) and load_code.strip():
                 loaded = _ps_load(load_code.strip())
                 if loaded:
                     _restore_session(loaded["payload"])
                     st.session_state["session_code"] = load_code.strip().upper()
-                    st.query_params["session"] = load_code.strip().upper()
                     st.success(f"Session restored (created {loaded['created_at'][:10]}).")
                     st.rerun()
                 else:
-                    st.error("Code not found or expired.")
+                    # Deliberately one message for "no such code" and "not
+                    # yours". Telling them apart would turn this box into a way
+                    # to probe which codes exist in other clients.
+                    st.error("No session with that code is available to you.")
         else:
             _db = _ps_status()
             if _db is None:

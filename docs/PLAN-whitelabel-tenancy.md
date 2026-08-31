@@ -2,11 +2,19 @@
 
 **Trigger:** Jobsy may be resold white-label by a large multinational as part of their services.
 **Goal:** Give Jobsy real logins and a real fence between clients, **without rewriting the app.**
-Status: **Stage 1 done (`0007`, 40 assertions green) — Stage 2 next** · Owner: Eng
+Status: **Stages 1-3 done (`0007`+`0008`, 87 SQL assertions + 4 CI guards green) — Stage 4 next** · Owner: Eng
 
 **Supabase project `Jobsy` — ref `qpprcmmdeqlbursogosu`** (eu-central-1, org `nubdeiwupcofidifrbfn`,
 Pro plan). The older free-tier `Jobsy` (`ocornnoqosxjwxubrcgk`, org "People Harmonics") is a dead
 project pending auto-pause and is **not** what this plan targets — see E-2.
+
+**Commercial model, which decides half the auth design.** Jobsy is sold B2B: contracts are
+invoiced, and access is granted to named addresses a client asks for. There is **no self-service
+sign-up, no social login, and no subscription flow** — accounts are registered by an operator through
+`tools/manage_users.py`. This removes work rather than adding it: no email-verification flow, no
+account-recovery abuse surface, no OAuth provider to review. It also means one setting has to be
+right in the Supabase dashboard, because no code can enforce it: **Authentication → Sign-Ups →
+"Allow new users to sign up" OFF**, and every OAuth provider disabled.
 
 The domain logic is not in scope. ~17k lines of matching, pay-equity regression, benefits
 benchmarking and reporting stay as they are. What is missing is the layer underneath: Jobsy has no
@@ -125,11 +133,11 @@ standard security question is today "no", in a way that stops the sale.
 
 | ID | Requirement | Today | Pri |
 |---|---|---|---|
-| A-1 | Named user accounts | A shared password admits everyone as the same anonymous user | P0 |
+| A-1 | Named user accounts | **Done in Stage 2** — Supabase Auth, invite-only, `services/auth_service.py` | P0 |
 | A-2 | Individual provisioning and same-day revocation | A shared password cannot be revoked for one leaver | P0 |
 | A-3 | Roles, least privilege | Every authenticated visitor has identical rights | P0 |
-| A-4 | Session expiry and logout | `_auth_ok` lasts the browser session; no timeout, no sign-out | P0 |
-| A-5 | Constant-time credential comparison | `pw != expected` short-circuits | P0 |
+| A-4 | Session expiry and logout | **Done** — 1h idle, 12h absolute, explicit sign-out | P0 |
+| A-5 | Constant-time credential comparison | **Moot** — the app no longer compares a password at all; Supabase Auth does | P0 |
 | A-6 | MFA for admin roles | None | P1 |
 | A-7 | SSO (SAML/OIDC) | None | P1 |
 
@@ -138,12 +146,12 @@ standard security question is today "no", in a way that stops the sale.
 | ID | Requirement | Today | Pri |
 |---|---|---|---|
 | B-1 | Three-level tenancy in the schema | ~~No table models a partner or a client~~ — **wrong, see §0.1**. `orgs` and `org_id` existed already; partner + membership did not. **Done in `0007`** | P0 |
-| B-2 | RLS policies on every table carrying client data | RLS on, zero policies (deliberate — `0005`) | P0 |
-| B-3 | User traffic stops using the secret key | Every query bypasses RLS. **Gates B-2.** | P0 |
-| B-4 | Per-session DB client, never a module global | Module-level global, one process, all users | P0 |
-| B-5 | Session codes unguessable, and no longer the access control | 5 chars, non-cryptographic; holding one is sufficient | P0 |
-| B-6 | No client identifiers in URLs | `?session=CODE` auto-loads | P1 |
-| B-7 | Automated test proving isolation | None. The single most useful artefact for a reviewer | P0 |
+| B-2 | RLS policies on every table carrying client data | **Done in `0008`** — 45 policies | P0 |
+| B-3 | User traffic stops using the secret key | **Done** — publishable key + user token; a CI guard fails if the secret key is read | P0 |
+| B-4 | Per-session DB client, never a module global | **Done** — client in `st.session_state`; `tests/test_tenancy_invariants.py` fails if a global returns | P0 |
+| B-5 | Session codes unguessable, and no longer the access control | **Done** — `secrets`, 31^10, and membership decides access | P0 |
+| B-6 | No client identifiers in URLs | **Done** — auto-load removed, code stripped from the query string | P1 |
+| B-7 | Automated test proving isolation | **Done** — `supabase/tests/0008_rls_isolation_test.sql`, real users behind the `authenticated` role | P0 |
 
 ### C — Privacy and data protection
 
@@ -196,8 +204,8 @@ Sequenced so each stage is independently demonstrable and the sale-blocking item
 | Stage | What lands | Covers |
 |---|---|---|
 | 1 ✅ | **Tenancy schema.** Partners, clients, memberships, roles. `client_id` on every table holding client data, backfilled. No behaviour change — this is the vocabulary everything else needs. | B-1 |
-| 2 | **Real logins.** Supabase Auth replaces the shared password. Per-session client carrying the user's token; session expiry; sign-out. Secret key retired from every user-facing path. | A-1, A-4, A-5, B-3, B-4 |
-| 3 | **The fence, and the proof of it.** RLS policies on every table, plus the two-user test that fails to cross. Session codes regenerated cryptographically and demoted to convenience. | B-2, B-5, B-6, B-7 |
+| 2 ✅ | **Real logins.** Supabase Auth replaces the shared password. Per-session client carrying the user's token; session expiry; sign-out. Secret key retired from every user-facing path. | A-1, A-4, A-5, B-3, B-4 |
+| 3 ✅ | **The fence, and the proof of it.** RLS policies on every table, plus the two-user test that fails to cross. Session codes regenerated cryptographically and demoted to convenience. | B-2, B-5, B-6, B-7 |
 | 4 | **Roles, administration, trail.** Invite, suspend, remove. Role enforcement in UI and database. Access and admin logging on the `0003` append-only pattern. | A-2, A-3, D-1…D-4 |
 | 5 | **Retention and minimisation.** Per-client purge, session expiry, pseudonymised names at ingest — what makes a deletion clause true rather than aspirational. | C-3, C-4 |
 | 6 | **White-label surface.** Per-partner name, logo, palette; every hard-coded "Jobsy" behind config. | F-1, F-2 |
@@ -260,6 +268,91 @@ And the access questions, which are the ones the fence turns on:
 
 This is **not** B-7 yet. It proves the membership logic; B-7 needs the same two users to collide
 through *RLS on live tables*, which cannot exist until `0008`. The test file is where that goes.
+
+---
+
+## 3.2 Stages 2 and 3 — done, together
+
+They had to ship together. `0007`'s own header says why: a policy without the key change is written,
+never exercised, and believed; the key change without a policy is every query denied and a dead app.
+
+**`0008_rls_policies.sql`** — 45 policies. Client data (`employees`, `jobsy_sessions`) is
+membership-only with no exemption. Reference tables use a read/write split, because of a problem a
+naive rule creates:
+
+> **The shared library problem.** "You see rows for orgs you belong to" breaks the product on day
+> one. The reference library — 81 jobs, the salary bands, the CAO crosswalk — lives in the `default`
+> org that `0001` seeded. It is not any client's data; it is the thing being sold. A membership-only
+> rule shows a new client an empty library and a broken app. So an org can be flagged
+> `is_library_source`: its reference rows are readable by any signed-in user and writable only by the
+> importer. Per-client libraries (F-3) later become "library source for one partner only" — the flag
+> is where that goes, and nothing else moves.
+
+Both `using` and `with check` are set everywhere. `using` alone would let a member of client A insert
+a row *stamped* client B, which is the direction people forget.
+
+**`services/auth_service.py`** — sign-in, sign-out, expiry, client switching. No `sign_up()`, no
+OAuth, no path from an unknown address to an account. The client is built per browser session and
+kept in `st.session_state`; there is no module-level client, and `tests/test_tenancy_invariants.py`
+fails the build if one comes back.
+
+**`services/persistence_service.py`** — rewritten. No module global, no secret key, `org_id` required
+on write, and `generate_code()` moved from `random.choices` over 36⁵ to `secrets` over 31¹⁰. The code
+is no longer the access control, so that is the belt to a pair of braces.
+
+**`tools/manage_users.py`** — the only way an account or a grant exists. Runs with the secret key,
+which now has exactly one legitimate home outside the importer. There is deliberately **no insert
+policy on `memberships`**: the API cannot create a grant at all, from any session, at any role.
+
+**`ui/app.py`** — the shared-password gate is gone, replaced by sign-in plus a client switcher that
+clears the previous client's data out of session state on every switch. `?session=` auto-load
+removed and the code stripped from the query string (B-6).
+
+### Verified
+
+`./supabase/tests/run.sh` — **87 assertions, 0 failed**, against a throwaway Postgres running the
+whole migration series. `0008_rls_isolation_test.sql` is B-7: real users behind the `authenticated`
+role with a real JWT subject, querying the tables directly, so what is under test is the policies as
+the database applies them rather than a helper the app could forget to call.
+
+| Attempt | Result |
+|---|---|
+| Client HR reads a **sibling client under the same partner** | invisible |
+| Client HR reads **another partner's** client | invisible |
+| Client HR inserts a roster **stamped with the sibling's org id** | blocked by `with check` |
+| Client HR **moves** their own roster into the sibling client | blocked |
+| Client HR edits or adds to the **shared library** | blocked |
+| Consultant reads **both** their partner's clients | allowed |
+| Consultant writes to a **rival partner's** client | blocked |
+| Viewer writes anything | blocked |
+| A viewer **grants themselves** another client | blocked |
+| Even a `client_admin` creates a membership from the app | blocked — no insert policy exists |
+| `anon` reads any table | permission denied at the grant level, before RLS |
+| Signed in, but no membership | sees nothing |
+
+Plus four CI guards in `tests/test_tenancy_invariants.py` that need no database: no module-level DB
+client, no `sign_up`/OAuth call, no reading of the secret key, and session codes from `secrets` over
+an unambiguous alphabet. Each was checked by reintroducing the defect and confirming the test fails.
+
+### Two things this found
+
+- **An identity-less token could read the shared library.** `can_read_org()` returned true for
+  library orgs without checking `auth.uid()`. Not personal data, but it is the product being resold.
+  The test asserted the correct behaviour before the code had it.
+- **`insert ... select ... from orgs where slug='victim'` is not an attack.** The attacker cannot see
+  the victim's org, so the subquery returns nothing, zero rows are written, and psql reports success.
+  The first version of the isolation test was green for that reason. Org ids are now captured as
+  superuser and interpolated as literals, and writes are judged on rows affected — "no exception" is
+  not "denied".
+
+### Not done, and deliberately
+
+- **Forced password rotation on first sign-in.** `manage_users.py` prints a temporary password to
+  hand over out of band. Rotation belongs with the rest of A-2 in Stage 4.
+- **The two dashboard settings** no code can enforce: sign-ups OFF, OAuth providers disabled.
+- **`0008` is not applied to the live database.** It is applied and attacked locally on every run of
+  `run.sh`. Applying it to production is a deployment decision, and it must land in the same change
+  as the app — see the top of this section.
 
 ---
 

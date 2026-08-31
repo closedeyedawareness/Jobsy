@@ -52,9 +52,17 @@ for f in supabase/migrations/*.sql; do
 done
 
 echo
-OUT=$("${PSQL_BASE[@]}" -f supabase/tests/0007_tenancy_test.sql 2>&1 | grep -Ev '^$|^INSERT|^CREATE|^SET|^RESET|^Output format')
-echo "$OUT"
-echo
+OUT=""
+for t in supabase/tests/[0-9]*_test.sql; do
+  echo "── $(basename "$t") ──────────────────────────────────────────"
+  # Each test file runs against the same database, in filename order: 0008's
+  # fixtures build on 0007 having run, and both are written to be re-runnable.
+  PART=$("${PSQL_BASE[@]}" -f "$t" 2>&1 | grep -Ev '^$|^INSERT|^CREATE|^SET|^RESET|^Output format|^UPDATE|^DELETE|^t$|^SELECT')
+  echo "$PART"
+  OUT="$OUT
+$PART"
+  echo
+done
 
 FAILED=$(printf '%s\n' "$OUT" | grep -c '^FAIL' || true)
 PASSED=$(printf '%s\n' "$OUT" | grep -c '^ok' || true)
