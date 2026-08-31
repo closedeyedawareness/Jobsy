@@ -1,75 +1,35 @@
--- SUPABASE_SETUP.sql
--- Jobsy — one-time database setup.
+-- SUPABASE_SETUP.sql — SUPERSEDED. Do not run this file.
 --
--- services/persistence_service.py has told users to "run SUPABASE_SETUP.sql
--- once in the Supabase SQL Editor" as step 3 of setup since commit 4.1, and
--- docs/ROADMAP.md lists it twice as referenced-but-absent. This is that file.
+-- This used to define jobsy_sessions and ask an operator to paste it into the
+-- Supabase SQL editor as a one-time manual step. Two things were wrong with
+-- that, and both are now fixed elsewhere:
 --
--- Run order:
---   1. This file                              — session persistence (below)
---   2. supabase/migrations/0001_reference_library.sql — the reference library
+-- 1. It was never actually run. Checked 2026-08-31: jobsy_sessions did not
+--    exist in the project at all, which is why saving a session reported
+--    "Save failed." and had done since the feature shipped. A table the
+--    application depends on cannot live in a manual step, because a manual
+--    step is a step that gets skipped and nothing notices.
 --
--- Step 2 is only needed once the reference library moves into the database
--- (Phase 0 of docs/PLAN-supabase-migration.md). Session persistence below
--- works on its own and is what the app uses today.
-
--- ───────────────────────────────────────────────── session persistence ──
+-- 2. Its jobsy_sessions had no tenant key. Every client's roster would have
+--    landed in one table separated only by a session code that travelled in
+--    the URL. Fine for one customer, catastrophic for the second.
 --
--- Shape derived from persistence_service.py's own calls, which are the only
--- thing that has ever defined it:
---   save_session()  upserts {session_code, org_label, payload}
---   load_session()  selects payload, org_label, created_at  .eq(session_code)
---   health_check()  selects session_code with count='exact' limit 1
+-- The table now lives in supabase/migrations/0007_partners_users_and_membership.sql
+-- with org_id NOT NULL from birth, and migration 0008 puts a row-level security
+-- policy on it so membership decides access rather than knowledge of a code.
 --
--- session_code is therefore the natural key: upsert needs a unique constraint
--- on it or it inserts a duplicate row every save, and .single() in
--- load_session() raises if more than one row comes back.
-
-create table if not exists jobsy_sessions (
-  id           uuid primary key default gen_random_uuid(),
-  session_code text not null unique,
-  org_label    text not null default '',
-  payload      jsonb not null default '{}'::jsonb,
-  created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now()
-);
-
-create index if not exists jobsy_sessions_code_idx on jobsy_sessions (session_code);
-
--- load_session() reads created_at and expects it to mean "when this session was
--- saved". An upsert of an existing code updates rather than inserts, so without
--- this the timestamp would be the code's first-ever use, not the current state.
-create or replace function jobsy_sessions_touch() returns trigger
-language plpgsql as $$
-begin
-  new.updated_at := now();
-  return new;
-end;
-$$;
-
-drop trigger if exists jobsy_sessions_set_updated_at on jobsy_sessions;
-create trigger jobsy_sessions_set_updated_at
-  before update on jobsy_sessions
-  for each row execute function jobsy_sessions_touch();
-
--- ────────────────────────────────────────────────────────────────── RLS ──
+-- SETUP IS NOW: apply the migrations in order.
 --
--- A session code is a shareable secret — anyone holding it is meant to be able
--- to load that session, and there are no user accounts to check it against. So
--- the protection here is the code's unguessability, not a policy.
+--   supabase/migrations/0001_reference_library.sql
+--   ...
+--   supabase/migrations/0008_rls_policies.sql
 --
--- RLS is on with no anon/authenticated policy, which means the app must reach
--- this table with the SECRET key — sb_secret_..., in Supabase's current key
--- format. The legacy JWT keys (anon / service_role, the long 'eyJ...' tokens)
--- are being retired; do not start anything new on them.
+-- Then register the first people with tools/manage_users.py — there is no
+-- sign-up page, by design. See docs/PLAN-whitelabel-tenancy.md.
 --
--- Jobsy is server-rendered Streamlit, so its SUPABASE_KEY is a server-side
--- secret and using the secret key is legitimate here — unlike in a browser app,
--- where it would hand every visitor the whole table.
+-- To check the whole series applies and the fence actually holds:
 --
--- If you put the PUBLISHABLE key in secrets.toml instead, every call here fails
--- closed and the app falls back to no persistence. That is the safe failure,
--- but it is silent: check the Library panel's database status if sessions stop
--- saving.
-
-alter table jobsy_sessions enable row level security;
+--   ./supabase/tests/run.sh
+--
+-- This file is kept rather than deleted so that anything still pointing at it
+-- finds the explanation instead of a 404.

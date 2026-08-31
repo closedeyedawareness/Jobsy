@@ -77,6 +77,16 @@ from services.matching_service import MatchingService
 
 # ── colours (centralised in ui/theme.py and mirrored in .streamlit/config.toml) ──
 C = THEME_COLORS
+
+
+def _brand_name() -> str:
+    """The product's name for whoever is signed in. F-2: never hard-code it in
+    something a user reads."""
+    try:
+        from services import branding_service
+        return branding_service.name()
+    except Exception:
+        return "Jobsy"
 STAGE_C = {
     "exact": C["success"],
     "normalized": C["secondary"],
@@ -615,7 +625,7 @@ def _hero_dashboard_html(stats: dict) -> str:
         '<div class="jobsy-v3-hero-top">'
         '<div>'
         '<div class="jobsy-v3-eyebrow">Workforce intelligence platform</div>'
-        '<h1 class="jobsy-v3-title">Jobsy</h1>'
+        f'<h1 class="jobsy-v3-title">{_brand_name()}</h1>'
         '<div class="jobsy-v3-tagline">Jobs, skills &amp; talent strategy made easy.</div>'
         '<p class="jobsy-v3-copy">Standardise jobs • Map skills • Build workforce intelligence</p>'
         '</div>'
@@ -644,7 +654,7 @@ def render_workspace_anchor() -> None:
 def render_getting_started() -> None:
     """A 3-step orientation + page guide for first-time business users."""
     steps = [
-        ("1", "Standardise", "Paste or upload job titles below — Jobsy matches them to canonical roles with salary, grade and skills."),
+        ("1", "Standardise", "Paste or upload job titles below — matched to canonical roles with salary, grade and skills."),
         ("2", "Analyse", "Explore pay & levels (Job Family), pay equity/compa-ratio (Pay Equity), and capability (Skills, Skill Gap, 9-Box)."),
         ("3", "Report", "Generate a board-ready Excel (Architecture Report) and keep the library clean (Data Quality)."),
     ]
@@ -659,7 +669,7 @@ def render_getting_started() -> None:
         for n, t, d in steps)
     st.markdown(
         f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;text-transform:uppercase;'
-        f'color:{C["muted"]};margin:6px 0 8px">How Jobsy works</div>'
+        f'color:{C["muted"]};margin:6px 0 8px">How it works</div>'
         f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">{cards}</div>',
         unsafe_allow_html=True)
     with st.expander("What each page does"):
@@ -1153,7 +1163,7 @@ def connect_page():
         use_raas = st.checkbox("Use Custom Report (RaaS) instead of REST workers endpoint", key="wd_raas")
         raas_name = ""
         if use_raas:
-            raas_name = st.text_input("Report name", placeholder="Jobsy_Worker_Extract", key="wd_raas_name",
+            raas_name = st.text_input("Report name", placeholder=f"{_brand_name()}_Worker_Extract", key="wd_raas_name",
                                        help="Report name configured by your Workday admin")
 
         st.caption("Credentials are masked and exist only in this browser session.")
@@ -1392,7 +1402,7 @@ def architecture_report_page(catalog):
                 import re
                 safe_label = re.sub(r"[^a-zA-Z0-9_-]","_", org_label)[:30]
                 from datetime import date
-                fname = f"Jobsy_Architecture_Report_{safe_label}_{date.today().strftime('%Y%m%d')}.xlsx"
+                fname = f"{_brand_name()}_Architecture_Report_{safe_label}_{date.today().strftime('%Y%m%d')}.xlsx"
                 st.success("✓ Report generated. Download below.")
                 st.download_button(
                     "⬇  Download Architecture Report (.xlsx)",
@@ -2490,7 +2500,7 @@ def pay_equity_page(catalog, service):
         st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
                     f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
                     f'CAO crosswalk — ISF / CATS® (indicative)</div>', unsafe_allow_html=True)
-        st.caption("Positions Jobsy's own grade against the PUBLIC salary-group structure of a "
+        st.caption(f"Positions {_brand_name()}'s own grade against the PUBLIC salary-group structure of a "
                    "sector CAO — never a reproduced ISF/CATS® scoring method (that's FME's / De "
                    "Leeuw Consult's protected IP; see docs/cao-metalektro-isf-reference.md). "
                    "Always indicative — official classification needs a certified weging.")
@@ -2520,7 +2530,7 @@ def pay_equity_page(catalog, service):
             st.dataframe(_shown[["Name", "Matched role", "Function", "Level", "Grade",
                                  "Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]],
                         use_container_width=True, hide_index=True)
-            st.caption("Indicatief: positionering van Jobsy's eigen gradering binnen de publieke "
+            st.caption(f"Indicatief: positionering van {_brand_name()}'s eigen gradering binnen de publieke "
                        "ISF-bandbreedtes — geen berekende ISF-score. Officiële ISF-indeling vereist "
                        "een gecertificeerde weging.")
         else:
@@ -2954,40 +2964,137 @@ def benefits_benchmarking_page(catalog, benefits_svc):
                    "an early step toward bringing Pay and Benefits Benchmarking together in one center.")
 
 
-def _require_password():
-    """Shared-password gate. Set `app_password` in Streamlit Secrets
-    (Settings → Secrets on Streamlit Cloud) or a JOBSY_PASSWORD env var.
-    Fail-closed: if no password is configured, the app stays locked."""
-    import os
-    if st.session_state.get("_auth_ok"):
+def _require_sign_in():
+    """Named sign-in, replacing the shared password that used to guard this app.
+
+    B2B, invite-only: there is no "create account" here and no OAuth button,
+    because accounts are registered by an operator against addresses the client
+    has asked for (tools/manage_users.py). See services/auth_service.py.
+
+    The old gate compared `pw != expected` against one password held in secrets.
+    Everyone who got in was the same anonymous user, nobody could be revoked
+    individually, and the session never expired. All three are A-1 to A-5 in
+    docs/PLAN-whitelabel-tenancy.md.
+    """
+    from services import auth_service
+
+    expiry_msg = auth_service.touch()
+
+    if auth_service.current_user():
+        if auth_service.must_change_password():
+            _force_password_change()
         return
-    try:
-        expected = st.secrets.get("app_password", None)
-    except Exception:
-        expected = None
-    if not expected:
-        expected = os.environ.get("JOBSY_PASSWORD")
-    st.markdown("### 🔒 Jobsy")
-    if not expected:
-        st.error("This app is password-protected, but no password is configured yet. "
-                 "Add **app_password** under Settings → Secrets (then Reboot), "
-                 "or set a JOBSY_PASSWORD environment variable for local use.")
+
+    from services import branding_service
+    st.markdown(f"### 🔒 {branding_service.name()}")
+    _logo = branding_service.logo_url()
+    if _logo:
+        st.image(_logo, width=180)
+    if expiry_msg:
+        st.info(expiry_msg)
+
+    status = auth_service.status()
+    if not status.package_installed or not status.configured:
+        st.error(status.reason)
         st.stop()
-    st.caption("Enter the access password to continue.")
-    pw = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Password")
-    if not pw:
-        st.stop()
-    if pw != expected:
-        st.error("Incorrect password."); st.stop()
-    st.session_state["_auth_ok"] = True
-    (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+
+    st.caption("Sign in with the account your administrator set up for you.")
+    with st.form("sign_in", clear_on_submit=False):
+        email = st.text_input("Email", autocomplete="username")
+        password = st.text_input("Password", type="password", autocomplete="current-password")
+        submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+
+    if submitted:
+        ok, message = auth_service.sign_in(email, password)
+        if ok:
+            (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+        st.error(message)
+
+    _support = branding_service.support_email()
+    st.caption(f"No account? Accounts are created by your administrator — "
+               f"{branding_service.name()} has no self-registration."
+               + (f" Contact {_support}." if _support else ""))
+    st.stop()
+
+
+def _force_password_change():
+    """The account is still on the password an operator issued by hand.
+
+    That password was delivered out of band -- read down a phone, pasted into a
+    message -- so it has existed outside the system at least once. Nothing else
+    in the app renders until it is replaced.
+    """
+    from services import auth_service
+
+    st.markdown("### Choose a password")
+    st.caption("Your account was set up with a temporary password. "
+               "Pick your own before continuing.")
+    with st.form("change_password"):
+        pw1 = st.text_input("New password", type="password", autocomplete="new-password")
+        pw2 = st.text_input("Repeat it", type="password", autocomplete="new-password")
+        submitted = st.form_submit_button("Save password", type="primary", use_container_width=True)
+    if submitted:
+        ok, message = auth_service.change_password(pw1, pw2)
+        if ok:
+            st.success(message)
+            (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+        st.error(message)
+    if st.button("Sign out instead"):
+        auth_service.sign_out()
+        (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+    st.stop()
+
+
+def _sidebar_account():
+    """Who you are, which client you are working on, and the way out."""
+    from services import auth_service
+
+    user = auth_service.current_user()
+    if not user:
+        return
+    orgs = auth_service.accessible_orgs()
+    active = auth_service.active_org()
+
+    with st.sidebar:
+        st.divider()
+        st.caption(user["email"])
+        if len(orgs) > 1:
+            # A consultant works across several clients. Which one is loaded
+            # decides which roster is on screen, so it is a deliberate choice
+            # rather than something inferred from a URL.
+            labels = {o["id"]: f'{o["name"]}  ·  {o["role"].replace("_", " ")}' for o in orgs}
+            ids = [o["id"] for o in orgs]
+            current = active["id"] if active else ids[0]
+            chosen = st.selectbox("Client", ids, index=ids.index(current),
+                                  format_func=lambda i: labels[i], key="_org_switcher")
+            if chosen != current and auth_service.set_active_org(chosen):
+                # Another client's data must not stay on screen after a switch.
+                for k in ("last_results", "last_summary", "upload_df", "session_code",
+                          "skill_assessments", "ninebox_ratings"):
+                    st.session_state.pop(k, None)
+                (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
+        elif active:
+            st.caption(f'{active["name"]} · {active["role"].replace("_", " ")}')
+
+        if st.button("Sign out", use_container_width=True):
+            auth_service.sign_out()
+            (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
 
 
 def main():
-    st.set_page_config(page_title="Jobsy", page_icon="📊",
+    # F-2. set_page_config runs before sign-in, so on a shared instance this is
+    # the neutral default and on a dedicated deployment it is BRAND_NAME from
+    # secrets. Once somebody signs in, the hero and the rest follow their
+    # partner -- see services/branding_service.py for why the front door cannot.
+    from services import branding_service as _brand
+    st.set_page_config(page_title=_brand.name(), page_icon="📊",
                        layout="centered", initial_sidebar_state="auto")
     apply_theme()
-    _require_password()
+    _css = _brand.css_overrides()
+    if _css:
+        st.markdown(_css, unsafe_allow_html=True)
+    _require_sign_in()
+    _sidebar_account()
 
     # page navigation
     page = st.sidebar.radio("Navigation", ["Matching", "Connect", "Skills Dashboard", "Skills Assessment", "Skill Gap", "Job Family", "Pay Equity", "Benefits Benchmarking", "9-Box Grid", "Architecture Report", "Data Quality", "Organisation", "Organigram"], label_visibility="collapsed")
@@ -3007,15 +3114,14 @@ def main():
         if _ps_available():
             st.markdown(status_card("Database", "ok", badge_label="Online"), unsafe_allow_html=True)
             st.subheader("Session")
-            # Auto-load from URL param
-            qp = st.query_params
-            if "session" in qp and "session_loaded" not in st.session_state:
-                loaded = _ps_load(qp["session"])
-                if loaded:
-                    _restore_session(loaded["payload"])
-                    st.session_state["session_code"]   = qp["session"]
-                    st.session_state["session_loaded"] = True
-                    st.caption(f"✓ Session {qp['session']} restored.")
+            # B-6: the session code no longer travels in the URL, and a session
+            # is no longer auto-loaded from one. It used to be that holding a
+            # code was sufficient to open a roster, so the code in the address
+            # bar was a live key sitting in browser history, bookmarks and
+            # referrer headers. Access is now decided by membership (0008), so
+            # the code addresses a row rather than unlocking it -- and there is
+            # no longer any reason to put it in the URL at all.
+            st.query_params.pop("session", None)
 
             code = st.session_state.get("session_code","")
             if code:
@@ -3026,29 +3132,48 @@ def main():
                     unsafe_allow_html=True,
                 )
                 st.caption("Share this code to resume on any device.")
-                if st.button("💾 Save progress", use_container_width=True):
-                    ok = _ps_save(code, _capture_session(), st.session_state.get("org_label",""))
+                from services import auth_service as _auth
+                if not _auth.can_edit():
+                    # A viewer reads. 0009's policy refuses the write regardless;
+                    # this only avoids offering a button that would fail.
+                    st.caption("Read-only access — saving is disabled for your role.")
+                elif st.button("💾 Save progress", use_container_width=True):
+                    _org = _auth.active_org()
+                    ok = _ps_save(code, _capture_session(),
+                                  (_org or {}).get("name", ""), (_org or {}).get("id"))
                     st.success("Saved.") if ok else st.error("Save failed.")
             else:
-                org = st.text_input("Organisation label (optional)", key="org_label",
-                                    placeholder="Acme BV")
+                # The organisation is no longer typed in. It is the client you
+                # are signed in against, which is also the one the database will
+                # accept a write for -- a free-text label could disagree with
+                # both, and used to be the only thing telling two clients apart.
+                from services import auth_service as _auth
+                _org = _auth.active_org()
+                if _org:
+                    st.caption(f'New session for **{_org["name"]}**')
                 if st.button("▶ Start new session", use_container_width=True, type="primary"):
                     new_code = _ps_generate()
                     st.session_state["session_code"] = new_code
-                    st.query_params["session"] = new_code
                     st.rerun()
 
-            load_code = st.text_input("Load session code", placeholder="JOBSY-XXXXX", key="load_input")
+            load_code = st.text_input("Load session code", placeholder="JOBSY-XXXXXXXXXX", key="load_input")
             if st.button("Load →", use_container_width=True) and load_code.strip():
                 loaded = _ps_load(load_code.strip())
                 if loaded:
                     _restore_session(loaded["payload"])
                     st.session_state["session_code"] = load_code.strip().upper()
-                    st.query_params["session"] = load_code.strip().upper()
+                    # A SELECT fires no trigger, so opening somebody's roster is
+                    # recorded here or nowhere. This is the read half of D-1.
+                    from services import auth_service as _auth
+                    _auth.log("session.open", subject=load_code.strip().upper(),
+                              org_id=loaded.get("org_id"))
                     st.success(f"Session restored (created {loaded['created_at'][:10]}).")
                     st.rerun()
                 else:
-                    st.error("Code not found or expired.")
+                    # Deliberately one message for "no such code" and "not
+                    # yours". Telling them apart would turn this box into a way
+                    # to probe which codes exist in other clients.
+                    st.error("No session with that code is available to you.")
         else:
             _db = _ps_status()
             if _db is None:
@@ -3302,7 +3427,7 @@ def main():
                 "Add ActualSalary + Gender to unlock the Pay Equity page from this same file — no second upload needed.",
                 "Add Bonus / Allowances / LTI to see the gender gap on TOTAL pay (base + variable), not just base — the EU Directive basis.",
                 "Spelling wobbles are fine (fuzzy matching handles them), but cleaner titles score higher.",
-                "Keep these exact headers so Jobsy auto-detects each column; extra columns you add are preserved too.",
+                f"Keep these exact headers so {_brand_name()} auto-detects each column; extra columns you add are preserved too.",
                 "ActualSalary must be a plain number (68000, not '€68.000' or '68k'). FTE as 1.0 / 0.8. Dates as YYYY-MM-DD.",
                 "Add Performance + Potential (1-3) to auto-place people on the 9-Box grid — no re-entry needed.",
                 "Put skills in one cell as 'Skill:Level; Skill:Level' under SkillProficiency, or use the dedicated Skills template for a per-skill grid.",
@@ -3375,12 +3500,12 @@ def main():
                 # ── Data-readiness panel: what this file unlocks, assumes, and needs ──
                 _rep = _assess_import(col_opts, title_col=col)
                 _sections = [
-                    ("✅ Jobsy can give you now", C["success"], _rep["ready"]),
+                    (f"✅ {_brand_name()} can give you now", C["success"], _rep["ready"]),
                     ("◐ Assumed from partial data", C["amber"], _rep["assumed"]),
                     ("➕ Add to unlock more", C["accent"], _rep["unlock"]),
                 ]
                 with st.expander(
-                    f"📋 What Jobsy can do with this file — "
+                    f"📋 What {_brand_name()} can do with this file — "
                     f"{len(_rep['ready'])} ready · {len(_rep['assumed'])} assumed · "
                     f"{len(_rep['unlock'])} to unlock",
                     expanded=True,
