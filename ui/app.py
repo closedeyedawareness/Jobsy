@@ -566,6 +566,19 @@ def _cur():
         return "\u20ac"
 
 
+def _country():
+    """The active client's market code, for services that must be told one.
+
+    Returns "" rather than guessing when there is no session, so the service
+    applies its own default instead of being handed a country nobody chose.
+    """
+    try:
+        from services import country_service
+        return country_service.active_country()
+    except Exception:
+        return ""
+
+
 # Kept as an alias: ~10 call sites read _euro(...) and renaming them all would
 # bury the actual change in noise. It no longer means euro.
 _euro = _money
@@ -1460,6 +1473,7 @@ def architecture_report_page(catalog):
                     df_employees=df_input,
                     org_label=org_label,
                     currency=_cur(),
+                    country=_country(),
                 )
                 report_bytes = svc.generate()
                 import re
@@ -3489,7 +3503,7 @@ def main():
                     (iid for iid, i in _inds.items() if i.name == _ind_pick), None)
             st.caption("Scales salary bands and adds sector-specific skills.")
     service = MatchingService(catalog, review_threshold=threshold, enable_fuzzy=enable_fuzzy)
-    benefits_svc = BenefitsService(catalog)
+    benefits_svc = BenefitsService(catalog, country=_country())
 
     if page == "Connect":
         connect_page()

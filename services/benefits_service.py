@@ -24,6 +24,11 @@ import pandas as pd
 
 from core.models import BenefitBand
 
+try:
+    from core.config import DEFAULT_COUNTRY
+except Exception:                       # importable on every real path; be safe
+    DEFAULT_COUNTRY = "NL"
+
 __all__ = ["BenefitComparison", "BenefitsService"]
 
 
@@ -41,9 +46,14 @@ class BenefitComparison:
 class BenefitsService:
     """Computes benefit market bands, comparisons and advice from the reference library."""
 
-    def __init__(self, catalog):
+    def __init__(self, catalog, country: Optional[str] = None):
+        """country: the client's market. Passed in rather than read from a
+        session, for the same reason ArchitectureReportService takes a currency
+        -- a service must work from a script and a cron job as well as a browser.
+        Defaults to the deployment default, which is the Dutch library."""
         self.catalog = catalog
         self.repo = catalog.repository
+        self.country = (country or DEFAULT_COUNTRY).strip().upper()
 
     # ── market data ──────────────────────────────────────────────────────
     def categories(self) -> list[str]:
@@ -59,25 +69,69 @@ class BenefitsService:
         obs = self._observations(category, industry_id)
         if not obs:
             return None
+        currency = self._single_currency(obs)
+        if currency is None:
+            return None                 # two currencies in one market: see above
         factor = self.repo.level_benefit_factors.get((level, category), 1.0) if level else 1.0
         values = pd.Series([o.value for o in obs]) * factor
         q = values.quantile([0.25, 0.5, 0.75, 0.9])
         return BenefitBand(
             category=category, industry_id=industry_id or "ALL", level=level or "ALL",
-            unit=obs[0].unit,
+            unit=obs[0].unit, country=obs[0].country, currency=currency,
             p25=round(float(q[0.25]), 2), p50=round(float(q[0.5]), 2),
             p75=round(float(q[0.75]), 2), p90=round(float(q[0.9]), 2),
             n_observations=len(obs),
         )
 
     def _observations(self, category: str, industry_id: Optional[str]):
+        """Observations for this category IN THIS MARKET, or none at all.
+
+        Country first, then the 'EU' baseline, then nothing -- the same
+        resolution order as app.resolve_country() in 0012, so a caller can say
+        "no benefits data for Belgium yet" instead of quietly showing Dutch
+        numbers under a Belgian label.
+
+        This used to key on (industry, category) alone. The currency was read
+        off each row and then dropped at grouping time, so every market's
+        observations landed in one distribution: a Polish client's pension was
+        ranked against a percentile ladder built mostly from Dutch euro values.
+        That is the benefits twin of the country-pooling defect in
+        pay_equity_service, and it is wrong in the same direction -- it looks
+        like an answer.
+        """
+        for scope in (self.country, "EU"):
+            found = self._observations_in(category, industry_id, scope)
+            if found:
+                return found
+        return []
+
+    def _observations_in(self, category: str, industry_id: Optional[str], country: str):
         if industry_id:
-            return self.repo.benefit_observations.get((industry_id, category), [])
-        pooled = []
-        for (_iid, cat), obs in self.repo.benefit_observations.items():
-            if cat == category:
-                pooled.extend(obs)
-        return pooled
+            obs = list(self.repo.benefit_observations.get((industry_id, category, country), []))
+        else:
+            # No industry: the national baseline. Pools ACROSS INDUSTRIES but
+            # still within one country -- pooling sectors is a deliberate
+            # widening of the sample, pooling countries is a category error.
+            obs = []
+            for (_iid, cat, ctry), rows in self.repo.benefit_observations.items():
+                if cat == category and ctry == country:
+                    obs.extend(rows)
+        return obs
+
+    @staticmethod
+    def _single_currency(obs) -> Optional[str]:
+        """The one currency these observations share, or None if they disagree.
+
+        Country keying should make a mix impossible, so a mix means the library
+        itself is inconsistent -- two currencies filed under one market. The
+        honest response is no band rather than a blended one: a percentile
+        computed across 25,000 zloty and 8,000 euro is not a number about
+        anything. Absence is recoverable; a plausible wrong figure is not.
+        """
+        seen = {o.currency for o in obs if getattr(o, "currency", "")}
+        if len(seen) > 1:
+            return None
+        return next(iter(seen), "")
 
     # ── comparison vs. an actual package ─────────────────────────────────
     def compare(self, category: str, actual: float, industry_id: Optional[str],

@@ -99,12 +99,16 @@ class ArchitectureReportService:
     }
 
     def __init__(self, catalog, results: list, df_employees: Optional[pd.DataFrame] = None,
-                 org_label: str = "", currency: str = "\u20ac"):
+                 org_label: str = "", currency: str = "\u20ac",
+                 country: str = ""):
         # The symbol is passed in rather than read from a session, because a
         # service that builds a workbook must work from a script and a cron job
         # as well as from a browser. The caller knows the client's market; this
         # only has to not assume euro. See services/country_service.py.
         self.currency     = currency or "\u20ac"
+        # Which market's benefit observations this report may draw on. Empty
+        # means the deployment default; BenefitsService resolves it.
+        self.country      = (country or "").strip().upper()
         self.catalog      = catalog
         self.results      = [r for r in results if r.matched]
         self.df_employees = df_employees
@@ -826,7 +830,7 @@ class ArchitectureReportService:
             return
 
         from services.benefits_service import BenefitsService
-        svc = BenefitsService(self.catalog)
+        svc = BenefitsService(self.catalog, country=self.country or None)
         industries = sorted(repo.industries.keys()) if repo.industries else []
 
         headers = ["Category", "Unit", "Market P25", "Market Median", "Market P75", "Market P90", "n"]

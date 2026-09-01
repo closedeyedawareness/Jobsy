@@ -395,74 +395,107 @@ def _repo_with_mixed_currency_observations():
     return Repository(data, validate=False)
 
 
-def test_benefit_observation_currency_field_is_captured_but_never_used_for_grouping():
-    """core/models.py:193 gives BenefitObservation a `currency` field, and
-    core/repository.py:515 populates it from the sheet -- so the data model
-    already knows a PLN observation is not an EUR observation. But
-    core/repository.py:517 keys `benefit_observations` on
-    `(industry_id, category)` alone, with currency dropped on the floor."""
-    repo = _repo_with_mixed_currency_observations()
-    obs = repo.benefit_observations[("IND-A", "Wellness")]
-    currencies = {o.currency for o in obs}
-    assert currencies == {"EUR", "PLN"}, "fixture sanity check"
-    # The one and only key under which the service can ever look these up:
-    assert list(repo.benefit_observations.keys()) == [("IND-A", "Wellness")]
+def _repo_with_two_real_markets():
+    """The same category priced in two markets, each row carrying its country.
+
+    This is what the library looks like once a second market is imported --
+    the case the product is being sold into, not a hypothetical.
+    """
+    import pandas as pd
+    from core.repository import Repository
+
+    observations = pd.DataFrame(
+        [{"IndustryID": "IND-A", "Category": "Wellness", "Value": v,
+          "Unit": "EUR", "Currency": "EUR", "Country": "NL"}
+         for v in [900, 920, 940, 960, 980, 1000, 1020, 1040, 1060, 1080]]
+        + [{"IndustryID": "IND-A", "Category": "Wellness", "Value": v,
+            "Unit": "PLN", "Currency": "PLN", "Country": "PL"}
+           for v in [3900, 3920, 3940, 3960, 3980, 4000, 4020, 4040, 4060, 4080]]
+    )
+    catalog_df = pd.DataFrame([
+        {"BenefitID": "BEN-01", "Category": "Wellness", "Unit": "EUR", "Basis": "Fixed annual budget"},
+    ])
+    data = {
+        "jobs": pd.DataFrame(columns=["JobID", "StandardTitle", "Function", "Level"]),
+        "titles": pd.DataFrame(columns=["ExistingTitle", "JobID"]),
+        "benefitscatalog": catalog_df,
+        "benefitsobservations": observations,
+    }
+    return Repository(data, validate=False)
 
 
-def test_get_band_silently_blends_two_currencies_into_one_market_band():
-    """services/benefits_service.py:59-71 -- get_band() pools every
-    observation under (industry_id, category) with no currency or country
-    split. Feeding it 10 EUR values and 10 numerically-similar PLN values
-    for the same category produces ONE band spanning all 20, labelled with
-    a single unit taken from whichever observation happened to load first --
-    not "mixed currencies", not a warning, just a number.
+def test_country_is_part_of_the_observation_key_not_just_a_field_on_the_row():
+    """The defect was that currency was captured and then dropped at grouping
+    time. Country is now part of the key, so two markets cannot land in one
+    distribution however similar their numbers look."""
+    repo = _repo_with_two_real_markets()
+    keys = set(repo.benefit_observations.keys())
+    assert keys == {("IND-A", "Wellness", "NL"), ("IND-A", "Wellness", "PL")}, keys
+    assert len(repo.benefit_observations[("IND-A", "Wellness", "NL")]) == 10
+    assert len(repo.benefit_observations[("IND-A", "Wellness", "PL")]) == 10
 
-    Expected (if the service respected the country/currency dimension the
-    data already carries): get_band() should either require a currency/
-    country to disambiguate, or refuse to blend and raise/return None when
-    the pool it would build spans more than one currency. It does neither.
 
-    Human consequence: a Polish client's actual value gets benchmarked
-    against a distribution that is half Dutch euros, silently. Whether the
-    resulting verdict ("Below P25" / "At market" / etc, see
-    generate_advice()) is favourable or unfavourable becomes a function of
-    what other currencies happen to share the same industry+category key --
-    not of the client's actual market position.
+def test_each_market_is_benchmarked_against_its_own_distribution():
+    """A Polish client's wellness budget must be ranked against Polish
+    observations. Before this, it was ranked against a ladder that was half
+    Dutch euro values -- so whether the verdict came out "Below P25" or "At
+    market" depended on what other countries happened to share the key."""
+    from services.benefits_service import BenefitsService
+    repo = _repo_with_two_real_markets()
+
+    nl = BenefitsService(_FakeBenefitsCatalog(repo), country="NL").get_band("Wellness", "IND-A", None)
+    pl = BenefitsService(_FakeBenefitsCatalog(repo), country="PL").get_band("Wellness", "IND-A", None)
+
+    assert nl.n_observations == 10 and pl.n_observations == 10, "a market got the other's rows"
+    assert nl.currency == "EUR" and pl.currency == "PLN"
+    assert nl.country == "NL" and pl.country == "PL"
+    # The medians must be the medians of their OWN market, not of the pool.
+    assert nl.p50 == 990 and pl.p50 == 3990, (nl.p50, pl.p50)
+
+    # And the comparison that a client actually sees follows the same split:
+    # 4000 is mid-market in Poland and far above market in the Netherlands.
+    pl_cmp = BenefitsService(_FakeBenefitsCatalog(repo), country="PL").compare("Wellness", 4000.0, "IND-A", None)
+    nl_cmp = BenefitsService(_FakeBenefitsCatalog(repo), country="NL").compare("Wellness", 4000.0, "IND-A", None)
+    assert pl_cmp.status == "At market", pl_cmp.status
+    assert nl_cmp.status == "Above P90", nl_cmp.status
+
+
+def test_a_market_that_has_no_observations_gets_none_rather_than_another_markets():
+    """The absence has to be representable, or a client sees another country's
+    numbers under their own label. Mirrors app.resolve_country() returning null
+    in 0012 rather than falling through to the Dutch rows."""
+    from services.benefits_service import BenefitsService
+    repo = _repo_with_two_real_markets()
+    band = BenefitsService(_FakeBenefitsCatalog(repo), country="SE").get_band("Wellness", "IND-A", None)
+    assert band is None, "a Swedish client was shown another market's benefit band"
+
+
+def test_two_currencies_inside_one_market_refuse_to_form_a_band():
+    """Country keying should make this impossible, so it means the library
+    itself is inconsistent -- two currencies filed under one market. No band is
+    the honest answer: a percentile across zloty and euro is not a number about
+    anything, and it would look exactly like a real one.
+
+    The original fixture has no Country column at all, so both currencies land
+    under the default market -- which is precisely the inconsistent case.
     """
     from services.benefits_service import BenefitsService
-
     repo = _repo_with_mixed_currency_observations()
-    service = BenefitsService(_FakeBenefitsCatalog(repo))
-
-    band = service.get_band("Wellness", "IND-A", None)
-    assert band.n_observations == 20, (
-        "get_band pooled both currencies into one band with no way to tell "
-        "afterward that half the inputs were a different currency"
-    )
-    # The single `unit` field cannot represent a two-currency blend -- it is
-    # simply whichever observation was loaded first, silently standing in
-    # for the other currency's values too.
-    assert band.unit in ("EUR", "PLN")
-    assert not hasattr(band, "currency"), (
-        "BenefitBand has no currency field at all -- the blend is not even "
-        "representable, let alone flagged"
-    )
+    service = BenefitsService(_FakeBenefitsCatalog(repo), country="NL")
+    assert service.get_band("Wellness", "IND-A", None) is None
+    # And the comparison built on it refuses too, rather than ranking against
+    # a ladder it could not compute.
+    assert service.compare("Wellness", 1000.0, "IND-A", None) is None
 
 
-def test_benefits_service_has_no_country_or_currency_parameter_anywhere_public():
-    """Structural confirmation that the service was never given a country
-    dimension to respect in the first place -- every public method takes
-    (category, industry_id, level) and nothing else."""
+def test_the_service_must_be_told_which_market_it_is_for():
+    """Structural guard. The country is taken on the constructor rather than
+    per call, for the reason ArchitectureReportService takes a currency there:
+    it is a property of the client, fixed for the life of the report, and a
+    per-call argument is one a caller can forget on one path out of five."""
     from services.benefits_service import BenefitsService
-
-    public_methods = [
-        BenefitsService.get_band,
-        BenefitsService.compare,
-        BenefitsService.compare_package,
-    ]
-    for method in public_methods:
-        params = set(inspect.signature(method).parameters)
-        assert not ({"country", "country_id", "currency"} & params), (
-            f"{method.__qualname__} unexpectedly already has a country/"
-            f"currency parameter: {params}"
-        )
+    params = inspect.signature(BenefitsService.__init__).parameters
+    assert "country" in params, "the service cannot be told which market it is for"
+    # Defaulted, so a script that says nothing gets the deployment default
+    # rather than a crash or a silent pool across every market.
+    assert params["country"].default is None

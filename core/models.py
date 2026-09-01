@@ -191,6 +191,13 @@ class BenefitObservation:
     value: float
     unit: str = ""
     currency: str = ""
+    # Where this observation was collected. A benefit value is a market price
+    # like a salary is, so pooling one country's with another's is the same
+    # mistake as pooling their pay -- see services/pay_equity_service.py, where
+    # exactly that produced a 27% gap out of nothing. Defaults to the Dutch
+    # library, which is what every existing row is; 0012 backfills the column
+    # the same way and for the same reason.
+    country: str = "NL"
 
 
 @dataclass(frozen=True)
@@ -212,6 +219,10 @@ class BenefitBand:
     p75: float
     p90: float
     n_observations: int
+    # Which market these percentiles describe, and the money they are in. A
+    # band that cannot say either is a band nobody can check.
+    country: str = ""
+    currency: str = ""
 
     @property
     def median(self) -> float:
