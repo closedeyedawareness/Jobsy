@@ -30,8 +30,10 @@ except ImportError:
 
 try:
     from core.config import COUNTRY, DEFAULT_THRESHOLD, WORKBOOK_PATH
+    from core import countries as countries_registry
 except ImportError:
     COUNTRY, DEFAULT_THRESHOLD, WORKBOOK_PATH = "NL", 85, "jobsy_reference_library.xlsx"
+    countries_registry = None
 
 try:
     from services.architecture_report_service import ArchitectureReportService
@@ -629,7 +631,7 @@ def _hero_dashboard_html(stats: dict) -> str:
         '<div class="jobsy-v3-tagline">Jobs, skills &amp; talent strategy made easy.</div>'
         '<p class="jobsy-v3-copy">Standardise jobs • Map skills • Build workforce intelligence</p>'
         '</div>'
-        f'<div class="jobsy-v3-badge">{COUNTRY} · V1</div>'
+        f'<div class="jobsy-v3-badge">{active_country_code()} · V1</div>'
         '</div>'
         '<div class="jobsy-v3-actions">'
         '<a class="jobsy-v3-action primary" href="#workspace">Match Jobs</a>'
@@ -3081,6 +3083,60 @@ def _sidebar_account():
             (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
 
 
+# ── Country selection ──────────────────────────────────────────────────────
+# Reference data is per-country from migration 0007 onward. Until a second
+# market is loaded this picker has exactly one enabled option, which is the
+# point: the seam is in place and visible, so adding Belgium is a data load
+# rather than a rewrite.
+
+def active_country_code() -> str:
+    """The country the session is looking at. Falls back to the default."""
+    return st.session_state.get("country_code") or COUNTRY
+
+
+def render_country_picker() -> str:
+    """Sidebar country selector. Inactive markets are shown, not hidden.
+
+    A dropdown with one item reads as a bug; a dropdown showing eight markets
+    with seven marked "no data yet" reads as a roadmap. The disabled entries
+    are not selectable, so nothing downstream can be handed a country that has
+    no reference rows behind it.
+    """
+    if countries_registry is None:
+        return COUNTRY
+
+    every = countries_registry.all_countries()
+    codes = [c.code for c in every]
+    by_code = {c.code: c for c in every}
+    current = active_country_code()
+    if by_code.get(current) is None or not by_code[current].active:
+        current = countries_registry.get_default().code
+
+    def _fmt(code: str) -> str:
+        c = by_code[code]
+        return c.label if c.active else f"{c.label} — no data yet"
+
+    chosen = st.selectbox(
+        "Country",
+        codes,
+        index=codes.index(current),
+        format_func=_fmt,
+        key="country_picker",
+        help="Salary bands, pay elements, benefits and CAO crosswalks are held "
+             "per country. Job definitions and skills are shared across all of them.",
+    )
+
+    if not by_code[chosen].active:
+        st.caption(f"{by_code[chosen].name_en} has no reference data loaded yet — "
+                   f"staying on {by_code[current].name_en}.")
+        chosen = current
+
+    st.session_state["country_code"] = chosen
+    c = by_code[chosen]
+    st.caption(f"Currency {c.currency}" + (f" · {c.locale}" if c.locale else ""))
+    return chosen
+
+
 def main():
     # F-2. set_page_config runs before sign-in, so on a shared instance this is
     # the neutral default and on a dedicated deployment it is BRAND_NAME from
@@ -3103,6 +3159,8 @@ def main():
 
     # sidebar
     with st.sidebar:
+        render_country_picker()
+        st.divider()
         st.subheader("Matching")
         threshold    = st.slider("Review below confidence", 50, 100, int(DEFAULT_THRESHOLD))
         enable_fuzzy = st.checkbox("Fuzzy stage (RapidFuzz)", value=True)
