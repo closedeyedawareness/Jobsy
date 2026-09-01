@@ -141,9 +141,13 @@ def test_the_workbook_export_does_not_assume_euro_either():
     # The constructor's DEFAULT is allowed to be euro -- a caller that says
     # nothing gets the deployment default. What must not exist is a euro sign
     # anywhere a cell is written.
+    # __init__ may default to euro (a caller that says nothing gets the
+    # deployment default), and _money() is the placement rule itself: it has to
+    # name the two symbols that lead rather than trail. Everywhere else, a euro
+    # sign means somebody assumed.
     exempt = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "__init__":
+        if isinstance(node, ast.FunctionDef) and node.name in ("__init__", "_money"):
             for inner in ast.walk(node):
                 exempt.add(id(inner))
     bad = [n.lineno for n in ast.walk(tree)

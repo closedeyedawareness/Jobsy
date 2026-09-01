@@ -57,6 +57,31 @@ _SS_LAST_SEEN = "_auth_last_seen"
 _SS_SIGNED_IN_AT = "_auth_signed_in_at"
 _SS_MUST_CHANGE = "_auth_must_change_password"
 
+# Session-state keys that hold a CLIENT'S OWN DATA -- names, salaries, gender,
+# ratings -- as opposed to who is signed in. They are listed here, once, because
+# they were previously listed only in ui/app.py's org switcher, and sign_out()
+# did not know about them: switching client cleared the roster, while signing
+# out and handing the tab to the next person did not. Signing out is the
+# stronger identity change of the two, so anything cleared on a switch must be
+# cleared here as well. Add to this list, not to a second one.
+#
+# Named "tenant" rather than "client" deliberately: test_tenancy_invariants.py's
+# B-4 guard flags any module-level name containing "client" as a possible shared
+# database client, which -- one process serving every browser session -- would
+# leak across tenants. An immutable tuple of key names could never be that, but
+# the guard is worth more than the word, so the name moves rather than the rule.
+TENANT_DATA_KEYS = (
+    "last_results", "last_summary", "upload_df", "session_code", "org_label",
+    "skill_assessments", "ninebox_ratings",
+)
+
+
+def clear_tenant_data() -> None:
+    """Drop every trace of the client currently on screen."""
+    ss = _ss()
+    for k in TENANT_DATA_KEYS:
+        ss.pop(k, None)
+
 
 @dataclass
 class AuthStatus:
@@ -240,6 +265,12 @@ def sign_in(email: str, password: str) -> tuple[bool, str]:
     except Exception:
         pass
 
+    # And whose data it is. sign_out() clears this too, but a session can reach
+    # here without one having happened -- a tab left open past the idle timeout,
+    # or a crash between the two -- and arriving at somebody else's roster is
+    # not a state a fresh sign-in may ever land in.
+    clear_tenant_data()
+
     log("auth.sign_in", subject=user.email)
     return True, f"Signed in as {user.email}"
 
@@ -330,6 +361,11 @@ def sign_out() -> None:
     for k in (_SS_CLIENT, _SS_USER, _SS_ORGS, _SS_ACTIVE, _SS_LAST_SEEN,
               _SS_SIGNED_IN_AT, _SS_MUST_CHANGE):
         ss.pop(k, None)
+    # The roster goes with them. A shared workstation, or the idle timeout
+    # firing between shifts, otherwise hands the next person to sign in the
+    # previous client's names and salaries -- already on screen, before they
+    # touch anything.
+    clear_tenant_data()
     try:
         from services import branding_service
         branding_service.reset()

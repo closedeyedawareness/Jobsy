@@ -147,13 +147,28 @@ def money(value, country: Optional[str] = None, decimals: int = 0) -> str:
         n = float(value)
     except (TypeError, ValueError):
         return "—"
+    # A bool is not an amount. float(True) is 1.0, so True would render as a
+    # one-unit salary and False as a zero one -- and zero pay and unknown pay
+    # are different facts about a person, which is the distinction this whole
+    # function exists to keep.
+    if isinstance(value, bool):
+        return "—"
     # NaN survives float() and would render as "€nan". It arrives from an empty
     # spreadsheet cell via pandas, which is exactly the case this guard is for:
-    # a missing salary is missing, not zero and not a word.
-    if n != n:
+    # a missing salary is missing, not zero and not a word. Infinity survives it
+    # too, is not NaN, and would render as "€inf" -- same family, same answer.
+    if n != n or n in (float("inf"), float("-inf")):
         return "—"
     sym = symbol_for(country)
-    formatted = f"{n:,.{decimals}f}".replace(",", ".")
+    # Python formats as "1,234.56"; the Dutch convention this module follows is
+    # "1.234,56". Both separators have to swap, and they have to swap at once --
+    # replacing "," with "." first and then "." with "," turns every separator
+    # into a comma. The previous version only did the first half, so any call
+    # with decimals > 0 produced "1.234.56", where the decimal point is
+    # indistinguishable from a thousands separator. decimals=0 is the only value
+    # used on screen today, which is why it survived: the bug is invisible until
+    # somebody shows cents.
+    formatted = f"{n:,.{decimals}f}".replace(",", "\x00").replace(".", ",").replace("\x00", ".")
     # A symbol that is a word (zł, kr, Kč) reads better after the number, the
     # way those currencies are actually written; € and £ lead.
     return f"{sym}{formatted}" if sym in ("€", "£") else f"{formatted} {sym}"

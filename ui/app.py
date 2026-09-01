@@ -1938,6 +1938,32 @@ def data_quality_page(catalog):
         st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+
+def _cao_applies() -> bool:
+    """Whether the Dutch CAO crosswalk means anything for this client.
+
+    cao_crosswalk_service encodes ISF and CATS -- two specific Dutch collective
+    agreements -- as code, not data. Nothing in it takes a country, and both
+    render blocks used to run on whatever grades were loaded. A Polish or
+    Swedish client was therefore shown their grades positioned against Dutch
+    salary groups, labelled with Dutch "Maandschaal 2026" euro figures, with
+    nothing on screen saying the structure is Dutch-only. That is the same
+    mistake as the pay-gap country pooling, with a worse consequence: it implies
+    a legal classification, and so misstates what a non-Dutch worker is owed.
+
+    Germany's ERA and France's conventions collectives are different
+    institutions, not different numbers, so the honest behaviour until one is
+    built is to show nothing rather than something Dutch.
+    """
+    try:
+        from services import country_service
+        return country_service.active_country() == "NL"
+    except Exception:
+        # No session to ask (a script, a test): the library is Dutch, so this is
+        # the same default the rest of the product takes.
+        return True
+
+
 def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, country_col=None, salary_already_fte=False):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
@@ -2130,7 +2156,10 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     # richer case). No skill/description context here either, by design --
     # this mode doesn't collect that data.
     _lvl_num = pd.to_numeric(df[level_col], errors="coerce")
-    if _lvl_num.notna().mean() > 0.9:
+    if not _cao_applies():
+        st.caption("CAO crosswalk not shown: ISF and CATS are Dutch collective "
+                   "agreements and do not apply to this client's market.")
+    elif _lvl_num.notna().mean() > 0.9:
         try:
             from services.cao_crosswalk_service import (
                 crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
@@ -2601,7 +2630,10 @@ def pay_equity_page(catalog, service):
             pass
 
     # ── CAO crosswalk (ISF / CATS®, indicative, public bands only) ─────────
-    if len(priced) and priced["Grade"].notna().any():
+    if not _cao_applies():
+        st.caption("CAO crosswalk not shown: ISF and CATS are Dutch collective "
+                   "agreements and do not apply to this client's market.")
+    elif len(priced) and priced["Grade"].notna().any():
         try:
             from services.cao_crosswalk_service import (
                 crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
@@ -3229,9 +3261,10 @@ def _sidebar_account():
                                   format_func=lambda i: labels[i], key="_org_switcher")
             if chosen != current and auth_service.set_active_org(chosen):
                 # Another client's data must not stay on screen after a switch.
-                for k in ("last_results", "last_summary", "upload_df", "session_code",
-                          "skill_assessments", "ninebox_ratings"):
-                    st.session_state.pop(k, None)
+                # The list lives in auth_service so this and sign_out() cannot
+                # drift apart again -- they already had, and signing out was the
+                # one that cleared less.
+                auth_service.clear_tenant_data()
                 (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
         elif active:
             st.caption(f'{active["name"]} · {active["role"].replace("_", " ")}')
