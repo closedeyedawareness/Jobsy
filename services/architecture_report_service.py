@@ -82,7 +82,12 @@ class ArchitectureReportService:
     }
 
     def __init__(self, catalog, results: list, df_employees: Optional[pd.DataFrame] = None,
-                 org_label: str = ""):
+                 org_label: str = "", currency: str = "\u20ac"):
+        # The symbol is passed in rather than read from a session, because a
+        # service that builds a workbook must work from a script and a cron job
+        # as well as from a browser. The caller knows the client's market; this
+        # only has to not assume euro. See services/country_service.py.
+        self.currency     = currency or "\u20ac"
         self.catalog      = catalog
         self.results      = [r for r in results if r.matched]
         self.df_employees = df_employees
@@ -210,7 +215,7 @@ class ArchitectureReportService:
         ws = self._wb.create_sheet("2. Job Architecture")
         ws.sheet_view.showGridLines = False
         col_ws = [3,14,22,14,10,12,12,12,12,12,12]
-        headers = ["","Function","Standard Role","Grade","Band","Min €","P25 €","P50 €","P75 €","Max €","Hay Range"]
+        headers = ["","Function","Standard Role","Grade","Band",f"Min {self.currency}", f"P25 {self.currency}", f"P50 {self.currency}", f"P75 {self.currency}", f"Max {self.currency}","Hay Range"]
         for ci,(w,h) in enumerate(zip(col_ws,headers),1):
             ws.column_dimensions[get_column_letter(ci)].width = w
             _hdr(ws,1,ci,h, bg=TEAL)
@@ -253,7 +258,7 @@ class ArchitectureReportService:
             _cell(ws, ri, 5, band,                  bg=bg, fg=band_col)
             for ci_s, attr in enumerate(["min_salary","p25","p50","p75","max_salary"], 6):
                 val = int(getattr(sal, attr, 0) or 0) if sal else 0
-                _cell(ws, ri, ci_s, f"€{val:,}".replace(",",".") if val else "—", bg=bg, fg=TEAL if val else MUTED)
+                _cell(ws, ri, ci_s, f"{self.currency}{val:,}".replace(",",".") if val else "—", bg=bg, fg=TEAL if val else MUTED)
             _cell(ws, ri, 11, hay_str, bg=bg, fg=MUTED)
             ws.row_dimensions[ri].height = 20
             ri += 1
@@ -322,9 +327,9 @@ class ArchitectureReportService:
                 (r.level, INK, False),
                 (f"G{grade}" if grade else "—", band_col, True),
                 (band, band_col, False),
-                (f"€{int(sal.min_salary):,}".replace(",",".") if sal else "—", MUTED, False),
-                (f"€{int(p50):,}".replace(",",".") if p50 else "—", TEAL, False),
-                (f"€{int(salary):,}".replace(",",".") if salary else "—", INK, False),
+                (f"{self.currency}{int(sal.min_salary):,}".replace(",",".") if sal else "—", MUTED, False),
+                (f"{self.currency}{int(p50):,}".replace(",",".") if p50 else "—", TEAL, False),
+                (f"{self.currency}{int(salary):,}".replace(",",".") if salary else "—", INK, False),
                 (pay_pos, pay_col, False),
                 (f"{r.confidence}%", TEAL if r.confidence>=96 else AMBER, False),
             ]
@@ -338,7 +343,7 @@ class ArchitectureReportService:
     def _build_grade_distribution(self):
         ws = self._wb.create_sheet("4. Grade Distribution")
         ws.sheet_view.showGridLines = False
-        headers = ["Grade","Band","Employees","% of Total","Band Min €","P50 €","Band Max €","Avg Salary","Pay Position vs P50"]
+        headers = ["Grade","Band","Employees","% of Total",f"Band Min {self.currency}", f"P50 {self.currency}", f"Band Max {self.currency}","Avg Salary","Pay Position vs P50"]
         widths  = [10,20,12,12,12,12,12,12,22]
         for ci,(h,w) in enumerate(zip(headers,widths),1):
             ws.column_dimensions[get_column_letter(ci)].width = w
@@ -366,9 +371,9 @@ class ArchitectureReportService:
             _cell(ws,ri,2,band,fg=band_col,bg=bg)
             _cell(ws,ri,3,count,fg=INK,bg=bg)
             _cell(ws,ri,4,f"{pct}%",fg=MUTED,bg=bg)
-            _cell(ws,ri,5,f"€{int(sal.min_salary):,}".replace(",",".") if sal else "—",fg=MUTED,bg=bg)
-            _cell(ws,ri,6,f"€{int(sal.p50):,}".replace(",",".") if sal else "—",fg=TEAL,bg=bg)
-            _cell(ws,ri,7,f"€{int(sal.max_salary):,}".replace(",",".") if sal else "—",fg=MUTED,bg=bg)
+            _cell(ws,ri,5,f"{self.currency}{int(sal.min_salary):,}".replace(",",".") if sal else "—",fg=MUTED,bg=bg)
+            _cell(ws,ri,6,f"{self.currency}{int(sal.p50):,}".replace(",",".") if sal else "—",fg=TEAL,bg=bg)
+            _cell(ws,ri,7,f"{self.currency}{int(sal.max_salary):,}".replace(",",".") if sal else "—",fg=MUTED,bg=bg)
             _cell(ws,ri,8,"—",fg=MUTED,bg=bg)
             _cell(ws,ri,9,"—",fg=MUTED,bg=bg)
             ws.row_dimensions[ri].height = 22
@@ -559,7 +564,7 @@ class ArchitectureReportService:
             except (TypeError, ValueError): pass
 
         def _e(v):
-            try: return "€{:,.0f}".format(float(v)).replace(",", ".")
+            try: return f"{self.currency}" + "{:,.0f}".format(float(v)).replace(",", ".")
             except Exception: return "—"
         def _t(v, n=180):
             s = "" if v is None else str(v)
@@ -633,7 +638,7 @@ class ArchitectureReportService:
         xmap = {(r["Function"], r["Level"]): r for _, r in mix.iterrows()}
 
         def _e(v):
-            try: return "€{:,.0f}".format(float(v)).replace(",", ".")
+            try: return f"{self.currency}" + "{:,.0f}".format(float(v)).replace(",", ".")
             except Exception: return "—"
 
         ri = 2
@@ -667,7 +672,7 @@ class ArchitectureReportService:
                 ri += 1
         _cell(ws, ri + 1, 1,
               "Total target cash = base + 8% holiday + 13th month + on-target variable. "
-              "Total reward adds indicative employer pension (~12%) and benefits (~€2k). See PayElements.",
+              "Total reward adds indicative employer pension (~12%) and benefits (~2k). See PayElements.",
               fg=MUTED, italic=True)
         _border_range(ws, 1, ri - 1, 1, len(headers))
 
@@ -764,8 +769,8 @@ class ArchitectureReportService:
             _cell(ws, rr, 1, r["name"], bg=bg)
             _cell(ws, rr, 2, r["role"], bg=bg)
             _cell(ws, rr, 3, str(r["level"]), fg=MUTED, bg=bg)
-            _cell(ws, rr, 4, f"€{r['actual']:,}".replace(",", "."), bg=bg)
-            _cell(ws, rr, 5, f"€{r['p50']:,}".replace(",", "."), fg=MUTED, bg=bg)
+            _cell(ws, rr, 4, f"{self.currency}{r['actual']:,}".replace(",", "."), bg=bg)
+            _cell(ws, rr, 5, f"{self.currency}{r['p50']:,}".replace(",", "."), fg=MUTED, bg=bg)
             _cell(ws, rr, 6, r["compa"], bg=bg)
             _cell(ws, rr, 7, r["status"], fg=SC.get(r["status"], MUTED), bold=True, bg=bg)
         _border_range(ws, hdr_row, hdr_row + len(rows), 1, 7)
@@ -795,7 +800,7 @@ class ArchitectureReportService:
         def _fmt(v, unit):
             if v is None:
                 return "—"
-            return f"€{v:,.0f}".replace(",", ".") if unit == "EUR" else f"{v:g} {unit}".strip()
+            return f"{self.currency}{v:,.0f}".replace(",", ".") if unit == "EUR" else f"{v:g} {unit}".strip()
 
         ri = 2
         for category in svc.categories():

@@ -3,7 +3,7 @@
 **Roadmap item:** 3.1 *"Multi-country / i18n. Un-hardcode `COUNTRY="NL"`/EUR; per-country bands,
 currency, locale."*
 **Goal:** Make adding a market **importing rows**, not writing a migration.
-Status: **Foundation done (`0012`, 227 SQL assertions + 9 CI guards green) — no second market seeded**
+Status: **Foundation done and wired to the screen (`0012`, 229 SQL assertions, 21 CI guards, 27 browser checks green) — no second market seeded**
 · Owner: Eng
 
 The trigger is the white-label deal: Jobsy is being sold to a multinational, and a multinational's
@@ -101,7 +101,7 @@ without appearing half-finished in the interface.
 
 ---
 
-## 3. Verified — 227 SQL assertions, 0 failed
+## 3. Verified — 229 SQL assertions, 0 failed
 
 | Attempt | Result |
 |---|---|
@@ -116,9 +116,11 @@ without appearing half-finished in the interface.
 | A signed-in user opening a market, or inventing one | blocked |
 | `anon` enumerating which markets this product covers | permission denied |
 
-Plus 9 CI guards in `tests/test_country_pooling.py`, needing no database.
+Plus 9 CI guards in `tests/test_country_pooling.py` and 12 in
+`tests/test_currency_display.py`, needing no database, and 27 browser checks in
+`tests/e2e/journey.py` against real Postgres, real PostgREST and real RLS.
 
-### Three defects the tests found
+### Defects the tests found
 
 - **`drop constraint if exists` with an invented name is silent.** The first version of `0012` guessed
   `salary_bands_uniq`; the real name is `salary_bands_org_fn_level_key`. The drop did nothing, quietly,
@@ -129,6 +131,11 @@ Plus 9 CI guards in `tests/test_country_pooling.py`, needing no database.
   onto `salary_bands (org_id, function, level)`, so the unique underneath could not be widened while
   the FK pointed at it. `0004` made the two agree *"by constraint rather than by coincidence"*, and
   that agreement had to survive the extra dimension.
+- **Two assertions had never run, and the suite called them passes.** Both put a
+  data-modifying statement inside a subquery, which Postgres refuses; `psql` raised,
+  and `run.sh` counted neither a pass nor a fail — so the total quietly dropped by
+  two while the output read "227 passed, 0 failed". The runner now fails on any
+  statement that raises instead of asserting, which is how the count went to 229.
 - **`None` became a country called `"NONE"`.** `.astype(str)` turns nulls into `"NONE"`, `"NAN"`,
   `"NAT"`, `"<NA>"` — each becoming a market in its own right, splitting cohorts. Blocklisting those
   spellings always misses one; nulls are now dropped *before* stringifying.
@@ -147,6 +154,26 @@ Plus 9 CI guards in `tests/test_country_pooling.py`, needing no database.
 No migration. No code change.
 
 ---
+
+## 4b. What the browser found that nothing else could
+
+The schema half landed green on every test that existed. Driving the actual UI
+found two defects in the half that reads it:
+
+- **The whole signed-in page died with `TypeError: 'str' object is not callable`.**
+  `main()` already had a local called `_cur` — the currently selected *industry*.
+  Adding a module-level `_cur()` for the currency collided with it, and Python
+  makes a name local to the **entire** function if it is assigned anywhere in it,
+  so every `_cur()` call in `main()` raised. Nothing caught it: not import, not
+  lint, not 246 unit tests, because `main()` cannot be called from a test. There
+  is now a structural guard for the whole class of it.
+- **A Dutch client was told it had no Dutch salary data**, on a screen listing 45
+  bands. The check asked for a row *count*, which PostgREST returns in a response
+  header; anything that drops that header makes the count `None`, and
+  `(None or 0) > 0` reads as "no data". It now asks whether the row is there,
+  which the row itself answers. The e2e shim was dropping that header — a stub
+  that quietly alters REST responses is the kind of fake that makes a test worse
+  than no test — so it forwards it now.
 
 ## 5. Not done
 

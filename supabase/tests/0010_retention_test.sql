@@ -73,10 +73,23 @@ alter table jobsy_sessions disable trigger jobsy_sessions_set_updated_at;
 update jobsy_sessions set updated_at = now() - interval '400 days' where session_code = 'RET-OLD';
 alter table jobsy_sessions enable trigger jobsy_sessions_set_updated_at;
 
+-- The fixture above had to DISABLE the updated_at trigger to backdate a row.
+-- This is the assertion that that was necessary: an ordinary UPDATE, even one
+-- naming updated_at explicitly, gets stamped with now() by the trigger, so a
+-- client cannot quietly keep a session out of the retention sweep.
+--
+-- It has to be a TOP-LEVEL statement. Postgres refuses a data-modifying
+-- statement inside a subquery, and the first version of this line was one:
+-- psql raised, run.sh counted neither a pass nor a fail, and the assertion
+-- never ran at all while the suite reported green. run.sh now counts a psql
+-- error as a failure for exactly this reason.
+update jobsy_sessions set updated_at = now() - interval '400 days'
+  where session_code = 'RET-FRESH'
+  returning (updated_at < now() - interval '300 days') as backdated \gset
+-- Quoted interpolation: \gset stores the boolean as psql's raw output, 'f',
+-- and :backdated unquoted would paste a bare identifier called f.
 select t_eq('a normal UPDATE cannot move a session''s clock backwards',
-            (select updated_at < now() - interval '300 days' from
-               (update jobsy_sessions set org_label = org_label
-                 where session_code = 'RET-FRESH' returning updated_at) u), false);
+            :'backdated'::boolean, false);
 
 select t_eq('the stale session is listed as expired',
             (select count(*)::int from app.expired_sessions() where session_code = 'RET-OLD'), 1);

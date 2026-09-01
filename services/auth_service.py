@@ -235,6 +235,8 @@ def sign_in(email: str, password: str) -> tuple[bool, str]:
     try:
         from services import branding_service
         branding_service.reset()
+        from services import country_service
+        country_service.reset()
     except Exception:
         pass
 
@@ -331,6 +333,8 @@ def sign_out() -> None:
     try:
         from services import branding_service
         branding_service.reset()
+        from services import country_service
+        country_service.reset()
     except Exception:
         pass
 
@@ -377,7 +381,7 @@ def accessible_orgs(refresh: bool = False) -> list[dict]:
         # client" has to be answered from THIS user's row, so it is asked for
         # rather than inferred from whatever RLS happens to permit.
         resp = (client.table("memberships")
-                .select("role, org_id, partner_id, orgs(id, name, slug, pseudonymise_names, retention_days), partners(id, name)")
+                .select("role, org_id, partner_id, orgs(id, name, slug, pseudonymise_names, retention_days, default_country), partners(id, name)")
                 .eq("user_id", (current_user() or {}).get("id"))
                 .execute())
     except Exception:
@@ -393,13 +397,14 @@ def accessible_orgs(refresh: bool = False) -> list[dict]:
                 orgs.append({"id": o["id"], "name": o["name"], "slug": o["slug"],
                              "role": row["role"], "partner_name": None,
                              "pseudonymise_names": o.get("pseudonymise_names", False),
-                             "retention_days": o.get("retention_days")})
+                             "retention_days": o.get("retention_days"),
+                             "default_country": o.get("default_country")})
         elif row.get("partner_id"):
             # Partner-scoped membership: one row, many clients. The orgs it
             # reaches are whatever RLS lets us read for that partner.
             try:
                 sub = (client.table("orgs")
-                       .select("id, name, slug, pseudonymise_names, retention_days")
+                       .select("id, name, slug, pseudonymise_names, retention_days, default_country")
                        .eq("partner_id", row["partner_id"])
                        .execute())
             except Exception:
@@ -411,7 +416,8 @@ def accessible_orgs(refresh: bool = False) -> list[dict]:
                     orgs.append({"id": o["id"], "name": o["name"], "slug": o["slug"],
                                  "role": row["role"], "partner_name": pname,
                                  "pseudonymise_names": o.get("pseudonymise_names", False),
-                                 "retention_days": o.get("retention_days")})
+                                 "retention_days": o.get("retention_days"),
+                                 "default_country": o.get("default_country")})
 
     orgs.sort(key=lambda o: (o["name"] or "").lower())
     ss[_SS_ORGS] = orgs
@@ -437,6 +443,8 @@ def set_active_org(org_id: str) -> bool:
         try:
             from services import branding_service
             branding_service.reset()
+            from services import country_service
+            country_service.reset()
         except Exception:
             pass
         return True

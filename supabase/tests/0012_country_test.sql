@@ -146,9 +146,11 @@ select t_eq('a signed-in user sees the countries',
 -- An UPDATE that matches no rows raises nothing, so t_reject would call that a
 -- pass. Rows affected is what distinguishes denied from "wrote nothing" -- the
 -- same trap 0008's isolation test was built wrong around the first time.
-select t_eq('but cannot open a market themselves',
-            (with u as (update countries set is_live = true where code = 'DE' returning 1)
-             select count(*)::int from u), 0);
+-- ...and this must be top level too: a data-modifying WITH is only legal as
+-- the outermost statement, so nesting it in t_eq() raised instead of asserting.
+with u as (update countries set is_live = true where code = 'DE' returning 1)
+select count(*)::int as opened from u \gset
+select t_eq('but cannot open a market themselves', :opened, 0);
 select t_reject('nor invent one',
   $$insert into countries (code, name, currency) values ('QQ','Freedonia','EUR')$$);
 reset role;
