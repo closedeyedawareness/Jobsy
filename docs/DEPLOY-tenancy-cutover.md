@@ -67,9 +67,16 @@ step: `orgs.is_library_source = true` on `default`, a partner row with
 
 **Verify before continuing:**
 
+From a shell with psql:
+
 ```sql
 \i supabase/verify_cutover.sql
 ```
+
+**From the Supabase SQL editor**, use `supabase/verify_cutover_editor.sql`
+instead — the same eleven checks as one paste-able query. The editor speaks SQL,
+not psql, so it does not understand the `\pset` and `\t` meta-commands the
+first file opens with.
 
 Every line must say `ok`. If any says `CHECK`, stop — do not do step 3.
 
