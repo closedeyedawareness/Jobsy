@@ -1875,7 +1875,7 @@ def data_quality_page(catalog):
         st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, salary_already_fte=False):
+def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, country_col=None, salary_already_fte=False):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
     (Function + Level + Gender + Salary), with no job-title matching or bands.
@@ -1890,7 +1890,8 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
             analyze_gender_pay_gap, DIRECTIVE_THRESHOLD_PCT, flip_gap_sign, flip_gap_ci)
 
     det = [("Function", function_col), ("Level", level_col), ("Gender", gender_col),
-           ("Salary", salary_col), ("FTE", fte_col), ("Tenure", tenure_col)]
+           ("Salary", salary_col), ("FTE", fte_col), ("Tenure", tenure_col),
+           ("Country", country_col)]
     st.caption("Leveled-grid mode · " + " · ".join(f"{lab}: **{c}**" for lab, c in det if c))
     if not salary_col:
         st.error("No salary column found — include an annual salary column."); return
@@ -1899,7 +1900,24 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
 
     r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
                                gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
-                               tenure_col=tenure_col, age_col=age_col, salary_already_fte=salary_already_fte)
+                               tenure_col=tenure_col, age_col=age_col, country_col=country_col,
+                               salary_already_fte=salary_already_fte)
+
+    # A workforce in two markets is the case this product is being sold into,
+    # and pooling them can manufacture a gap large enough to trigger the
+    # directive's 5% joint-assessment threshold. Say so above the numbers, not
+    # in a footnote underneath them.
+    if len(r.countries) > 1:
+        st.warning(
+            f"**This workforce spans {len(r.countries)} countries "
+            f"({', '.join(r.countries)}).** Pay is set per market, so the headline "
+            f"mean and median below pool different pay levels — they are not a "
+            f"pay-fairness finding and are not what the directive asks for, which "
+            f"is a per-country figure. The adjusted gap controls for country. "
+            f"Filter to one country for anything you intend to file.")
+    elif not country_col:
+        st.caption("No country column detected — analysed as a single pay market. "
+                   "Add a **Country** column if this workforce spans more than one.")
     if not r.has_gap:
         st.info(f"Need both men and women with pay to compute a gap (M n={r.n_m}, F n={r.n_f})."); return
 
@@ -2320,6 +2338,12 @@ def pay_equity_page(catalog, service):
             _lg_fte = _smart_detect(cols, {"fte", "parttime", "part-time", "part time", "werkuren", "deeltijd",
                                            "contract hours", "hours", "parttimefactor", "deeltijdfactor"},
                                     ["fte", "parttime", "deeltijd"])
+            # A multinational's roster carries one of these. Without it the
+            # analysis pools pay markets and can report a gap made entirely of
+            # country mix -- see tests/test_country_pooling.py.
+            _lg_country = _smart_detect(cols, {"country", "land", "werkland", "pays", "country code",
+                                               "location country", "iso country"},
+                                        ["country", "werkland"])
             _lg_tenure = _smart_detect(cols, {"tenure", "yearsofservice", "years of service", "dienstjaren",
                                               "startdate", "start date", "hiredate", "hire date", "indiensttreding",
                                               "datum in dienst"},
@@ -2342,7 +2366,8 @@ def pay_equity_page(catalog, service):
             _already_fte = _sal_reading.startswith("Already")
             _render_leveled_gap(df, function_col=_fun_col, level_col=_lvl_col, gender_col=_lg_gender,
                                 salary_col=_lg_sal, fte_col=(None if _already_fte else _lg_fte),
-                                tenure_col=_lg_tenure, age_col=_lg_age, salary_already_fte=_already_fte)
+                                tenure_col=_lg_tenure, age_col=_lg_age, country_col=_lg_country,
+                                salary_already_fte=_already_fte)
             return
     title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",
                                      "functie", "functietitel", "role"}, ["title", "functie", "role"]) or cols[0]
