@@ -1438,10 +1438,30 @@ def architecture_report_page(catalog):
                     st.code(traceback.format_exc())
 
 
-@st.cache_data(show_spinner=False)
-def _family_frames(path):
-    import pandas as _pd
-    return _pd.read_excel(path, sheet_name=["Jobs", "SalaryBands", "JobGrades", "JobProfiles", "PayMix"], dtype=str)
+def _family_frames(catalog):
+    """The Job Family sheets, from the library the app has actually loaded.
+
+    This read the workbook directly until 2026-09-03 — so after the cutover the
+    Job Family page was drawing its levelling grid and its pay bands from a file
+    nothing else in the app reads. Same drift as the Data Quality scorecard, and
+    worse here, because these are salary numbers.
+
+    PayMix has no SHEET_MAP entry so the catalog never loads it; it still comes
+    through _paymix_frame, which follows the same source.
+    """
+    frames = getattr(catalog, "frames", None) or {}
+    wanted = (("Jobs", "jobs"), ("SalaryBands", "salary"),
+              ("JobGrades", "jobgrades"), ("JobProfiles", "profiles"))
+    out = {}
+    for sheet, key in wanted:
+        df = frames.get(key)
+        if df is None:
+            raise KeyError(f"The loaded library has no {sheet}.")
+        out[sheet] = df
+    pay = _paymix_frame(WORKBOOK_PATH, getattr(catalog, "active_source", None) or "excel")
+    if pay is not None:
+        out["PayMix"] = pay
+    return out
 
 
 def job_family_page(catalog):
@@ -1458,9 +1478,9 @@ def job_family_page(catalog):
         unsafe_allow_html=True,
     )
     try:
-        fr = _family_frames(WORKBOOK_PATH)
+        fr = _family_frames(catalog)
     except Exception as exc:
-        st.warning(f"Job Family needs the reference workbook. ({exc})")
+        st.warning(f"Job Family needs Jobs, SalaryBands, JobGrades and JobProfiles in the loaded library. ({exc})")
         return
 
     jobs = fr["Jobs"].copy(); bands = fr["SalaryBands"].copy()
@@ -1642,12 +1662,6 @@ def _paymix_frame(path, source="excel"):
         return None
 
 
-@st.cache_data(show_spinner=False)
-def _dq_frames(path):
-    import pandas as _pd
-    return _pd.read_excel(path, sheet_name=["Jobs", "TitleMapping"], dtype=str)
-
-
 # How old a sheet may get before the scorecard stops calling it current. Salary
 # and benchmark data is the reason there is a threshold at all: a band nobody
 # has revisited in a year is not wrong in any way validation can see, and is
@@ -1656,21 +1670,25 @@ FRESH_DAYS = 90
 STALE_DAYS = 365
 
 
-@st.cache_data(show_spinner=False)
-def _dq_freshness(path):
-    """Per-sheet UpdatedAt / Source coverage, straight from the workbook.
+def _dq_freshness(catalog):
+    """Per-sheet UpdatedAt / Source coverage of the library the app has loaded.
 
     Every sheet but Employees and DataDictionary carries UpdatedAt and Source
-    columns, populated for essentially every row — a provenance trail already
-    being kept by hand and, until now, read by nothing. Reading the whole
-    workbook is what it costs to see all of it; st.cache_data means once.
+    columns, populated for essentially every row — a provenance trail kept by
+    hand and, until the scorecard existed, read by nothing.
+
+    Until 2026-09-03 this read jobsy_reference_library.xlsx directly. That
+    stopped being true at the cutover: Postgres became the master and the
+    scorecard went on describing a file nothing else in the app reads, which is
+    the exact failure — a freshness panel that is itself out of date — this
+    panel exists to catch. It now measures catalog.frames, the frames the
+    Repository was actually built from, from whichever source they came.
     """
     import pandas as _pd
+    from core.catalog import SHEET_MAP
     out = []
-    try:
-        book = _pd.read_excel(path, sheet_name=None)
-    except Exception:
-        return out
+    frames = getattr(catalog, "frames", None) or {}
+    book = {sheet: frames[key] for sheet, key in SHEET_MAP.items() if key in frames}
     for sheet, df in book.items():
         if df is None or len(df) == 0:
             out.append({"sheet": sheet, "rows": 0, "updated_pct": None,
@@ -1724,11 +1742,9 @@ def data_quality_page(catalog):
                    f"sheets the app loads — not the database's audit history.")
 
     jobs = list(repo.jobs.values()); n = max(len(jobs), 1)
-    try:
-        fr = _dq_frames(WORKBOOK_PATH)
-        jraw = fr["Jobs"]; tm = fr["TitleMapping"]
-    except Exception:
-        jraw = None; tm = None
+    # From the loaded library, not the workbook: same reason as _dq_freshness.
+    jraw = catalog.frames.get("jobs")
+    tm = catalog.frames.get("titles")
 
     iso = own = {}
     if jraw is not None:
@@ -1845,7 +1861,7 @@ def data_quality_page(catalog):
     # still true. UpdatedAt is the only thing in the library that can, so it is
     # worth reading even when — as now — the answer is mostly reassuring.
     import datetime as _dt
-    fresh = _dq_freshness(WORKBOOK_PATH)
+    fresh = _dq_freshness(catalog)
     dated = [r for r in fresh if r["newest"] is not None]
     st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
                 f'text-transform:uppercase;color:{C["muted"]};margin:18px 0 8px">Freshness</div>',
@@ -1881,6 +1897,10 @@ def data_quality_page(catalog):
         if no_date:
             st.caption("No UpdatedAt column: " + ", ".join(no_date) +
                        " — these carry no provenance date, so their age cannot be judged.")
+
+        st.caption(f"Measured on the {len(fresh)} sheets the app loads, as read from "
+                   f"**{getattr(catalog, 'active_source', None) or 'the library'}** — not on the "
+                   f"workbook in the repo, which stopped being the master at the cutover.")
 
         with st.expander("Freshness and provenance by sheet"):
             import pandas as _pd
@@ -2770,7 +2790,8 @@ def pay_equity_page(catalog, service):
     # ── workforce cost & remediation scenario (#4) ──────────────────────
     if len(priced):
         try:
-            _pm = _family_frames(WORKBOOK_PATH).get("PayMix")
+            _pm = _paymix_frame(WORKBOOK_PATH,
+                                getattr(catalog, "active_source", None) or "excel")
         except Exception:
             _pm = None
         vmap = {}
