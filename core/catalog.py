@@ -52,6 +52,7 @@ class Catalog:
                  source: str | None = None) -> None:
         self.path = Path(path)
         self.repository = None
+        self.frames: dict = {}
         self._loaded = False
         # "excel" | "db". None takes config.LIBRARY_SOURCE, so the cutover is a
         # one-line config change and every existing Catalog(path) call site
@@ -162,6 +163,11 @@ class Catalog:
                     f"(source: {self.active_source}). "
                     "Check that Jobs, TitleMapping, and SalaryBands are present."
                 )
+
+        # Keep the frames as they were read. The Repository is a typed view and
+        # cannot be turned back into the library; the export path needs what
+        # actually arrived, from whichever source it arrived from.
+        self.frames = dict(data)
 
         # build the repository (lazy import to keep circular imports clean)
         from core.repository import Repository

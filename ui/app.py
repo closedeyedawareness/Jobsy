@@ -1700,6 +1700,29 @@ def data_quality_page(catalog):
         f'Run it after every edit to catch gaps before they reach users.</p>',
         unsafe_allow_html=True,
     )
+    # Export the library as a workbook snapshot. Since the cutover the workbook
+    # in the repo is not the master and cannot be trusted as a copy of it; this
+    # button produces one from whatever the app is actually reading.
+    _src_label = getattr(catalog, "active_source", None) or "the library"
+    _c_exp, _c_note = st.columns([1, 3])
+    with _c_exp:
+        try:
+            from services.library_export_service import LibraryExportService
+            _exporter = LibraryExportService(catalog)
+            st.download_button(
+                "Export library to Excel",
+                data=_exporter.to_bytes(),
+                file_name=_exporter.suggested_filename(),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="A snapshot of the library the app is reading right now.",
+            )
+        except Exception as _exc:
+            st.caption(f"Export unavailable: {_exc}")
+    with _c_note:
+        st.caption(f"Snapshot of the library as loaded from **{_src_label}**, with an ExportInfo "
+                   f"sheet recording the source, the time and the row counts. It restores the "
+                   f"sheets the app loads — not the database's audit history.")
+
     jobs = list(repo.jobs.values()); n = max(len(jobs), 1)
     try:
         fr = _dq_frames(WORKBOOK_PATH)
