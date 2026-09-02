@@ -3,7 +3,7 @@
 **Roadmap item:** Phase 0.1 + 0.2 (governed DB as master, record-level provenance).
 **Goal:** Make the reference library a governed, versioned, auditable database — the real
 single source of truth — **without rewriting the app.**
-Status: **W1 done — schema applied and verified** · Effort: ~3–4 weeks · Owner: Eng
+Status: **COMPLETE — W1–W6 done, Postgres is the master** (cutover `2095098`, 2026-07-28; the Excel export closing W6 landed 2026-09-03) · Owner: Eng
 
 **Supabase project `Jobsy` — ref `qpprcmmdeqlbursogosu`** (eu-central-1, org `nubdeiwupcofidifrbfn`,
 alongside `Solstice-Player` and `Research Agent`). $10/month. Created 2026-07-27.
