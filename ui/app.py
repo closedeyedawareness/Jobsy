@@ -38,12 +38,21 @@ try:
 except ImportError:
     ArchitectureReportService = None
 
+# One try per connector: importing them together meant a missing module took
+# down the connector that was fine, and the page reported both as absent.
 try:
-    from services.afas_connector    import AfasConnector
-    from services.workday_connector import WorkdayConnector
-    _CONNECTORS_AVAILABLE = True
+    from services.afas_connector import AfasConnector
+    _AFAS_AVAILABLE = True
 except ImportError:
-    _CONNECTORS_AVAILABLE = False
+    _AFAS_AVAILABLE = False
+
+try:
+    from services.workday_connector import WorkdayConnector
+    _WORKDAY_AVAILABLE = True
+except ImportError:
+    _WORKDAY_AVAILABLE = False
+
+_CONNECTORS_AVAILABLE = _AFAS_AVAILABLE or _WORKDAY_AVAILABLE
 
 try:
     from services.persistence_service import (
@@ -1081,11 +1090,17 @@ def connect_page():
         unsafe_allow_html=True,
     )
 
-    if not _CONNECTORS_AVAILABLE:
-        st.error("Connector modules not found. Check `services/afas_connector.py` and `services/workday_connector.py` are uploaded.")
+    available = ([n for n, ok in (("AFAS Profit", _AFAS_AVAILABLE),
+                                  ("Workday", _WORKDAY_AVAILABLE)) if ok])
+    if not available:
+        st.error("No connector modules found. Check `services/afas_connector.py` and "
+                 "`services/workday_connector.py` are present.")
         return
+    if len(available) == 1:
+        st.warning(f"Only the {available[0]} connector is installed; the other module is missing.")
 
-    system = st.radio("System", ["AFAS Profit", "Workday"], horizontal=True, key="conn_system")
+    system = (st.radio("System", available, horizontal=True, key="conn_system")
+              if len(available) > 1 else available[0])
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     # ── AFAS ──────────────────────────────────────────────────────────────
@@ -1099,6 +1114,9 @@ def connect_page():
         with col1:
             env_id = st.text_input("Environment ID", placeholder="12345",
                                    help="The number before .rest.afas.online", key="afas_env")
+            afas_env_type = st.radio(
+                "Environment", ["production", "test"], horizontal=True, key="afas_env_type",
+                help="A test environment answers on .resttest.afas.online and needs its own token.")
             connector_name = st.text_input("Connector name", value="HrEmployee",
                                            help="GetConnector configured by your AFAS admin", key="afas_conn")
         with col2:
@@ -1115,7 +1133,7 @@ def connect_page():
                     st.warning("Enter Environment ID and Token first.")
                 else:
                     with st.spinner("Testing..."):
-                        conn = AfasConnector(env_id, token)
+                        conn = AfasConnector(env_id, token, environment=afas_env_type)
                         ok, msg = conn.test_connection()
                     if ok:
                         st.success(f"✓ Connected to AFAS environment {env_id}")
@@ -1132,7 +1150,7 @@ def connect_page():
                 else:
                     with st.spinner(f"Fetching from {connector_name}…"):
                         try:
-                            conn = AfasConnector(env_id, token)
+                            conn = AfasConnector(env_id, token, environment=afas_env_type)
                             df = conn.fetch_employees(connector_name=connector_name, take=min(1000, max_rows))
                             if df.empty:
                                 st.warning("No data returned. Check the connector name.")
