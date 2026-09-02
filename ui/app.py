@@ -33,6 +33,8 @@ try:
 except ImportError:
     COUNTRY, DEFAULT_THRESHOLD, WORKBOOK_PATH = "NL", 85, "jobsy_reference_library.xlsx"
 
+import services.salary_service as _salary
+
 try:
     from services.architecture_report_service import ArchitectureReportService
 except ImportError:
@@ -2430,24 +2432,17 @@ def pay_equity_page(catalog, service):
             rec["Total cash"] = actual + _bonus + _allow
             rec["Total pay"] = actual + _bonus + _allow + _lti
             rec["Total pay FT"] = round((actual + _bonus + _allow + _lti) / rec["FTE"]) if rec["FTE"] else (actual + _bonus + _allow + _lti)
-        if band is not None:
-            p50 = band.p50 or round((band.min + band.max) / 2)
-            rec["Band P50"] = int(p50); rec["Band min"] = int(band.min); rec["Band max"] = int(band.max)
-            rec["Grade"] = getattr(band, "grade", None) or None
-            rec["Compa-ratio"] = round(actual / p50, 2) if p50 else None
-            rec["Range %"] = round((actual - band.min) / (band.max - band.min) * 100) if band.max > band.min else None
-            if actual < band.min:
-                rec["Status"] = "Below range"
-            elif actual > band.max:
-                rec["Status"] = "Above range"
-            elif rec["Compa-ratio"] < 0.9:
-                rec["Status"] = "Below market"
-            elif rec["Compa-ratio"] > 1.1:
-                rec["Status"] = "Above market"
-            else:
-                rec["Status"] = "At market"
-        else:
-            rec.update({"Band P50": None, "Compa-ratio": None, "Range %": None, "Status": "No match", "Grade": None})
+        # Placement against the band lives in salary_service, and it compares
+        # full-time equivalents when an FTE column was supplied -- the band is a
+        # full-time band, and the Data Readiness panel promises the pro-rating.
+        pos = _salary.position(actual, band, rec["FTE"] if fte_col else None)
+        rec["Band P50"] = pos.band_p50
+        rec["Band min"] = pos.band_min
+        rec["Band max"] = pos.band_max
+        rec["Grade"] = pos.grade
+        rec["Compa-ratio"] = pos.compa_ratio
+        rec["Range %"] = pos.range_penetration
+        rec["Status"] = pos.status
         rows.append(rec)
     if not rows:
         st.warning("No usable rows (need a numeric salary)."); return
@@ -2455,17 +2450,16 @@ def pay_equity_page(catalog, service):
     priced = res[res["Compa-ratio"].notna()]
 
     # coverage / exclusions (transparency — excluded rows silently leave the figures)
-    _total_in = len(df); _parsed = len(res); _matched = len(priced)
-    _unparsed = _total_in - _parsed; _nomatch = _parsed - _matched
-    _excl = []
-    if _nomatch:
-        _excl.append(f"{_nomatch} no role match")
-    if _unparsed:
-        _excl.append(f"{_unparsed} unparsed pay")
-    _covmsg = f"Coverage: {_matched} of {_total_in} uploaded employees are included in the pay analysis"
-    if _excl:
-        _covmsg += " — excluded: " + ", ".join(_excl)
-    st.caption(_covmsg + ". Excluded rows are left out of every figure below.")
+    _coverage = _salary.Coverage(uploaded=len(df), parsed=len(res), priced=len(priced))
+    st.caption(_coverage.message())
+    # Say which pay was compared, rather than leaving the reader to assume.
+    _prorated = int(res["FTE"].ne(1.0).sum()) if fte_col and "FTE" in res.columns else 0
+    st.caption(
+        f"Compa-ratio and range position are compared full-time-equivalent (base ÷ FTE); "
+        f"{_prorated} part-time salaries were pro-rated to the full-time band."
+        if _prorated else
+        "Compa-ratio and range position use the salary as supplied. Bands are full-time, "
+        "so without an FTE column part-timers read as underpaid.")
 
     # ── headline tiles ──────────────────────────────────────────────────
     avg_compa = round(priced["Compa-ratio"].mean(), 2) if len(priced) else 0

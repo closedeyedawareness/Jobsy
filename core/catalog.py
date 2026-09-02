@@ -233,13 +233,8 @@ class Catalog:
         if not industry_id:
             return band
         factor = self.repository.industry_factors.get((industry_id, function), 1.0)
-        from core.models import SalaryBand
-        return SalaryBand(
-            function=band.function, level=band.level, grade=band.grade,
-            min=round(band.min * factor), max=round(band.max * factor),
-            p25=round(band.p25 * factor), p50=round(band.p50 * factor),
-            p75=round(band.p75 * factor), currency=band.currency,
-        )
+        from services.salary_service import scale_band
+        return scale_band(band, factor)
 
     def industry_factor(self, function: str, industry_id: str) -> float:
         return self.repository.industry_factors.get((industry_id, function), 1.0)
