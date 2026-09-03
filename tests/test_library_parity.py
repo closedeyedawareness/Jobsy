@@ -44,6 +44,21 @@ KNOWN_ROW_DELTAS = {"titles": 3}
 # a computed pay-range status, unrelated.
 CASE_INSENSITIVE_COLUMNS = {"Status"}
 
+#: The sort key per sheet for the row-for-row comparison. Named up here so the
+#: coverage test can see it without running the comparison.
+_COMPARISON_KEYS = {
+    "jobs": ["JobID"], "profiles": ["JobID"], "salary": ["Function", "Level"],
+    "titles": ["ExistingTitle"], "career": ["JobID"], "levels": ["Level"],
+    "categories": ["Category"], "skills": ["SkillID"],
+    "competencylevels": ["Level"], "roleskillmap": ["JobID", "SkillID"],
+    "jobgrades": ["Grade"], "industries": ["IndustryID"],
+    "industrysalaryfactors": ["IndustryID", "Function"],
+    "industryskills": ["IndustryID", "SkillID"], "senioritylevels": ["LCode"],
+    "skillproficiency": ["Category", "Level"], "benefitscatalog": ["BenefitID"],
+    "benefitsobservations": ["ObsID"], "levelbenefitsfactors": ["Level", "Category"],
+    "paymix": ["Function", "Level"], "payelements": ["ElementID"],
+}
+
 
 @pytest.fixture(scope="module")
 def excel_catalog():
@@ -96,6 +111,38 @@ def test_the_columns_the_repository_reads_are_present(frames):
         assert not missing, f"{key} is missing {sorted(missing)}"
 
 
+def _as_text(df, cols):
+    """Stringify for comparison WITHOUT turning two spellings of "missing" into
+    two different values.
+
+    `.astype(str)` renders a workbook NaN as 'nan' and a database None as
+    'None', and a later .fillna("") cannot reach either, because by then they
+    are ordinary strings. That made four columns of empty cells read as a
+    row-for-row mismatch — and a gate that is red for a reason nobody can act
+    on is a gate that stops being read. Missing becomes "" on both sides; a
+    value against an empty still fails, which is the difference that matters.
+    """
+    out = df[cols].copy()
+    for col in cols:
+        series = out[col]
+        out[col] = series.astype(str).where(series.notna(), "")
+    return out
+
+
+#: Sheets deliberately outside the row-for-row comparison, with the reason.
+NOT_COMPARED = {
+    "employees": "customer data — the reference library ships it empty",
+}
+
+
+def test_every_loaded_sheet_is_either_compared_or_excluded_on_purpose():
+    """A sheet added to SHEET_MAP and not to the comparison below would be
+    loaded by the app and checked by nothing — the same silence that let PayMix
+    and PayElements sit outside the library for two months."""
+    uncovered = set(SHEET_MAP.values()) - set(_COMPARISON_KEYS) - set(NOT_COMPARED)
+    assert not uncovered, f"not compared and not excluded on purpose: {sorted(uncovered)}"
+
+
 def test_values_match_row_for_row(frames):
     """The real comparison. Sorted on a stable key, compared as text, so a
     column ordering difference or an int/str drift cannot mask a wrong value."""
@@ -108,16 +155,18 @@ def test_values_match_row_for_row(frames):
             "industrysalaryfactors": ["IndustryID", "Function"],
             "industryskills": ["IndustryID", "SkillID"], "senioritylevels": ["LCode"],
             "skillproficiency": ["Category", "Level"], "benefitscatalog": ["BenefitID"],
-            "benefitsobservations": ["ObsID"], "levelbenefitsfactors": ["Level", "Category"]}
+            "benefitsobservations": ["ObsID"], "levelbenefitsfactors": ["Level", "Category"],
+            "paymix": ["Function", "Level"], "payelements": ["ElementID"]}
+    assert keys == _COMPARISON_KEYS
 
     mismatches = []
     for key, sort_on in keys.items():
         if key not in xl or key not in db:
             continue
         cols = [c for c in xl[key].columns if c in db[key].columns]
-        a = (xl[key][cols].drop_duplicates(subset=sort_on)
-             .sort_values(sort_on).reset_index(drop=True).astype(str))
-        b = (db[key][cols].sort_values(sort_on).reset_index(drop=True).astype(str))
+        a = _as_text(xl[key].drop_duplicates(subset=sort_on)
+                     .sort_values(sort_on).reset_index(drop=True), cols)
+        b = _as_text(db[key].sort_values(sort_on).reset_index(drop=True), cols)
         if len(a) != len(b):
             mismatches.append(f"{key}: {len(a)} vs {len(b)} rows")
             continue

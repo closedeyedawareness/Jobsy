@@ -171,15 +171,28 @@ def test_a_table_larger_than_one_page_is_read_completely():
     assert df.iloc[-1]["ObsID"] == f"BO-{PAGE + 7:05d}"
 
 
-def test_pay_mix_is_excluded_by_default_and_included_on_request():
-    """Repository never asked for PayMix — SHEET_MAP has no entry. The
-    variable-pay exposure analysis does."""
+def test_pay_mix_arrives_with_the_rest_of_the_library():
+    """It used to need include_all, because SHEET_MAP had no entry for it and
+    the variable-pay analysis reached past the loader to read it. Since
+    2026-09-03 it loads like any other sheet, under its repository key."""
     client = _FakeClient({"pay_mix": [_row(function="Eng", level="Lead",
                                            target_variable_pct=18,
                                            thirteenth_month_pct=8.33,
                                            lti_eligible="Yes")]})
-    assert "PayMix" not in load_frames(client, "org-1")
-    frames = load_frames(client, "org-1", include_all=True)
-    assert "PayMix" in frames
-    assert frames["PayMix"].iloc[0]["TargetVariablePct"] == "18"
-    assert frames["PayMix"].iloc[0]["LTIEligible"] == "Yes"
+    frames = load_frames(client, "org-1")
+    assert "paymix" in frames
+    assert frames["paymix"].iloc[0]["TargetVariablePct"] == "18"
+    # Yes/No stays the workbook's text: the parity gate compares frames, and the
+    # typing belongs on PayMixEntry, not in the loader.
+    assert frames["paymix"].iloc[0]["LTIEligible"] == "Yes"
+
+
+def test_pay_elements_arrive_too_and_keep_their_free_text():
+    client = _FakeClient({"pay_elements": [_row(element_id="PE-PENS", name="Pension (employer)",
+                                                category="Benefits", basis="% of pensionable base",
+                                                typical_value="~10-15% (indicative)",
+                                                statutory_nl="Partly (sector funds)")]})
+    df = load_frames(client, "org-1")["payelements"]
+    # A range must reach the app as a range. Rendering it as a number here would
+    # be the loader inventing a point estimate the library refuses to give.
+    assert df.iloc[0]["TypicalValue"] == "~10-15% (indicative)"

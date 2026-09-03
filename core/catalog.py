@@ -42,6 +42,11 @@ SHEET_MAP = {
     "BenefitsCatalog": "benefitscatalog",
     "BenefitsObservations": "benefitsobservations",
     "LevelBenefitsFactors": "levelbenefitsfactors",
+    # Added 2026-09-03. These two were in the database and read past this map by
+    # whoever needed them, which made the variable-pay figures a second chain:
+    # invisible to Data Quality, absent from the export, outside the parity gate.
+    "PayMix":      "paymix",
+    "PayElements": "payelements",
 }
 
 
@@ -52,6 +57,7 @@ class Catalog:
                  source: str | None = None) -> None:
         self.path = Path(path)
         self.repository = None
+        self.frames: dict = {}
         self._loaded = False
         # "excel" | "db". None takes config.LIBRARY_SOURCE, so the cutover is a
         # one-line config change and every existing Catalog(path) call site
@@ -163,6 +169,11 @@ class Catalog:
                     "Check that Jobs, TitleMapping, and SalaryBands are present."
                 )
 
+        # Keep the frames as they were read. The Repository is a typed view and
+        # cannot be turned back into the library; the export path needs what
+        # actually arrived, from whichever source it arrived from.
+        self.frames = dict(data)
+
         # build the repository (lazy import to keep circular imports clean)
         from core.repository import Repository
 
@@ -233,13 +244,8 @@ class Catalog:
         if not industry_id:
             return band
         factor = self.repository.industry_factors.get((industry_id, function), 1.0)
-        from core.models import SalaryBand
-        return SalaryBand(
-            function=band.function, level=band.level, grade=band.grade,
-            min=round(band.min * factor), max=round(band.max * factor),
-            p25=round(band.p25 * factor), p50=round(band.p50 * factor),
-            p75=round(band.p75 * factor), currency=band.currency,
-        )
+        from services.salary_service import scale_band
+        return scale_band(band, factor)
 
     def industry_factor(self, function: str, industry_id: str) -> float:
         return self.repository.industry_factors.get((industry_id, function), 1.0)
