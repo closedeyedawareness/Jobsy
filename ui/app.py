@@ -765,6 +765,129 @@ def _sidebar_account():
             (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
 
 
+def _review_queue(results, catalog) -> None:
+    """The return path, on screen: approve a match and it becomes a mapping.
+
+    Everything above this in the Matching page runs one way — a title comes in,
+    the pipeline resolves it, somebody reads the low-confidence rows. That
+    reading used to end with the session. Here it goes back into the library, so
+    the next run resolves the same title at the top of the pipeline instead of
+    guessing at the bottom of it again.
+
+    Gated on can_edit() so the interface does not offer a button the write
+    policy will refuse — but the policy is still the control, and a refusal is
+    printed rather than swallowed.
+    """
+    import pandas as _pdrq
+    from services import auth_service as _auth
+    from services import review_service as _rev
+
+    queue = _rev.candidates(results)
+    if not queue:
+        st.caption("Nothing to review — every title resolved exactly, so a mapping "
+                   "would add a row and no information.")
+        return
+
+    repo = getattr(catalog, "repository", None)
+    if repo is None:
+        return
+
+    if not _auth.can_edit():
+        st.info(f"{len(queue)} title(s) need a decision. Your role on this client is "
+                f"read-only, so the library cannot be taught from here — ask an "
+                f"administrator or an analyst.")
+        return
+
+    # Ask the database whether this organisation can be written to before
+    # offering a button. The answer today is no, for a reason worth reading.
+    _ok, _why = _rev.writable_target(_auth.db(), _auth.active_org_id())
+    if not _ok:
+        st.info(f"{len(queue)} title(s) need a decision, and they cannot be saved yet. {_why}")
+        with st.expander("What would happen when they can"):
+            st.caption(
+                "Each approval becomes a TitleMapping row in the client's own organisation, "
+                "written as you, so the next upload resolves that title at the top of the "
+                "pipeline instead of guessing at the bottom of it. The plan is shown before "
+                "anything is written, a title that is already mapped reads as a remap rather "
+                "than an insert, and the library's own audit trail records who decided.")
+        return
+
+    # role_id_by_label is what turns a human choice back into a foreign key
+    role_labels, role_id_by_label = [], {}
+    for job in sorted(repo.jobs.values(), key=lambda j: (j.function or "", j.standard_title or "")):
+        label = f"{job.standard_title}  ·  {job.function}/{job.level}"
+        role_labels.append(label)
+        role_id_by_label[label] = job.job_id
+    label_by_id = {v: k for k, v in role_id_by_label.items()}
+
+    st.caption(f"{len(queue)} title(s) the pipeline was unsure about. Approving one writes "
+               f"a mapping, so the next upload resolves it deterministically. "
+               f"Written as you — the database records who decided.")
+
+    rows = []
+    for r in queue:
+        rows.append({
+            "Approve": False,
+            "Input title": r.input_title,
+            "Pipeline said": r.standard_title or "— no match —",
+            "Conf": r.confidence,
+            "Map to role": label_by_id.get(r.job_id, ""),
+        })
+
+    edited = st.data_editor(
+        _pdrq.DataFrame(rows),
+        use_container_width=True, hide_index=True, key="review_queue_editor",
+        column_config={
+            "Approve": st.column_config.CheckboxColumn("✓", help="Write this mapping", width="small"),
+            "Input title": st.column_config.TextColumn(disabled=True),
+            "Pipeline said": st.column_config.TextColumn(disabled=True),
+            "Conf": st.column_config.NumberColumn(disabled=True, width="small"),
+            "Map to role": st.column_config.SelectboxColumn(
+                "Map to role", options=role_labels,
+                help="The role this title should resolve to from now on"),
+        },
+    )
+
+    approvals = [
+        _rev.Approval(existing_title=str(row["Input title"]),
+                      job_id=role_id_by_label.get(str(row["Map to role"]), ""))
+        for _, row in edited.iterrows() if bool(row.get("Approve"))
+    ]
+    if not approvals:
+        return
+
+    plan = _rev.plan_write_back(approvals, repo, country=COUNTRY)
+    st.caption(f"Plan: {plan.summary()}.")
+    for w in plan.writes:
+        if w.action == "remap":
+            st.caption(f"↻ **{w.existing_title}** currently maps to `{w.was_job_id}` — "
+                       f"approving changes it to `{w.job_id}`.")
+    for title, why in plan.skipped:
+        st.caption(f"— **{title}** skipped: {why}")
+
+    if not plan.writes:
+        return
+
+    if st.button(f"Write {len(plan.writes)} mapping(s) to the library", type="primary",
+                 key="review_write_back"):
+        user = _auth.current_user() or {}
+        res = _rev.apply_write_back(_auth.db(), _auth.active_org_id(), plan,
+                                    actor=user.get("email", ""), country=COUNTRY)
+        if not res.ok:
+            st.error(f"Nothing was written. {res.error}")
+            return
+        _auth.log("library.title_mapping.approved",
+                  subject=f"{res.written} mapping(s)",
+                  detail={"titles": [w.existing_title for w in plan.writes]})
+        # The catalog is cached for the process. Without this the library on
+        # screen would still be the one from before the write, and the whole
+        # point -- that the next run is different -- would be invisible.
+        load_workbook_catalog.clear()
+        st.success(f"{res.written} mapping(s) written. The library has changed; "
+                   f"re-run the match to see these titles resolve.")
+        st.rerun()
+
+
 def main():
     # F-2. set_page_config runs before sign-in, so on a shared instance this is
     # the neutral default and on a dedicated deployment it is BRAND_NAME from
@@ -1282,6 +1405,10 @@ def main():
 
     only_review = st.checkbox("Show only titles needing review")
     shown = [r for r in results if r.requires_review] if only_review else results
+
+    # The return path. Everything else on this page runs one way.
+    with st.expander("Review queue — teach the library", expanded=False):
+        _review_queue(results, catalog)
 
     # Pagination — show PAGE_SIZE cards at a time to keep mobile responsive
     PAGE_SIZE = 25

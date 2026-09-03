@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from ui.shared import *  # noqa: F401,F403
 
+# Named rather than inherited from `import *`: a dependency the import
+# graph cannot see is a dependency nobody can find. The rest of what this
+# module uses is chrome (theme tokens, helpers) and stays with the star.
+from core.config import WORKBOOK_PATH
+
 
 # How old a sheet may get before the scorecard stops calling it current. Salary
 # and benchmark data is the reason there is a threshold at all: a band nobody
@@ -93,11 +98,11 @@ def data_quality_page(catalog):
     _c_exp, _c_note = st.columns([1, 3])
     with _c_exp:
         try:
-            from services.library_export_service import LibraryExportService
+            from services.library_export_service import LibraryExportService, export_bytes
             _exporter = LibraryExportService(catalog)
             st.download_button(
                 "Export library to Excel",
-                data=_exporter.to_bytes(),
+                data=export_bytes(catalog),
                 file_name=_exporter.suggested_filename(),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 help="A snapshot of the library the app is reading right now.",
@@ -272,6 +277,7 @@ def data_quality_page(catalog):
             with st.expander("Recent library changes"):
                 try:
                     from core.db_loader import client_and_org
+                    from services import auth_service as _auth_dq
                     from services.library_history_service import recent_changes, summarise
                     _client, _org = client_and_org()
                     _hist = recent_changes(_client, _org, limit=200)
@@ -279,7 +285,15 @@ def data_quality_page(catalog):
                     _hist = None
                     st.caption(f"The change history could not be read: {_exc}")
                 if _hist is not None:
-                    if _hist.empty:
+                    if _hist.empty and not _auth_dq.is_admin():
+                        # The policy on library_audit is app.is_org_admin, so a
+                        # non-admin sees an empty trail whatever happened. Same
+                        # fact the database uses, asked here, so the page can
+                        # tell the two silences apart.
+                        st.caption("The change history is administrator-only on this client, "
+                                   "and this account is not one — so this is what the policy "
+                                   "shows you, not what the library did.")
+                    elif _hist.empty:
                         # Read as the signed-in user, the trail is admin-only
                         # (app.is_org_admin), so empty has two meanings and this
                         # panel cannot tell them apart. Claiming the first one
@@ -296,6 +310,15 @@ def data_quality_page(catalog):
                                      use_container_width=True, hide_index=True)
                         st.caption("Append-only: migration 0003 revoked update and delete on the "
                                    "trail from every role, the importer's key included.")
+
+        # What this client changed on top of the shared library. On a
+        # single-organisation deployment this is empty, and saying "none" is
+        # different from saying nothing at all.
+        _ov = getattr(catalog, "overrides", None) or {}
+        if _ov:
+            st.caption("This client's own rows replace the shared library in: "
+                       + ", ".join(f"{k} ({v})" for k, v in sorted(_ov.items()))
+                       + ". Everything else is inherited.")
 
         _unloaded = _unloaded_sheets(catalog)
         if _unloaded:
