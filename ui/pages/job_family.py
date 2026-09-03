@@ -13,8 +13,9 @@ def _family_frames(catalog):
     nothing else in the app reads. Same drift as the Data Quality scorecard, and
     worse here, because these are salary numbers.
 
-    PayMix has no SHEET_MAP entry so the catalog never loads it; it still comes
-    through _paymix_frame, which follows the same source.
+    PayMix used to be fetched separately here, because it had no SHEET_MAP
+    entry. It has one now, and the pay composition comes through
+    services/pay_components_service instead of a frame read by hand.
     """
     frames = getattr(catalog, "frames", None) or {}
     wanted = (("Jobs", "jobs"), ("SalaryBands", "salary"),
@@ -25,9 +26,6 @@ def _family_frames(catalog):
         if df is None:
             raise KeyError(f"The loaded library has no {sheet}.")
         out[sheet] = df
-    pay = _paymix_frame(WORKBOOK_PATH, getattr(catalog, "active_source", None) or "excel")
-    if pay is not None:
-        out["PayMix"] = pay
     return out
 
 
@@ -70,11 +68,10 @@ def job_family_page(catalog):
     bmap = {(r["Function"], r["Level"]): r for _, r in bands.iterrows()}
     gmap = {r["Grade"]: r for _, r in grades.iterrows()}
     pmap = {r["JobID"]: r for _, r in profs.iterrows()}
-    pay = fr.get("PayMix")
-    if pay is not None:
-        for _c in ("TargetVariablePct", "ThirteenthMonthPct"):
-            if _c in pay: pay[_c] = _pd.to_numeric(pay[_c], errors="coerce")
-    xmap = {(r["Function"], r["Level"]): r for _, r in pay.iterrows()} if pay is not None else {}
+    # Pay composition comes from the library through one service, so the rates
+    # in this table are the rows in PayElements and PayMix and not literals.
+    from services import pay_components_service as _pay
+    _repo = catalog.repository
 
     def _euro0(v):
         try: return "€{:,.0f}".format(float(v)).replace(",", ".")
@@ -95,30 +92,38 @@ def job_family_page(catalog):
     for role in fam.itertuples(index=False):
         jid = getattr(role, "JobID"); lvl = getattr(role, "Level"); fn = getattr(role, "Function")
         b = bmap.get((fn, lvl)); g = gmap.get(getattr(role, "Grade")); p = pmap.get(jid)
-        x = xmap.get((fn, lvl))
         base = b.get("P50") if b is not None else None
         base = None if (base is None or _pd.isna(base)) else float(base)
-        var_pct = float(x.get("TargetVariablePct") or 0) if x is not None else 0.0
-        th_pct  = float(x.get("ThirteenthMonthPct") or 0) if x is not None else 0.0
-        if base is not None:
-            hol = base * 0.08; m13 = base * th_pct / 100; varamt = base * var_pct / 100
-            ttc = base + hol + m13 + varamt
-            pens = base * 0.12; ben = 2000.0; treward = ttc + pens + ben
-        else:
-            hol = m13 = varamt = ttc = pens = ben = treward = None
+        comp = _pay.compose(base, fn, lvl, _repo) if base is not None else None
+
+        def _line(key):
+            """The cell for one component: amount and the rate behind it."""
+            if comp is None:
+                return "—"
+            c = next((c for c in comp.components if c.key == key), None)
+            if c is not None and c.computable:
+                return f'{_euro0(c.amount)} ({c.pct:g}%)'
+            if c is not None and c.ranged:
+                return (f'{_euro0(c.low_amount)} – {_euro0(c.high_amount)} '
+                        f'({c.low_pct:g}–{c.high_pct:g}%)')
+            c = next((c for c in comp.excluded if c.key == key), None)
+            return "not stated" if c is not None else "—"
         cols.append({
             "title": _cell(getattr(role, "StandardTitle"), 60), "level": _cell(lvl, 20),
             "code": _cell(jid, 20), "grade": _cell(getattr(role, "Grade"), 6),
             "band": (f'{_euro0(b.get("Min"))} – {_euro0(b.get("Max"))}' if b is not None else "—"),
             "med": (_euro0(b.get("P50")) if b is not None else "—"),
-            "hol": (_euro0(hol) if hol is not None else "—"),
-            "m13": (f'{_euro0(m13)} ({th_pct:.2f}%)' if (m13 is not None and th_pct) else "—"),
-            "var": (f'{_euro0(varamt)} ({var_pct:.0f}%)' if (varamt is not None and var_pct) else "—"),
-            "ttc": (_euro0(ttc) if ttc is not None else "—"),
-            "pens": (_euro0(pens) if pens is not None else "—"),
-            "ben": (_euro0(ben) if ben is not None else "—"),
-            "treward": (_euro0(treward) if treward is not None else "—"),
-            "lti": ((x.get("LTIEligible") if x is not None else None) or "—"),
+            "hol": _line("holiday"),
+            "m13": _line("thirteenth"),
+            "var": _line("variable"),
+            "ttc": (_euro0(comp.total_target_cash) if comp is not None else "—"),
+            "pens": _line("pension"),
+            "ben": _line("benefits"),
+            "treward": ((f'{_euro0(comp.total_reward_low)} – {_euro0(comp.total_reward_high)}'
+                         if comp.is_range else _euro0(comp.total_target_cash))
+                        if comp is not None else "—"),
+            "lti": ("—" if comp is None or comp.lti_eligible is None
+                    else ("Yes" if comp.lti_eligible else "No")),
             "knowledge": _cell(g.get("Scope") if g is not None else None),
             "problem": _cell(g.get("Complexity") if g is not None else None),
             "account": _cell(g.get("DecisionRights") if g is not None else None),
@@ -148,12 +153,12 @@ def job_family_page(catalog):
         + "".join(_th(c) for c in cols) + "</tr>"
         + _row("Grade", "grade", mono=True) + _row("Salary band", "band", mono=True)
         + _row("Median (P50)", "med", mono=True)
-        + _row("+ Holiday (8%)", "hol", mono=True)
+        + _row("+ Holiday allowance", "hol", mono=True)
         + _row("+ 13th month", "m13", mono=True)
         + _row("+ Variable (on-target)", "var", mono=True)
         + _row("= Total target cash", "ttc", mono=True)
-        + _row("+ Pension (~12%)", "pens", mono=True)
-        + _row("+ Benefits (est.)", "ben", mono=True)
+        + _row("+ Employer pension", "pens", mono=True)
+        + _row("+ Other benefits", "ben", mono=True)
         + _row("= Total reward", "treward", mono=True)
         + _row("LTI eligible", "lti", mono=True)
         + _row("Knowledge / scope", "knowledge")
@@ -162,8 +167,12 @@ def job_family_page(catalog):
         + "</table></div>"
     )
     st.markdown(grid, unsafe_allow_html=True)
-    st.caption("Total target cash = base median + 8% holiday + 13th month + on-target variable. "
-               "Total reward adds indicative employer pension (~12%) and benefits (~€2k). See PayElements for definitions.")
+    _sources = ("Every rate above comes from the reference library: holiday allowance and "
+                "employer pension from **PayElements**, the 13th month and on-target variable "
+                "from **PayMix** for that exact Function × Level. Pension is stated as a range, "
+                "so total reward is a range. Components the library does not state as a rate "
+                "read *not stated* and are left out of the totals rather than estimated.")
+    st.caption(_sources)
 
     # ── pay range chart ─────────────────────────────────────────────────
     rows, order = [], []

@@ -5,7 +5,7 @@ from __future__ import annotations
 from ui.shared import *  # noqa: F401,F403
 
 
-def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, salary_already_fte=False):
+def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, salary_already_fte=False, catalog=None):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
     (Function + Level + Gender + Salary), with no job-title matching or bands.
@@ -272,11 +272,9 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     # PayMix states what each Function × Level is entitled to, on exactly the
     # key this page already groups by — so the structural half is answerable
     # from data the client has already handed over.
-    try:
-        from core.config import LIBRARY_SOURCE as _lib_src
-    except Exception:
-        _lib_src = "excel"
-    _paymix = _paymix_frame(WORKBOOK_PATH, _lib_src)
+    # PayMix arrives with the rest of the library now, so this reads the frame
+    # the Repository was built from rather than fetching the sheet again.
+    _paymix = (getattr(catalog, "frames", None) or {}).get("paymix")
     if _paymix is not None and not _paymix.empty:
         try:
             from services.pay_equity_service import analyze_variable_pay_exposure
@@ -472,7 +470,8 @@ def pay_equity_page(catalog, service):
             _already_fte = _sal_reading.startswith("Already")
             _render_leveled_gap(df, function_col=_fun_col, level_col=_lvl_col, gender_col=_lg_gender,
                                 salary_col=_lg_sal, fte_col=(None if _already_fte else _lg_fte),
-                                tenure_col=_lg_tenure, age_col=_lg_age, salary_already_fte=_already_fte)
+                                tenure_col=_lg_tenure, age_col=_lg_age, salary_already_fte=_already_fte,
+                                catalog=catalog)
             return
     title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",
                                      "functie", "functietitel", "role"}, ["title", "functie", "role"]) or cols[0]
@@ -856,24 +855,24 @@ def pay_equity_page(catalog, service):
 
     # ── workforce cost & remediation scenario (#4) ──────────────────────
     if len(priced):
-        try:
-            _pm = _paymix_frame(WORKBOOK_PATH,
-                                getattr(catalog, "active_source", None) or "excel")
-        except Exception:
-            _pm = None
-        vmap = {}
-        if _pm is not None:
-            for _, pr in _pm.iterrows():
-                try:
-                    vmap[(str(pr["Function"]), str(pr["Level"]))] = (
-                        float(pr.get("TargetVariablePct") or 0), float(pr.get("ThirteenthMonthPct") or 0))
-                except Exception:
-                    pass
+        # Every rate in this figure comes from PayElements and PayMix through one
+        # service. It used to be written out here as literals -- 8% holiday,
+        # 12% pension, EUR 2.000 of benefits -- two of which the library
+        # contradicts: pension is stated as a range, and benefits as "varies".
+        from services import pay_components_service as _pay
+        _repo = catalog.repository
         base_bill = float(priced["Actual"].sum())
-        reward_bill = 0.0
+        reward_low = reward_high = 0.0
+        _no_mix = 0
+        _excluded_labels: set = set()
         for _, pr in priced.iterrows():
-            a = float(pr["Actual"]); vp, tp = vmap.get((str(pr.get("Function", "")), str(pr.get("Level", ""))), (0.0, 8.33))
-            reward_bill += a * (1 + 0.08 + tp / 100 + vp / 100) + a * 0.12 + 2000
+            _comp = _pay.compose(float(pr["Actual"]), pr.get("Function", ""),
+                                 pr.get("Level", ""), _repo)
+            reward_low += _comp.total_reward_low
+            reward_high += _comp.total_reward_high
+            if any(c.key == "variable" for c in _comp.excluded):
+                _no_mix += 1
+            _excluded_labels |= {c.label.lower() for c in _comp.excluded}
         rem_min = float(sum(max(0.0, float(pr["Band min"]) - float(pr["Actual"])) for _, pr in priced.iterrows()))
         rem_p50 = float(sum(max(0.0, float(pr["Band P50"]) - float(pr["Actual"])) for _, pr in priced.iterrows()))
         n_below = int((priced["Actual"] < priced["Band min"]).sum())
@@ -881,8 +880,10 @@ def pay_equity_page(catalog, service):
         st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
                     f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">Workforce cost & remediation</div>',
                     unsafe_allow_html=True)
+        _reward_text = (_e(reward_low) if round(reward_low) == round(reward_high)
+                        else f"{_e(reward_low)} – {_e(reward_high)}")
         ctiles = [("Base paybill", _e(base_bill), C["ink"]),
-                  ("Est. total reward", _e(reward_bill), C["teal"]),
+                  ("Est. total reward", _reward_text, C["teal"]),
                   (f"Fix below-range ({n_below})", _e(rem_min), C["danger"] if rem_min else C["ink"]),
                   ("Bring all to market P50", _e(rem_p50), C["amber"] if rem_p50 else C["ink"])]
         crow = "".join(
@@ -892,9 +893,20 @@ def pay_equity_page(catalog, service):
             f'letter-spacing:.06em;text-transform:uppercase;color:{C["muted"]};margin-top:2px">{lab}</div></div>'
             for lab, val, col in ctiles)
         st.markdown(f'<div style="display:flex;gap:10px;flex-wrap:wrap">{crow}</div>', unsafe_allow_html=True)
-        st.caption("Total reward estimates base + holiday + 13th month + on-target variable + ~12% pension + benefits. "
-                   "'Fix below-range' is the annual base cost to lift underpaid staff to their band minimum; "
-                   "'to market P50' brings everyone below the midpoint up to it.")
+        _caption = ("Total reward is built from the library: holiday allowance and employer "
+                    "pension from PayElements, 13th month and on-target variable from PayMix "
+                    "per Function × Level. Pension is stated there as a range, so this is a "
+                    "range and not a single figure.")
+        if _excluded_labels:
+            _caption += (" Left out because the library states no rate for them: "
+                         + ", ".join(sorted(_excluded_labels)) + ".")
+        if _no_mix:
+            _caption += (f" {_no_mix} of {len(priced)} employees sit in a Function × Level with "
+                         f"no PayMix row, so their variable entitlement is unknown rather than zero "
+                         f"and is not in this figure.")
+        _caption += (" 'Fix below-range' is the annual base cost to lift underpaid staff to their "
+                     "band minimum; 'to market P50' brings everyone below the midpoint up to it.")
+        st.caption(_caption)
 
     # ── table + export ──────────────────────────────────────────────────
     def _row_style(row):

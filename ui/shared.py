@@ -386,37 +386,5 @@ def _smart_detect(cols, exacts, contains):
     return None
 
 
-@st.cache_data(show_spinner=False)
-def _paymix_frame(path, source="excel"):
-    """PayMix, from wherever the library currently lives.
-
-    Not loaded through Catalog because PayMix has no SHEET_MAP entry — the app
-    never read it, which is why the structural pay-gap view could only ever see
-    base salary. It follows LIBRARY_SOURCE all the same: once the database is
-    the master, a PayMix still read from the workbook would quietly serve
-    whatever the file last said, which is the failure this migration exists to
-    end. Returning None keeps the exposure panel optional either way.
-    """
-    import pandas as _pd
-    if source == "db":
-        try:
-            from core.db_loader import load_frames_from_config
-            frames = load_frames_from_config(include_all=True)
-            df = frames.get("PayMix")
-            if df is not None and len(df):
-                for col in ("TargetVariablePct", "ThirteenthMonthPct"):
-                    if col in df.columns:
-                        df[col] = _pd.to_numeric(df[col], errors="coerce")
-                return df
-        except Exception:
-            # Same reasoning as Catalog's fallback: the workbook is a complete
-            # master and losing one panel is worse than reading it.
-            pass
-    try:
-        return _pd.read_excel(path, sheet_name="PayMix")
-    except Exception:
-        return None
-
-
 # Everything above is what a page may import, private helpers included.
 __all__ = [n for n in dir() if not n.startswith("__")]
