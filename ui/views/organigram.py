@@ -14,11 +14,17 @@ def _build_org_json(df_input, results, title_col):
     fn_col  = next((c for c in ["FirstName","first_name"] if c in df_input.columns), None)
     ln_col  = next((c for c in ["LastName","last_name"]   if c in df_input.columns), None)
     LSORT={"Lead":0,"Senior":1,"Medior":2,"Junior":3}
-    LCOL={"Lead":"#A87CFF","Senior":"#0E7C66","Medior":"#2B5FA6","Junior":"#B9791A"}
-    DCOL={"Executive":"#17212E","Finance":"#0E7C66","HR":"#2B5FA6","IT":"#B9791A",
-          "Engineering":"#0E7C66","Sales":"#A8443A","Marketing":"#A87CFF",
-          "Operations":"#5A6B7A","Warehouse":"#8B6914","Legal":"#2B5FA6",
-          "Customer Service":"#0E7C66","Support":"#5A6B7A"}
+    # Level colours come from the app's OWN map (ui/shared.LEVEL_C), not a second
+    # one invented here. A level is one fact; it had two colour systems, so a
+    # Senior was pink on every other page and teal on this chart.
+    LCOL = {lv: pair[1] for lv, pair in LEVEL_C.items()}
+    DEPT_HUES = [C["iai"], C["lhi"], C["rri"], C["ohb"], C["gold"],
+                 C["primary"], C["secondary"], C["accent"]]
+    _DEPTS = ["Executive", "Finance", "HR", "IT", "Engineering", "Sales",
+              "Marketing", "Operations", "Warehouse", "Legal",
+              "Customer Service", "Support"]
+    DCOL = {d: DEPT_HUES[i % len(DEPT_HUES)] for i, d in enumerate(_DEPTS)}
+    FALLBACK = C["subtle"]
     def gname(row):
         if fn_col and ln_col: return (str(row.get(fn_col,""))+" "+str(row.get(ln_col,""))).strip()
         return str(row.get("Name","")).strip()
@@ -32,7 +38,7 @@ def _build_org_json(df_input, results, title_col):
         mt=r.standard_title if r and r.matched else it
         lv=r.level          if r and r.matched else ""
         emp={"id":eid,"name":name,"input_title":it,"matched_title":mt,"level":lv,
-             "dept":dept,"type":"employee","color":LCOL.get(lv,"#5A6B7A"),"children":[]}
+             "dept":dept,"type":"employee","color":LCOL.get(lv, FALLBACK),"children":[]}
         dept_groups.setdefault(dept,[]).append(emp)
     for d in dept_groups:
         dept_groups[d].sort(key=lambda x:(LSORT.get(x["level"],9),x["name"]))
@@ -55,7 +61,7 @@ def _build_org_json(df_input, results, title_col):
             nodes[eid]={"id":eid,"name":name,"input_title":it,
                 "matched_title":r.standard_title if r and r.matched else it,
                 "level":r.level if r and r.matched else "","dept":dept,"type":"employee",
-                "color":LCOL.get(r.level if r and r.matched else "","#5A6B7A"),"manager_id":mid,"children":[]}
+                "color":LCOL.get(r.level if r and r.matched else "", FALLBACK),"manager_id":mid,"children":[]}
         roots=[]
         for eid,n in nodes.items():
             m=n.get("manager_id")
@@ -65,7 +71,7 @@ def _build_org_json(df_input, results, title_col):
             "color":"#17212E","matched_title":"","level":"","dept":"","children":roots}
         return _j.dumps(root,default=str)
     dept_nodes=[{"id":f"dept-{d}","name":d,"matched_title":f"{len(m)} employees","level":"",
-        "dept":d,"type":"department","color":DCOL.get(d,"#5A6B7A"),"children":m}
+        "dept":d,"type":"department","color":DCOL.get(d, FALLBACK),"children":m}
         for d,m in sorted(dept_groups.items())]
     return _j.dumps({"id":"__root__","name":"Organisation","type":"root","color":"#17212E",
         "matched_title":f"{len(df_input)} employees","level":"","dept":"","children":dept_nodes},default=str)
@@ -96,25 +102,44 @@ def organigram_page(catalog):
 
 
 def _orgchart_html(tree_json):
+    # The chart is an iframe, so it cannot inherit the app's stylesheet — every
+    # token has to be handed to it explicitly. That is exactly why it drifted:
+    # nothing broke when the app changed palette, it just quietly stopped
+    # matching.
+    c_bg, c_panel, c_panel2 = C["bg"], C["surface"], C["surface2"]
+    c_ink, c_muted = C["ink"], C["muted"]
+    c_line2, c_primary = C["line2"], C["primary"]
+    c_fallback = C["subtle"]        # the d3 fill fallback, last hardcoded hue
+    font = FONT_SANS
+    legend = "".join(
+        f'<div class="li"><div class="ld" style="background:{pair[1]}"></div>{lv}</div>'
+        for lv, pair in LEVEL_C.items()
+    ) + f'<div class="li"><div class="ld" style="background:{C["subtle"]}"></div>Dept</div>'
     return f"""<!DOCTYPE html>
 <html>
 <head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#ECEEF0;font-family:Arial,sans-serif;overflow:hidden}}
+/* The chart lives INSIDE the app, so it takes the app's ground. It used to be
+   a light-mode diagram -- #ECEEF0 panel, black drop-shadows, pale grey links --
+   dropped into a deep-indigo page, which is why it read as a foreign object. */
+body{{background:{c_bg};font-family:{font};overflow:hidden;color:{c_ink}}}
 #chart{{width:100%;height:700px;position:relative}}
 svg{{width:100%;height:100%}}
-.node rect{{rx:8;ry:8;stroke:rgba(0,0,0,0.08);stroke-width:1;cursor:pointer;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.12))}}
-.node rect:hover{{opacity:0.85}}
-.node text{{pointer-events:none;font-family:Arial,sans-serif}}
-.link{{fill:none;stroke:#C7D1D8;stroke-width:1.5}}
-#tip{{position:fixed;background:#17212E;color:#fff;border-radius:8px;padding:8px 12px;font-size:12px;pointer-events:none;opacity:0;transition:opacity .15s;max-width:200px;z-index:999}}
+/* A shadow on a dark ground is a glow, not a drop. Black shadow here is just mud. */
+.node rect{{rx:9;ry:9;stroke:{c_line2};stroke-width:1;cursor:pointer;transition:filter .15s,opacity .15s}}
+.node rect:hover{{opacity:0.92;filter:drop-shadow(0 0 6px {c_primary}66)}}
+.node text{{pointer-events:none;font-family:{font}}}
+.link{{fill:none;stroke:{c_line2};stroke-width:1.4;opacity:.85}}
+#tip{{position:fixed;background:{c_panel2};color:{c_ink};border:1px solid {c_line2};border-radius:10px;padding:9px 13px;font-size:12px;pointer-events:none;opacity:0;transition:opacity .15s;max-width:220px;z-index:999;box-shadow:0 6px 20px rgba(0,0,0,.45)}}
 #ctrl{{position:absolute;top:10px;right:10px;display:flex;flex-direction:column;gap:6px}}
-.cb{{width:32px;height:32px;background:#fff;border:1px solid #D9E0E5;border-radius:8px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,0.1);user-select:none}}
-#leg{{position:absolute;bottom:10px;left:10px;background:#fff;border:1px solid #D9E0E5;border-radius:10px;padding:8px 12px;font-size:11px;display:flex;gap:10px;flex-wrap:wrap}}
-.li{{display:flex;align-items:center;gap:4px}}
+.cb{{width:32px;height:32px;background:{c_panel};border:1px solid {c_line2};color:{c_ink};border-radius:9px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;user-select:none;transition:background .15s,border-color .15s}}
+.cb:hover{{background:{c_panel2};border-color:{c_primary}}}
+#leg{{position:absolute;bottom:10px;left:10px;background:{c_panel};border:1px solid {c_line2};border-radius:11px;padding:9px 13px;font-size:11px;display:flex;gap:12px;flex-wrap:wrap;color:{c_muted}}}
+.li{{display:flex;align-items:center;gap:5px}}
 .ld{{width:10px;height:10px;border-radius:50%}}
 </style>
 </head>
@@ -126,26 +151,36 @@ svg{{width:100%;height:100%}}
   <div class="cb" id="zo">−</div>
   <div class="cb" id="zr">⌂</div>
 </div>
-<div id="leg">
-  <div class="li"><div class="ld" style="background:#A87CFF"></div>Lead</div>
-  <div class="li"><div class="ld" style="background:#0E7C66"></div>Senior</div>
-  <div class="li"><div class="ld" style="background:#2B5FA6"></div>Medior</div>
-  <div class="li"><div class="ld" style="background:#B9791A"></div>Junior</div>
-  <div class="li"><div class="ld" style="background:#5A6B7A"></div>Dept</div>
-</div>
+<div id="leg">{legend}</div>
 </div>
 <div id="tip"></div>
 <script>
 const D={tree_json};
 const W=document.getElementById("chart").clientWidth||900,H=700;
-const NW=175,NH=48,DX=62,DY=225,DUR=380;
+// DX is the gap between siblings and NH the box height: at 62 against a
+// 48px box carrying three lines of text, the boxes touched. 88 leaves the
+// separation the eye needs to read them as separate people.
+const NW=175,NH=48,DX=88,DY=235,DUR=380;
 const svg=d3.select("#svg");
 const g=svg.append("g");
 const zoom=d3.zoom().scaleExtent([0.1,3]).on("zoom",e=>g.attr("transform",e.transform));
 svg.call(zoom);
 document.getElementById("zi").onclick=()=>svg.transition().call(zoom.scaleBy,1.3);
 document.getElementById("zo").onclick=()=>svg.transition().call(zoom.scaleBy,0.77);
-document.getElementById("zr").onclick=()=>svg.transition().duration(400).call(zoom.transform,d3.zoomIdentity.translate(60,H/2).scale(0.9));
+// Fit the drawn tree, rather than guessing a transform. The old initial view
+// was translate(60, H/2).scale(0.9) -- a fixed offset that happens to look
+// right for a small tree and puts a real organisation off the bottom of the
+// frame. The chart now measures what it drew.
+function fitToView(animate){{
+  const b=g.node().getBBox();
+  if(!b.width||!b.height) return;
+  const pad=48;
+  const k=Math.min((W-pad*2)/b.width,(H-pad*2)/b.height,1.25);
+  const tx=(W-b.width*k)/2-b.x*k, ty=(H-b.height*k)/2-b.y*k;
+  const t=d3.zoomIdentity.translate(tx,ty).scale(k);
+  (animate?svg.transition().duration(400):svg).call(zoom.transform,t);
+}}
+document.getElementById("zr").onclick=()=>fitToView(true);
 const treeFn=d3.tree().nodeSize([DX,DY]);
 let root=d3.hierarchy(D,d=>d.children||[]);
 root.x0=H/2; root.y0=0;
@@ -176,7 +211,7 @@ function update(src){{
     .on("mouseover",showTip).on("mouseout",()=>tip.style.opacity=0)
     .on("touchstart",showTip,{{passive:true}}).on("touchend",()=>tip.style.opacity=0);
   nE.append("rect").attr("x",-NW/2).attr("y",-NH/2).attr("width",NW).attr("height",NH)
-    .attr("fill",d=>d.data.color||"#5A6B7A").attr("opacity",0.92);
+    .attr("fill",d=>d.data.color||"{c_fallback}").attr("opacity",0.92);
   // dy was `type==="department" ? 5 : -8` while .sub below is always at 8, so a
   // department drew its title 3px from its subtitle and the two overlapped --
   // "Engineering" printed straight through "29 people". Departments presumably
@@ -192,7 +227,7 @@ function update(src){{
   const nU=node.merge(nE);
   nU.transition().duration(DUR).attr("transform",d=>`translate(${{d.y}},${{d.x}})`);
   nU.select(".sub").text(d=>{{
-    if(d.data.type==="department"){{const k=(d.children||d._children||[]);return k.length+" people";}}
+    if(d.data.type==="department"){{const k=(d.children||d._children||[]);return k.length===1?"1 person":k.length+" people";}}
     const t=d.data.matched_title||d.data.input_title||"";return t.length>24?t.substring(0,23)+"…":t;
   }});
   nU.select(".tog").text(d=>d._children?`▶ ${{(d._children||[]).length}}`:(d.children&&d.children.length?"▼":""));
@@ -200,7 +235,8 @@ function update(src){{
   nodes.forEach(d=>{{d.x0=d.x;d.y0=d.y;}});
 }}
 update(root);
-svg.call(zoom.transform,d3.zoomIdentity.translate(60,H/2).scale(0.9));
+// Fit after the first paint, once the nodes have real bounding boxes.
+requestAnimationFrame(()=>fitToView(false));
 </script>
 </body>
 </html>"""
