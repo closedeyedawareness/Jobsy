@@ -15,6 +15,29 @@ FRESH_DAYS = 90
 STALE_DAYS = 365
 
 
+def _unloaded_sheets(catalog):
+    """What the source holds that SHEET_MAP does not load.
+
+    Derived from the source itself, never from a list kept by hand: the DB's own
+    table specs when the library came from Postgres, the workbook's sheet names
+    when it came from the file. A sheet nobody loads is invisible to every panel
+    on this page, which is the one place that should say so.
+    """
+    from core.catalog import SHEET_MAP
+    loaded = set(SHEET_MAP)
+    source = getattr(catalog, "active_source", None)
+    try:
+        if source == "db":
+            from services.library_import_service import SPECS
+            present = {spec.sheet for spec in SPECS}
+        else:
+            from openpyxl import load_workbook
+            present = set(load_workbook(WORKBOOK_PATH, read_only=True).sheetnames)
+    except Exception:
+        return []
+    return sorted(present - loaded)
+
+
 def _dq_freshness(catalog):
     """Per-sheet UpdatedAt / Source coverage of the library the app has loaded.
 
@@ -243,6 +266,36 @@ def data_quality_page(catalog):
             st.caption("No UpdatedAt column: " + ", ".join(no_date) +
                        " — these carry no provenance date, so their age cannot be judged.")
 
+        # Who changed what. The trail has been written since the schema landed
+        # and read by nothing, which from a user's side is the same as no trail.
+        if getattr(catalog, "active_source", None) == "db":
+            with st.expander("Recent library changes"):
+                try:
+                    from core.db_loader import client_and_org
+                    from services.library_history_service import recent_changes, summarise
+                    _client, _org = client_and_org()
+                    _hist = recent_changes(_client, _org, limit=200)
+                except Exception as _exc:
+                    _hist = None
+                    st.caption(f"The change history could not be read: {_exc}")
+                if _hist is not None:
+                    if _hist.empty:
+                        st.caption("No changes recorded yet — the library has not been written "
+                                   "to since the audit trail was created.")
+                    else:
+                        _s = summarise(_hist)
+                        st.caption(f"{_s['rows']} most recent changes across {_s['tables']} tables "
+                                   f"— {_s['inserts']} inserts, {_s['updates']} updates, "
+                                   f"{_s['deletes']} deletes. Latest: {_s['latest']}.")
+                        st.dataframe(_hist.drop(columns=["Field count"]),
+                                     use_container_width=True, hide_index=True)
+                        st.caption("Append-only: migration 0003 revoked update and delete on the "
+                                   "trail from every role, the importer's key included.")
+
+        _unloaded = _unloaded_sheets(catalog)
+        if _unloaded:
+            st.caption("Present in the library but not loaded by the app, so nothing on this "
+                       "page can see them: " + ", ".join(_unloaded) + ".")
         st.caption(f"Measured on the {len(fresh)} sheets the app loads, as read from "
                    f"**{getattr(catalog, 'active_source', None) or 'the library'}** — not on the "
                    f"workbook in the repo, which stopped being the master at the cutover.")

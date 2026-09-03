@@ -194,11 +194,13 @@ def load_frames(client, org_id: str, *, include_all: bool = False) -> dict[str, 
     return frames
 
 
-def load_frames_from_config(*, include_all: bool = False) -> dict[str, pd.DataFrame]:
-    """load_frames() with the client and org resolved from configuration.
+def client_and_org():
+    """A Supabase client and the org id, resolved from configuration.
 
-    Credentials come from the importer's resolver, so there is one answer to
-    "which key, and where from" rather than two that can disagree.
+    Split out of load_frames_from_config so anything else that needs to read
+    this project — the audit-trail panel, for one — gets the same client and
+    the same org, rather than a second answer to "which key, and where from"
+    that can disagree with this one.
     """
     try:
         from services.library_import_service import _resolve_credentials, _require_writable_key
@@ -226,4 +228,10 @@ def load_frames_from_config(*, include_all: bool = False) -> dict[str, pd.DataFr
     org = client.table("orgs").select("id").eq("slug", org_slug).single().execute()
     if not org.data:
         raise RuntimeError(f"No organisation with slug '{org_slug}'.")
-    return load_frames(client, org.data["id"], include_all=include_all)
+    return client, org.data["id"]
+
+
+def load_frames_from_config(*, include_all: bool = False) -> dict[str, pd.DataFrame]:
+    """load_frames() with the client and org resolved from configuration."""
+    client, org_id = client_and_org()
+    return load_frames(client, org_id, include_all=include_all)
