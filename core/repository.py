@@ -34,6 +34,7 @@ import logging
 logger = logging.getLogger('jobsy')
 from core.models import (BenefitCatalogItem, BenefitObservation, CareerStep, CompetencyLevel,
     Employee, Industry, IndustrySalaryFactor, IndustrySkill, Job, JobGrade, JobProfile,
+    PayElement, PayMixEntry,
     LevelBenefitFactor, RoleSkillRequirement, SalaryBand, SeniorityLevel, Skill, SkillAssessment)
 from core.search_index import SearchIndex
 from core.utils import normalize_title
@@ -105,6 +106,8 @@ class Repository:
         self.benefits_catalog: dict[str, BenefitCatalogItem] = {}
         self.benefit_observations: dict[tuple, list[BenefitObservation]] = {}
         self.level_benefit_factors: dict[tuple, float] = {}
+        self.pay_mix: dict[tuple, PayMixEntry] = {}      # (function, level) -> policy
+        self.pay_elements: dict[str, PayElement] = {}    # element_id -> component
 
         self._build_jobs(data.get("jobs"))
         self._build_profiles(data.get("profiles"))
@@ -134,6 +137,8 @@ class Repository:
         self._build_benefits_catalog(_get(data, "benefitscatalog", "BenefitsCatalog"))
         self._build_benefit_observations(_get(data, "benefitsobservations", "BenefitsObservations"))
         self._build_level_benefit_factors(_get(data, "levelbenefitsfactors", "LevelBenefitsFactors"))
+        self._build_pay_mix(_get(data, "paymix", "PayMix"))
+        self._build_pay_elements(_get(data, "payelements", "PayElements"))
 
         self.index = SearchIndex()
         self.index.build(data.get("jobs"), data.get("titles"))
@@ -523,6 +528,37 @@ class Repository:
             category = _val(row, "Category", "category")
             if not level or not category: continue
             self.level_benefit_factors[(level, category)] = _num(row, "Factor", "factor") or 1.0
+
+    def _build_pay_mix(self, df) -> None:
+        if df is None: return
+        for row in df.itertuples(index=False):
+            function = _val(row, "Function", "function")
+            level = _val(row, "Level", "level")
+            if not function or not level: continue
+            self.pay_mix[(function, level)] = PayMixEntry(
+                function=function,
+                level=level,
+                target_variable_pct=_num(row, "TargetVariablePct", "target_variable_pct") or 0.0,
+                thirteenth_month_pct=_num(row, "ThirteenthMonthPct", "thirteenth_month_pct") or 0.0,
+                lti_eligible_text=_val(row, "LTIEligible", "lti_eligible") or "",
+                notes=_val(row, "Notes", "notes") or "",
+            )
+
+    def _build_pay_elements(self, df) -> None:
+        if df is None: return
+        for row in df.itertuples(index=False):
+            element_id = _val(row, "ElementID", "element_id")
+            if not element_id: continue
+            self.pay_elements[element_id] = PayElement(
+                element_id=element_id,
+                name=_val(row, "Name", "name") or "",
+                category=_val(row, "Category", "category") or "",
+                basis=_val(row, "Basis", "basis") or "",
+                typical_value=_val(row, "TypicalValue", "typical_value") or "",
+                statutory_nl=_val(row, "StatutoryNL", "statutory_nl") or "",
+                taxable=_val(row, "Taxable", "taxable") or "",
+                description=_val(row, "Description", "description") or "",
+            )
 
     # ------------------------------------------------------------------- API
     def find_job(self, title: str) -> Optional[Job]:

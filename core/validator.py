@@ -74,6 +74,9 @@ class Validator:
         "benefitsobservations": [("IndustryID", "industry_id"), ("Category", "category"),
                                   ("Value", "value")],
         "levelbenefitsfactors": [("Level", "level"), ("Category", "category")],
+        # Pay composition sheets, also optional.
+        "paymix": [("Function", "function"), ("Level", "level")],
+        "payelements": [("ElementID", "element_id")],
     }
 
     def validate(self, data: dict, *, strict: bool = True) -> ValidationReport:
@@ -106,6 +109,7 @@ class Validator:
             self._check_salary(data, report)
             self._check_references(data, report)
             self._check_benefit_references(data, report)
+            self._check_pay_mix_cohorts(data, report)
         except Exception as exc:  # pragma: no cover - defensive
             report.warnings.append(f"Validation halted early: {exc}")
 
@@ -176,6 +180,49 @@ class Validator:
         if unknown:
             report.warnings.append(
                 f"Sheet 'benefitsobservations' references unknown IndustryIDs: {', '.join(sorted(unknown))}."
+            )
+
+    def _check_pay_mix_cohorts(self, data, report: ValidationReport) -> None:
+        """PayMix must cover the same Function x Level grid as SalaryBands.
+
+        The variable-pay exposure analysis joins the two on exactly that key, so
+        a cohort with a band and no pay mix is silently entitled to nothing, and
+        a pay mix with no band prices a cohort nobody is in. Warning, not error:
+        a partly-filled PayMix is a real state of a client library, and refusing
+        to load it would take the whole app down over one sheet.
+        """
+        mix_df = data.get("paymix")
+        band_df = data.get("salary")
+        if mix_df is None or band_df is None:
+            return
+
+        def _cohorts(df):
+            fcol = _find_col(df, "Function", "function")
+            lcol = _find_col(df, "Level", "level")
+            if not fcol or not lcol:
+                return None
+            return {(str(f).strip(), str(l).strip())
+                    for f, l in zip(df[fcol].tolist(), df[lcol].tolist())
+                    if not _isna(f) and not _isna(l)}
+
+        mix, bands = _cohorts(mix_df), _cohorts(band_df)
+        if mix is None or bands is None:
+            return
+
+        no_mix = bands - mix
+        no_band = mix - bands
+        if no_mix:
+            report.warnings.append(
+                f"{len(no_mix)} salary-band cohort(s) have no PayMix row, so their variable-pay "
+                f"entitlement reads as zero rather than unknown: "
+                + ", ".join(f"{f}/{l}" for f, l in sorted(no_mix)[:6])
+                + (" ..." if len(no_mix) > 6 else "")
+            )
+        if no_band:
+            report.warnings.append(
+                f"{len(no_band)} PayMix row(s) name a Function x Level with no salary band: "
+                + ", ".join(f"{f}/{l}" for f, l in sorted(no_band)[:6])
+                + (" ..." if len(no_band) > 6 else "")
             )
 
     # --------------------------------------------------------------- finish

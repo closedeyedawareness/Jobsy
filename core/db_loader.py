@@ -142,22 +142,29 @@ def _fetch_all(client, table: str, org_id: str) -> list[dict]:
         start += PAGE
 
 
-def load_frames(client, org_id: str, *, include_all: bool = False) -> dict[str, pd.DataFrame]:
+def load_frames(client, org_id: str) -> dict[str, pd.DataFrame]:
     """Read the library from Postgres as the dict Repository expects.
 
     Keys are SHEET_MAP's repository keys ('jobs', 'profiles', 'salary', …) and
     columns carry the WORKBOOK's names, because that is what Repository reads.
 
-    include_all also returns the tables that have no SHEET_MAP entry, keyed by
-    sheet name — pay_mix and pay_elements. Repository never asked for those;
-    the variable-pay exposure analysis does.
+    There used to be an include_all flag for the tables SHEET_MAP had no entry
+    for — pay_mix and pay_elements — so the variable-pay analysis could reach
+    past the loader and read them itself. Since 2026-09-03 both are in
+    SHEET_MAP, the two sets are the same, and the flag had nothing left to
+    include. A table with no entry is now logged rather than skipped in
+    silence: nothing loading it is exactly the condition that made those two
+    invisible to Data Quality, to the export and to the parity gate.
     """
     frames: dict[str, pd.DataFrame] = {}
 
     for spec in _specs():
         db_to_workbook = {db: wb for wb, db in spec.columns.items()}
         repo_key = SHEET_MAP.get(spec.sheet)
-        if repo_key is None and not include_all:
+        if repo_key is None:
+            logger.warning(
+                "Table '%s' is in the library but has no SHEET_MAP entry, so nothing loads it "
+                "and no panel can see it.", spec.table)
             continue
 
         rows = _fetch_all(client, spec.table, org_id)
@@ -188,7 +195,7 @@ def load_frames(client, org_id: str, *, include_all: bool = False) -> dict[str, 
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        frames[repo_key if repo_key else spec.sheet] = df
+        frames[repo_key] = df
         logger.info("  %s: %d rows (db)", spec.table, len(df))
 
     return frames
@@ -231,7 +238,7 @@ def client_and_org():
     return client, org.data["id"]
 
 
-def load_frames_from_config(*, include_all: bool = False) -> dict[str, pd.DataFrame]:
+def load_frames_from_config() -> dict[str, pd.DataFrame]:
     """load_frames() with the client and org resolved from configuration."""
     client, org_id = client_and_org()
-    return load_frames(client, org_id, include_all=include_all)
+    return load_frames(client, org_id)

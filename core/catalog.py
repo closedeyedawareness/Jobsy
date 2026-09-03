@@ -42,6 +42,11 @@ SHEET_MAP = {
     "BenefitsCatalog": "benefitscatalog",
     "BenefitsObservations": "benefitsobservations",
     "LevelBenefitsFactors": "levelbenefitsfactors",
+    # Added 2026-09-03. These two were in the database and read past this map by
+    # whoever needed them, which made the variable-pay figures a second chain:
+    # invisible to Data Quality, absent from the export, outside the parity gate.
+    "PayMix":      "paymix",
+    "PayElements": "payelements",
 }
 
 
