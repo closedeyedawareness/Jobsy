@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from ui.shared import *  # noqa: F401,F403
 
+# Named rather than inherited from `import *`: a dependency the import
+# graph cannot see is a dependency nobody can find. The rest of what this
+# module uses is chrome (theme tokens, helpers) and stays with the star.
+from core.config import WORKBOOK_PATH
+
 
 # How old a sheet may get before the scorecard stops calling it current. Salary
 # and benchmark data is the reason there is a threshold at all: a band nobody
