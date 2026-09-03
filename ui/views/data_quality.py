@@ -297,6 +297,15 @@ def data_quality_page(catalog):
                         st.caption("Append-only: migration 0003 revoked update and delete on the "
                                    "trail from every role, the importer's key included.")
 
+        # What this client changed on top of the shared library. On a
+        # single-organisation deployment this is empty, and saying "none" is
+        # different from saying nothing at all.
+        _ov = getattr(catalog, "overrides", None) or {}
+        if _ov:
+            st.caption("This client's own rows replace the shared library in: "
+                       + ", ".join(f"{k} ({v})" for k, v in sorted(_ov.items()))
+                       + ". Everything else is inherited.")
+
         _unloaded = _unloaded_sheets(catalog)
         if _unloaded:
             st.caption("Present in the library but not loaded by the app, so nothing on this "
