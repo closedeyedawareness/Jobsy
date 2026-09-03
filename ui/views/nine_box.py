@@ -1,4 +1,4 @@
-"""ui/pages/nine_box.py — moved verbatim out of ui/app.py on 2026-09-03."""
+"""ui/views/nine_box.py — moved verbatim out of ui/app.py on 2026-09-03."""
 
 from __future__ import annotations
 

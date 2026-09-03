@@ -36,7 +36,7 @@ Status: In flight · Owner: Product/Eng · Last updated: **2026-09-03** · Horiz
 | 0.1 | **Reference library → Supabase as the master** | `LIBRARY_SOURCE = "db"` since cutover `2095098`. 2,578 rows across 21 tables; `core/db_loader.py` behind the `Catalog` facade; `tests/test_library_parity.py` is the gate. Rollback is one config line. |
 | 0.2 | **Record-level metadata** | `owner`, `source`, `updated_at`, `effective_from`, `status` on every reference table — the workbook's own column names, adopted 1:1. |
 | 0.4 | **Data-quality dashboard** | Data Quality page: coverage per dimension, integrity counts, per-sheet freshness and provenance. Measures the *loaded* library, from whichever source. |
-| 0.5 | **Split `ui/app.py`** | 5,405 lines → `ui/shared.py` + `ui/pages/` (13 modules) + a 1,190-line `app.py`. Bodies verified byte-identical; all pages render under `streamlit.testing`. |
+| 0.5 | **Split `ui/app.py`** | 5,405 lines → `ui/shared.py` + `ui/views/` (13 modules) + a 1,190-line `app.py`. Bodies verified byte-identical; all pages render under `streamlit.testing`. |
 | 0.6 | **Close the broken surface** | `SUPABASE_SETUP.sql` committed; `services/afas_connector.py` written against AFAS's REST GetConnector API with 23 tests. Each connector now imports independently. |
 | 1.4 | **Provenance surfaced in the UI** | Match type, confidence and the pipeline stage chips are on every matched row. |
 | 1.5 | **Real `salary_service`** | `services/salary_service.py`: compa-ratio, range position, status, industry scaling, coverage accounting. *Effective dating is still open — see 1.5 below.* |

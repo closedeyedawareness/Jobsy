@@ -1,4 +1,4 @@
-"""ui/pages/architecture_report.py — moved verbatim out of ui/app.py on 2026-09-03."""
+"""ui/views/architecture_report.py — moved verbatim out of ui/app.py on 2026-09-03."""
 
 from __future__ import annotations
 

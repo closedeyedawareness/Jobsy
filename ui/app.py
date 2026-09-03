@@ -3,7 +3,7 @@ jobsy/ui/app.py  —  Streamlit front end for Jobsy V1
 Run with:  streamlit run ui/app.py
 
 The chrome, the Matching page and the routing. Every other page lives in
-ui/pages/, and the shared theme and helpers in ui/shared.py.
+ui/views/, and the shared theme and helpers in ui/shared.py.
 """
 
 from __future__ import annotations
@@ -16,18 +16,18 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from ui.shared import *  # noqa: F401,F403
-from ui.pages.connect import connect_page
-from ui.pages.architecture_report import architecture_report_page
-from ui.pages.job_family import job_family_page
-from ui.pages.data_quality import data_quality_page, FRESH_DAYS, STALE_DAYS
-from ui.pages.pay_equity import pay_equity_page
-from ui.pages.benefits import benefits_benchmarking_page
-from ui.pages.skill_gap import skill_gap_page
-from ui.pages.skills_dashboard import skills_dashboard_page
-from ui.pages.skill_assessment import skill_assessment_page, SKILL_ALIASES, LEVEL_TEXT_MAP
-from ui.pages.organigram import organigram_page
-from ui.pages.org_hierarchy import org_hierarchy_page
-from ui.pages.nine_box import nine_box_page
+from ui.views.connect import connect_page
+from ui.views.architecture_report import architecture_report_page
+from ui.views.job_family import job_family_page
+from ui.views.data_quality import data_quality_page, FRESH_DAYS, STALE_DAYS
+from ui.views.pay_equity import pay_equity_page
+from ui.views.benefits import benefits_benchmarking_page
+from ui.views.skill_gap import skill_gap_page
+from ui.views.skills_dashboard import skills_dashboard_page
+from ui.views.skill_assessment import skill_assessment_page, SKILL_ALIASES, LEVEL_TEXT_MAP
+from ui.views.organigram import organigram_page
+from ui.views.org_hierarchy import org_hierarchy_page
+from ui.views.nine_box import nine_box_page
 
 
 PIPE_STAGES=[("exact","Exact"),("normalized","Norm."),("synonym","Synonym"),("fuzzy","Fuzzy")]
