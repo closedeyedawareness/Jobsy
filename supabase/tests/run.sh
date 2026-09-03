@@ -53,7 +53,12 @@ done
 
 echo
 OUT=""
-for t in supabase/tests/[0-9]*_test.sql; do
+# Every numbered file, not just those ending _test.sql. 0014 arrived named
+# 0014_library_read_is_org_only.sql and was therefore never run at all -- a
+# whole test file silently excluded by a naming convention, which the error
+# check below cannot catch because nothing errored: nothing ran. Matching on the
+# number is matching on the thing that actually identifies these files.
+for t in supabase/tests/[0-9]*.sql; do
   echo "── $(basename "$t") ──────────────────────────────────────────"
   # Each test file runs against the same database, in filename order: 0008's
   # fixtures build on 0007 having run, and both are written to be re-runnable.

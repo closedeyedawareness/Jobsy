@@ -17,7 +17,8 @@ from typing import Optional
 
 __all__ = ["Job", "JobProfile", "SalaryBand", "CareerStep", "Employee",
            "Skill", "RoleSkillRequirement", "CompetencyLevel", "SkillAssessment",
-           "BenefitCatalogItem", "BenefitObservation", "LevelBenefitFactor", "BenefitBand"]
+           "BenefitCatalogItem", "BenefitObservation", "LevelBenefitFactor", "BenefitBand",
+           "PayMixEntry", "PayElement"]
 
 
 @dataclass(frozen=True)
@@ -228,3 +229,52 @@ class BenefitBand:
     def median(self) -> float:
         """Alias for P50 — the market median."""
         return self.p50
+
+
+@dataclass(frozen=True)
+class PayMixEntry:
+    """Pay policy for one Function x Level: what that cohort is entitled to.
+
+    Target, not actual. It says what the policy grants, never what anyone was
+    paid — the distinction the variable-pay exposure analysis rests on.
+
+    The frame keeps LTIEligible as the workbook's 'Yes'/'No' text, because the
+    database-versus-workbook parity gate compares frames; the typing happens
+    here, where it costs nothing.
+    """
+    function: str
+    level: str
+    target_variable_pct: float = 0.0
+    thirteenth_month_pct: float = 0.0
+    lti_eligible_text: str = ""
+    notes: str = ""
+
+    @property
+    def lti_eligible(self) -> bool:
+        return str(self.lti_eligible_text).strip().lower() in ("yes", "y", "true", "ja", "1")
+
+
+@dataclass(frozen=True)
+class PayElement:
+    """One component of total remuneration, as the library defines it.
+
+    TypicalValue is deliberately free text: some elements have a rate ('8%'),
+    and some have a range or nothing at all ('0-40% by role', '~10-15%
+    (indicative)', 'varies'). Parsing lives in services/pay_components_service,
+    which refuses to turn a range into a point.
+    """
+    element_id: str
+    name: str
+    category: str = ""
+    basis: str = ""
+    typical_value: str = ""
+    statutory_nl: str = ""
+    taxable: str = ""
+    description: str = ""
+
+    @property
+    def is_statutory(self) -> bool:
+        """The StatutoryNL column reads 'Yes (statutory min 8%)', 'No (CAO...)',
+        'Partly (sector funds)'. Only a leading Yes is a statutory obligation;
+        'Partly' is not, and must not be reported as one."""
+        return str(self.statutory_nl).strip().lower().startswith("yes")

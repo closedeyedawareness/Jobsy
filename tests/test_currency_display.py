@@ -91,7 +91,23 @@ def test_the_app_has_no_hard_coded_currency_left():
     This is the check that would have failed before this change, on 24 sites.
     """
     import ast
-    source = (ROOT / "ui" / "app.py").read_text()
+    # The UI was one file until the page split moved thirteen pages into
+    # ui/views/. Scanning only ui/app.py would have quietly stopped checking
+    # almost everything it was written to check -- a guard that passes because
+    # it is looking at the wrong place is worse than no guard.
+    offenders = []
+    for path in sorted((ROOT / "ui").rglob("*.py")):
+        offenders.extend(_euros_in(path))
+    assert not offenders, (
+        "hard-coded euro in user-visible strings: "
+        + "; ".join(f"{f}:{ln}: {t!r}" for f, ln, t in offenders)
+        + " — route it through _money() / _cur()")
+
+
+def _euros_in(path):
+    """Euro signs in a file, excluding docstrings and the documented fallbacks."""
+    import ast
+    source = path.read_text()
     tree = ast.parse(source)
 
     docstrings = set()
@@ -112,17 +128,13 @@ def test_the_app_has_no_hard_coded_currency_left():
             for inner in ast.walk(node):
                 exempt.add(id(inner))
 
-    offenders = []
+    found = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) \
                 and id(node) not in docstrings and id(node) not in exempt \
                 and "€" in node.value:
-            offenders.append((node.lineno, node.value[:60]))
-    assert not offenders, (
-        "hard-coded euro in user-visible strings: "
-        + "; ".join(f"line {ln}: {t!r}" for ln, t in offenders)
-        + " — route it through _money() / _cur()"
-    )
+            found.append((path.name, node.lineno, node.value[:60]))
+    return found
 
 
 def test_the_workbook_export_does_not_assume_euro_either():

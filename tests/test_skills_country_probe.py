@@ -279,16 +279,18 @@ def test_the_dutch_crosswalk_is_gated_on_the_client_being_dutch():
 
     The functions themselves still take no `country`, and that is fine: they are
     Dutch functions and answering a Dutch question is all they claim to do. What
-    matters is that nothing ASKS them a non-Dutch question. ui/app.py gates both
-    render sites on _cao_applies(), which is what this asserts.
+    matters is that nothing ASKS them a non-Dutch question. Both render sites
+    gate on _is_dutch_client(), which is what this asserts. It lives in
+    ui/views/pay_equity.py -- the page split moved the pay-equity screens out of
+    ui/app.py, and the two sites share one predicate so they cannot drift.
 
     Before the gate, a Polish or Swedish client saw their grades positioned onto
     Dutch salarisgroepen with "Maandschaal 2026" euro figures beside them and
     nothing on screen saying the structure was Dutch -- implying a legal
     classification, and so misstating what a non-Dutch worker is owed.
     """
-    import ui.app as app
-    assert hasattr(app, "_cao_applies"), (
+    from ui.views import pay_equity as pe
+    assert hasattr(pe, "_is_dutch_client"), (
         "nothing decides whether the Dutch crosswalk applies to this client"
     )
 
@@ -296,7 +298,7 @@ def test_the_dutch_crosswalk_is_gated_on_the_client_being_dutch():
     from services import country_service
     for code, expected in (("NL", True), ("PL", False), ("SE", False), ("DE", False)):
         with patch.object(country_service, "active_country", lambda c=code: c):
-            assert app._cao_applies() is expected, (
+            assert pe._is_dutch_client() is expected, (
                 f"a client in {code} is {'not ' if expected else ''}being offered "
                 f"the Dutch CAO crosswalk"
             )
@@ -326,19 +328,26 @@ def test_both_ui_crosswalk_sites_are_behind_the_market_gate():
     Extracted by each section's own marker comment rather than by line number,
     so this survives unrelated edits above it.
     """
-    source = (ROOT / "ui" / "app.py").read_text()
+    # Searched across the whole UI tree rather than one file: the page split
+    # moved the pay-equity screens into ui/views/, and a guard pinned to
+    # ui/app.py would have gone on passing while checking nothing.
     marker = "# ── CAO crosswalk (ISF / CATS®, indicative, public bands only) ──"
-    lines = source.splitlines()
-    occurrences = [i for i, l in enumerate(lines) if marker.rstrip("─") in l]
-    assert len(occurrences) >= 2, "expected both CAO crosswalk render sites in ui/app.py"
+    sites = []
+    for path in sorted((ROOT / "ui").rglob("*.py")):
+        lines = path.read_text().splitlines()
+        for i, l in enumerate(lines):
+            if marker.rstrip("─") in l:
+                sites.append((path.name, i, lines))
+    assert len(sites) >= 2, (
+        f"expected both CAO crosswalk render sites somewhere under ui/, found {len(sites)}")
 
     ungated = []
-    for idx in occurrences:
+    for name, idx, lines in sites:
         end = next((j for j in range(idx + 1, len(lines))
                     if lines[j].lstrip().startswith("# ──")), len(lines))
         block = "\n".join(lines[idx:end])
-        if "_cao_applies" not in block:
-            ungated.append(lines[idx].strip()[:60] + f" (line {idx + 1})")
+        if "_is_dutch_client" not in block:
+            ungated.append(f"{name}:{idx + 1}")
     assert not ungated, (
         "these CAO crosswalk render sites are not behind the market gate, so a "
         "non-Dutch client would be shown Dutch collective-agreement salary "

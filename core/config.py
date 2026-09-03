@@ -37,3 +37,23 @@ LIBRARY_SOURCE    = "db"
 # table since migration 0001, so Phase 0.3 is a policy change rather than a
 # migration onto populated tables.
 LIBRARY_ORG_SLUG  = "default"
+
+# WHICH CREDENTIAL the DB loader reads the library with: "secret" | "user".
+#
+# "secret" is how it has always worked and is still the default: the app holds
+# the project's secret key, which bypasses row-level security entirely. That was
+# fine when Jobsy had one tenant and a shared password. It stopped being fine
+# when PR #32 gave it named accounts and 0008's policies, because every page now
+# runs with a credential those policies do not apply to — the half of the
+# tenancy work that is not true yet.
+#
+# "user" reads the library through the signed-in user's own client, so the
+# policies decide what comes back. Flipping this is the whole cutover, the same
+# way LIBRARY_SOURCE was: one line, and one line back.
+#
+# Before flipping it, two things must hold, and both are tested:
+#   - the reference tables have a read policy for `authenticated` keyed on org
+#     membership (0008, plus 0014 for the two pay tables it missed), and
+#   - that policy depends on the ORG ONLY, never on the member's role — the
+#     catalog is cached per org and shared between that org's sessions.
+LIBRARY_CLIENT    = "secret"

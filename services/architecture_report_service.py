@@ -594,13 +594,15 @@ class ArchitectureReportService:
         ws.row_dimensions[1].height = 22
         ws.freeze_panes = "A2"
 
+        # From the loaded library, for the same reason as the pay sheet below.
+        frames = getattr(self.catalog, "frames", None) or {}
         try:
-            fr = pd.read_excel(str(self.catalog.path),
-                               sheet_name=["Jobs", "SalaryBands", "JobGrades"], dtype=str)
-        except Exception as exc:
-            _cell(ws, 2, 1, f"Reference workbook not available ({exc}).", fg=MUTED)
+            jobs = frames["jobs"].copy()
+            bands = frames["salary"]
+            grades = frames["jobgrades"]
+        except KeyError as exc:
+            _cell(ws, 2, 1, f"Reference data not available ({exc}).", fg=MUTED)
             return
-        jobs = fr["Jobs"].copy(); bands = fr["SalaryBands"]; grades = fr["JobGrades"]
         jobs["Grade"] = pd.to_numeric(jobs.get("Grade"), errors="coerce")
         bmap = {(r["Function"], r["Level"]): r for _, r in bands.iterrows()}
         gmap = {}
@@ -658,29 +660,32 @@ class ArchitectureReportService:
     def _build_total_pay(self):
         ws = self._wb.create_sheet("9. Total Pay & Reward")
         ws.sheet_view.showGridLines = False
-        headers = ["Role", "Function", "Level", "Base median (P50)", "Holiday (8%)",
+        headers = ["Role", "Function", "Level", "Base median (P50)", "Holiday allowance",
                    "13th month", "Variable (on-target)", "Total target cash",
-                   "Pension (~12%)", "Benefits (est.)", "Total reward", "LTI"]
+                   "Employer pension", "Other benefits", "Total reward", "LTI"]
         widths = [30, 14, 10, 16, 13, 16, 18, 18, 14, 13, 16, 8]
         for ci, (h, w) in enumerate(zip(headers, widths), 1):
             ws.column_dimensions[get_column_letter(ci)].width = w
             _hdr(ws, 1, ci, h, bg=TEAL)
         ws.row_dimensions[1].height = 22
         ws.freeze_panes = "A2"
+        # Read the library the app has loaded, not the workbook on disk: after
+        # the cutover that file is a snapshot, and a board report priced off a
+        # stale copy of the bands is the worst place for that difference to
+        # land. The pay composition comes from the same service the pages use.
+        from services import pay_components_service as _pay
+        frames = getattr(self.catalog, "frames", None) or {}
+        repo = self.catalog.repository
         try:
-            fr = pd.read_excel(str(self.catalog.path),
-                               sheet_name=["Jobs", "SalaryBands", "PayMix"], dtype=str)
-        except Exception as exc:
+            jobs = frames["jobs"].copy()
+            bands = frames["salary"].copy()
+        except KeyError as exc:
             _cell(ws, 2, 1, f"Pay data not available ({exc}).", fg=MUTED)
             return
-        jobs = fr["Jobs"].copy(); bands = fr["SalaryBands"]; mix = fr["PayMix"]
         jobs["Grade"] = pd.to_numeric(jobs.get("Grade"), errors="coerce")
         for _c in ("Min", "P50", "Max"):
             if _c in bands: bands[_c] = pd.to_numeric(bands[_c], errors="coerce")
-        for _c in ("TargetVariablePct", "ThirteenthMonthPct"):
-            if _c in mix: mix[_c] = pd.to_numeric(mix[_c], errors="coerce")
         bmap = {(r["Function"], r["Level"]): r for _, r in bands.iterrows()}
-        xmap = {(r["Function"], r["Level"]): r for _, r in mix.iterrows()}
 
         def _e(v):
             try: return self._money(float(v))
@@ -690,34 +695,47 @@ class ArchitectureReportService:
         for fn in sorted(jobs["Function"].dropna().unique()):
             fam = jobs[jobs["Function"] == fn].dropna(subset=["Grade"]).sort_values("Grade")
             for role in fam.itertuples(index=False):
-                lvl = getattr(role, "Level"); b = bmap.get((fn, lvl)); x = xmap.get((fn, lvl))
+                lvl = getattr(role, "Level"); b = bmap.get((fn, lvl))
                 if b is None or pd.isna(b.get("P50")):
                     continue
                 base = float(b.get("P50"))
-                var_pct = float(x.get("TargetVariablePct") or 0) if x is not None else 0.0
-                th_pct = float(x.get("ThirteenthMonthPct") or 0) if x is not None else 0.0
-                hol = base * 0.08; m13 = base * th_pct / 100; varamt = base * var_pct / 100
-                ttc = base + hol + m13 + varamt
-                lti = (x.get("LTIEligible") if x is not None else None) or "—"
+                comp = _pay.compose(base, fn, lvl, repo)
+
+                def _part(key, comp=comp):
+                    """One component as text: the amount and the rate behind it."""
+                    c = next((c for c in comp.components if c.key == key), None)
+                    if c is not None and c.amount is not None:
+                        return f"{_e(c.amount)} ({c.pct:g}%)"
+                    if c is not None and c.low_amount is not None:
+                        return (f"{_e(c.low_amount)} – {_e(c.high_amount)} "
+                                f"({c.low_pct:g}–{c.high_pct:g}%)")
+                    return "not stated"
+
+                lti = ("—" if comp.lti_eligible is None
+                       else ("Yes" if comp.lti_eligible else "No"))
                 bg = _row_bg(ri)
                 _cell(ws, ri, 1, str(getattr(role, "StandardTitle")), fg=INK, bg=bg, bold=True)
                 _cell(ws, ri, 2, fn, fg=MUTED, bg=bg)
                 _cell(ws, ri, 3, str(lvl), fg=MUTED, bg=bg)
                 _cell(ws, ri, 4, _e(base), fg=INK, bg=bg)
-                _cell(ws, ri, 5, _e(hol), fg=MUTED, bg=bg)
-                _cell(ws, ri, 6, (f"{_e(m13)} ({th_pct:.2f}%)" if th_pct else "—"), fg=MUTED, bg=bg)
-                _cell(ws, ri, 7, (f"{_e(varamt)} ({var_pct:.0f}%)" if var_pct else "—"), fg=MUTED, bg=bg)
-                pens = base * 0.12; ben = 2000.0; treward = ttc + pens + ben
-                _cell(ws, ri, 8, _e(ttc), fg=TEAL, bg=bg, bold=True)
-                _cell(ws, ri, 9, _e(pens), fg=MUTED, bg=bg)
-                _cell(ws, ri, 10, _e(ben), fg=MUTED, bg=bg)
-                _cell(ws, ri, 11, _e(treward), fg=VIOLET, bg=bg, bold=True)
+                _cell(ws, ri, 5, _part("holiday"), fg=MUTED, bg=bg)
+                _cell(ws, ri, 6, _part("thirteenth"), fg=MUTED, bg=bg)
+                _cell(ws, ri, 7, _part("variable"), fg=MUTED, bg=bg)
+                _cell(ws, ri, 8, _e(comp.total_target_cash), fg=TEAL, bg=bg, bold=True)
+                _cell(ws, ri, 9, _part("pension"), fg=MUTED, bg=bg)
+                _cell(ws, ri, 10, _part("benefits"), fg=MUTED, bg=bg)
+                _cell(ws, ri, 11, (f"{_e(comp.total_reward_low)} – {_e(comp.total_reward_high)}"
+                                   if comp.is_range else _e(comp.total_target_cash)),
+                      fg=VIOLET, bg=bg, bold=True)
                 _cell(ws, ri, 12, str(lti), fg=MUTED, bg=bg)
                 ws.row_dimensions[ri].height = 20
                 ri += 1
         _cell(ws, ri + 1, 1,
-              "Total target cash = base + 8% holiday + 13th month + on-target variable. "
-              "Total reward adds indicative employer pension (~12%) and benefits (~2k). See PayElements.",
+              "Every rate is taken from the reference library: holiday allowance and employer "
+              "pension from PayElements, 13th month and on-target variable from PayMix for that "
+              "Function x Level. Pension is stated as a range, so total reward is a range. "
+              "A component the library does not state as a rate reads 'not stated' and is left "
+              "out of the totals rather than estimated.",
               fg=MUTED, italic=True)
         _border_range(ws, 1, ri - 1, 1, len(headers))
 
@@ -913,9 +931,16 @@ class ArchitectureReportService:
                     "impact":"Better retention of high performers, more meaningful progression, reduced flight risk."})
 
         # Pattern 3: Function with no Lead role
+        # An unmatched title carries no function, and None is not a function
+        # with no Lead role -- it is a row this pattern cannot speak about. It
+        # used to be counted anyway, and then joined into a sentence, which
+        # raised TypeError and took the whole report down: every generate with
+        # one unmatched title failed, which is most real client files.
         fn_levels:dict[str,set]={};
         for r in self.results:
-            fn_levels.setdefault(r.function,set()).add(r.level)
+            if not r.function:
+                continue
+            fn_levels.setdefault(str(r.function),set()).add(r.level)
         no_lead_fns=[fn for fn,lvls in fn_levels.items() if "Lead" not in lvls and fn!="Executive"]
         if no_lead_fns:
             findings.append({"severity":"high","title":"Functions without leadership representation",

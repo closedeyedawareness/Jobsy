@@ -142,22 +142,29 @@ def _fetch_all(client, table: str, org_id: str) -> list[dict]:
         start += PAGE
 
 
-def load_frames(client, org_id: str, *, include_all: bool = False) -> dict[str, pd.DataFrame]:
+def load_frames(client, org_id: str) -> dict[str, pd.DataFrame]:
     """Read the library from Postgres as the dict Repository expects.
 
     Keys are SHEET_MAP's repository keys ('jobs', 'profiles', 'salary', …) and
     columns carry the WORKBOOK's names, because that is what Repository reads.
 
-    include_all also returns the tables that have no SHEET_MAP entry, keyed by
-    sheet name — pay_mix and pay_elements. Repository never asked for those;
-    the variable-pay exposure analysis does.
+    There used to be an include_all flag for the tables SHEET_MAP had no entry
+    for — pay_mix and pay_elements — so the variable-pay analysis could reach
+    past the loader and read them itself. Since 2026-09-03 both are in
+    SHEET_MAP, the two sets are the same, and the flag had nothing left to
+    include. A table with no entry is now logged rather than skipped in
+    silence: nothing loading it is exactly the condition that made those two
+    invisible to Data Quality, to the export and to the parity gate.
     """
     frames: dict[str, pd.DataFrame] = {}
 
     for spec in _specs():
         db_to_workbook = {db: wb for wb, db in spec.columns.items()}
         repo_key = SHEET_MAP.get(spec.sheet)
-        if repo_key is None and not include_all:
+        if repo_key is None:
+            logger.warning(
+                "Table '%s' is in the library but has no SHEET_MAP entry, so nothing loads it "
+                "and no panel can see it.", spec.table)
             continue
 
         rows = _fetch_all(client, spec.table, org_id)
@@ -199,18 +206,56 @@ def load_frames(client, org_id: str, *, include_all: bool = False) -> dict[str, 
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        frames[repo_key if repo_key else spec.sheet] = df
+        frames[repo_key] = df
         logger.info("  %s: %d rows (db)", spec.table, len(df))
 
     return frames
 
 
-def load_frames_from_config(*, include_all: bool = False) -> dict[str, pd.DataFrame]:
-    """load_frames() with the client and org resolved from configuration.
+def _user_client_and_org():
+    """The signed-in user's own client and their active org.
 
-    Credentials come from the importer's resolver, so there is one answer to
-    "which key, and where from" rather than two that can disagree.
+    This is the credential the 0008 policies were written for: the library comes
+    back filtered by membership rather than by the loader trusting itself. It
+    raises rather than falling back — a silent fall back to the secret key would
+    read exactly the same rows and prove nothing, which is the failure mode this
+    whole switch exists to remove.
     """
+    from services import auth_service
+
+    client = auth_service.db()
+    if client is None:
+        raise RuntimeError(
+            "LIBRARY_CLIENT is 'user' but nobody is signed in, so there is no "
+            "credential to read the library with.")
+    org_id = auth_service.active_org_id()
+    if not org_id:
+        raise RuntimeError(
+            "LIBRARY_CLIENT is 'user' but this account has no active client "
+            "organisation, so there is no library to read.")
+    return client, org_id
+
+
+def client_and_org(mode: str | None = None):
+    """A Supabase client and the org id, resolved from configuration.
+
+    Split out of load_frames_from_config so anything else that needs to read
+    this project — the audit-trail panel, for one — gets the same client and
+    the same org, rather than a second answer to "which key, and where from"
+    that can disagree with this one.
+
+    `mode` follows config.LIBRARY_CLIENT unless given: "secret" is the project
+    key, which bypasses RLS, and "user" is the signed-in session's own client.
+    """
+    if mode is None:
+        try:
+            from core.config import LIBRARY_CLIENT
+            mode = LIBRARY_CLIENT
+        except Exception:
+            mode = "secret"
+    if mode == "user":
+        return _user_client_and_org()
+
     try:
         from services.library_import_service import _resolve_credentials, _require_writable_key
     except ImportError:  # pragma: no cover
@@ -237,4 +282,15 @@ def load_frames_from_config(*, include_all: bool = False) -> dict[str, pd.DataFr
     org = client.table("orgs").select("id").eq("slug", org_slug).single().execute()
     if not org.data:
         raise RuntimeError(f"No organisation with slug '{org_slug}'.")
-    return load_frames(client, org.data["id"], include_all=include_all)
+    return client, org.data["id"]
+
+
+def load_frames_from_config(*, client=None, org_id: str | None = None) -> dict[str, pd.DataFrame]:
+    """load_frames() with the client and org resolved from configuration.
+
+    A caller that already holds a client — the app, once it reads the library as
+    the signed-in user — passes it in rather than having a second one built.
+    """
+    if client is None or not org_id:
+        client, org_id = client_and_org()
+    return load_frames(client, org_id)

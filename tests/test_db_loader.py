@@ -10,7 +10,7 @@ without a database or a key. The real comparison is tests/test_library_parity.py
 import pandas as pd
 import pytest
 
-from core.db_loader import load_frames, _to_text, _render, PAGE
+from core.db_loader import load_frames, load_frames_from_config, _to_text, _render, PAGE
 
 
 class _FakeQuery:
@@ -171,15 +171,128 @@ def test_a_table_larger_than_one_page_is_read_completely():
     assert df.iloc[-1]["ObsID"] == f"BO-{PAGE + 7:05d}"
 
 
-def test_pay_mix_is_excluded_by_default_and_included_on_request():
-    """Repository never asked for PayMix — SHEET_MAP has no entry. The
-    variable-pay exposure analysis does."""
+def test_pay_mix_arrives_with_the_rest_of_the_library():
+    """It used to need include_all, because SHEET_MAP had no entry for it and
+    the variable-pay analysis reached past the loader to read it. Since
+    2026-09-03 it loads like any other sheet, under its repository key."""
     client = _FakeClient({"pay_mix": [_row(function="Eng", level="Lead",
                                            target_variable_pct=18,
                                            thirteenth_month_pct=8.33,
                                            lti_eligible="Yes")]})
-    assert "PayMix" not in load_frames(client, "org-1")
-    frames = load_frames(client, "org-1", include_all=True)
-    assert "PayMix" in frames
-    assert frames["PayMix"].iloc[0]["TargetVariablePct"] == "18"
-    assert frames["PayMix"].iloc[0]["LTIEligible"] == "Yes"
+    frames = load_frames(client, "org-1")
+    assert "paymix" in frames
+    assert frames["paymix"].iloc[0]["TargetVariablePct"] == "18"
+    # Yes/No stays the workbook's text: the parity gate compares frames, and the
+    # typing belongs on PayMixEntry, not in the loader.
+    assert frames["paymix"].iloc[0]["LTIEligible"] == "Yes"
+
+
+def test_pay_elements_arrive_too_and_keep_their_free_text():
+    client = _FakeClient({"pay_elements": [_row(element_id="PE-PENS", name="Pension (employer)",
+                                                category="Benefits", basis="% of pensionable base",
+                                                typical_value="~10-15% (indicative)",
+                                                statutory_nl="Partly (sector funds)")]})
+    df = load_frames(client, "org-1")["payelements"]
+    # A range must reach the app as a range. Rendering it as a number here would
+    # be the loader inventing a point estimate the library refuses to give.
+    assert df.iloc[0]["TypicalValue"] == "~10-15% (indicative)"
+
+
+# ── which credential the library is read with ────────────────────────────────
+#
+# The default is still the project's secret key, which bypasses RLS. These pin
+# the switch itself, so flipping config.LIBRARY_CLIENT is a one-line change with
+# known behaviour rather than a hope.
+
+def test_the_default_credential_is_the_configured_one(monkeypatch):
+    import core.db_loader as dl
+    seen = {}
+    monkeypatch.setattr(dl, "_user_client_and_org", lambda: (seen.setdefault("mode", "user"), "org"))
+    dl.client_and_org(mode="user")
+    assert seen["mode"] == "user"
+
+
+def _fake_auth_service(monkeypatch, *, db, active_org_id):
+    """Stand a fake services.auth_service in front of core.db_loader.
+
+    Patching sys.modules alone is not enough. db_loader says
+    `from services import auth_service`, which resolves through the ATTRIBUTE on
+    the already-imported `services` package, not through a sys.modules lookup --
+    so once anything in the suite has imported the real auth_service, these
+    tests silently got the real one and took a different error path. They passed
+    only while they happened to run before anything that imports it, which is a
+    property of alphabetical file order rather than of the code under test.
+    Patching both is order-independent.
+    """
+    import sys, types, services
+    fake = types.ModuleType("services.auth_service")
+    fake.db = db
+    fake.active_org_id = active_org_id
+    monkeypatch.setitem(sys.modules, "services.auth_service", fake)
+    monkeypatch.setattr(services, "auth_service", fake, raising=False)
+    return fake
+
+
+def test_user_mode_refuses_rather_than_falling_back_when_nobody_is_signed_in(monkeypatch):
+    """A fall back to the secret key would read exactly the same rows and prove
+    nothing — which is the failure this switch exists to remove."""
+    _fake_auth_service(monkeypatch, db=lambda: None, active_org_id=lambda: None)
+
+    import core.db_loader as dl
+    with pytest.raises(RuntimeError, match="nobody is signed in"):
+        dl.client_and_org(mode="user")
+
+
+def test_user_mode_refuses_when_the_account_has_no_active_client(monkeypatch):
+    _fake_auth_service(monkeypatch, db=lambda: object(), active_org_id=lambda: None)
+
+    import core.db_loader as dl
+    with pytest.raises(RuntimeError, match="no active client"):
+        dl.client_and_org(mode="user")
+
+
+def test_a_caller_that_holds_a_client_is_not_given_a_second_one():
+    """The app passes the signed-in session's client straight through; building
+    another one here would quietly go back to the secret key."""
+    client = _FakeClient({"jobs": [_row(job_id="J-1", standard_title="Engineer",
+                                        function="Eng", level="Medior")]})
+    frames = load_frames_from_config(client=client, org_id="org-1")
+    assert "jobs" in frames and len(frames["jobs"]) == 1
+
+
+# ── the fallback, once the read is user-scoped ───────────────────────────────
+
+def test_a_user_scoped_failure_does_not_fall_back_to_the_committed_workbook():
+    """With the secret key, an unreachable database means "stay up on the
+    workbook". With the user's own credential it means something else entirely:
+    this account may not read that org. Answering THAT with the repo's workbook
+    would hand one client the default library as if it were theirs."""
+    from core.catalog import Catalog
+
+    class _Boom:
+        def table(self, *_a, **_k):
+            raise RuntimeError("permission denied")
+
+    cat = Catalog(path="jobsy_reference_library.xlsx", source="db",
+                  client=_Boom(), org_id="org-1")
+    with pytest.raises(RuntimeError, match="not a substitute"):
+        cat.load()
+
+
+def test_an_empty_user_scoped_read_is_refused_rather_than_papered_over():
+    from core.catalog import Catalog
+
+    cat = Catalog(path="jobsy_reference_library.xlsx", source="db",
+                  client=_FakeClient({}), org_id="org-1")
+    with pytest.raises(RuntimeError, match="policies do not let"):
+        cat.load()
+
+
+def test_the_secret_key_path_still_falls_back_to_the_workbook():
+    """Unchanged, and deliberately so: one tenant, a key that reads everything,
+    and a committed workbook that is genuinely the same library."""
+    from core.catalog import Catalog
+
+    cat = Catalog(path="jobsy_reference_library.xlsx", source="db").load()
+    assert cat.active_source == "excel"
+    assert cat.fell_back_to_excel is True

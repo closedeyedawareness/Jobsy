@@ -42,6 +42,11 @@ SHEET_MAP = {
     "BenefitsCatalog": "benefitscatalog",
     "BenefitsObservations": "benefitsobservations",
     "LevelBenefitsFactors": "levelbenefitsfactors",
+    # Added 2026-09-03. These two were in the database and read past this map by
+    # whoever needed them, which made the variable-pay figures a second chain:
+    # invisible to Data Quality, absent from the export, outside the parity gate.
+    "PayMix":      "paymix",
+    "PayElements": "payelements",
 }
 
 
@@ -49,9 +54,10 @@ class Catalog:
     """Reads the Excel reference library and builds a typed Repository."""
 
     def __init__(self, path: str = "jobsy_reference_library.xlsx",
-                 source: str | None = None) -> None:
+                 source: str | None = None, client=None, org_id: str | None = None) -> None:
         self.path = Path(path)
         self.repository = None
+        self.frames: dict = {}
         self._loaded = False
         # "excel" | "db". None takes config.LIBRARY_SOURCE, so the cutover is a
         # one-line config change and every existing Catalog(path) call site
@@ -63,11 +69,28 @@ class Catalog:
             except Exception:
                 source = "excel"
         self.source = source
+        # A caller that already holds a database client passes it in — the app
+        # does exactly that once it reads the library as the signed-in user, so
+        # 0008's policies decide what comes back instead of the loader deciding
+        # for itself. None means "resolve from configuration", which is the
+        # secret key until LIBRARY_CLIENT says otherwise.
+        self._client = client
+        self._org_id = org_id
         # What the library was ACTUALLY read from, which is not always what was
         # asked for — see the fallback in _load_from_db(). The sidebar shows
         # this, because "which source am I looking at" stops being obvious the
         # moment a fallback exists.
         self.active_source = None
+
+    def _user_scoped(self) -> bool:
+        """Is the library being read with the signed-in user's own credential?"""
+        if self._client is not None:
+            return True
+        try:
+            from core.config import LIBRARY_CLIENT
+            return LIBRARY_CLIENT == "user"
+        except Exception:
+            return False
 
     def _load_from_db(self) -> dict | None:
         """Frames from Postgres, or None to fall back to the workbook.
@@ -77,11 +100,27 @@ class Catalog:
         beats failing hard. But falling back SILENTLY would be worse than
         either — a stale library that looks live is the exact thing this
         migration is meant to end — so it is logged loudly and surfaced.
+
+        THE FALLBACK IS OFF WHEN THE READ IS USER-SCOPED, and that is not a
+        detail. Once the library is read through the signed-in user's client,
+        the reason it can come back empty is no longer "the database is down" —
+        it is "this account may not read that org". Answering that with the
+        workbook committed to this repo would hand one client the default
+        library as though it were theirs: a tenancy leak wearing the clothes of
+        a resilience feature. There is nothing safe to fall back TO, so it
+        fails, loudly, and the app says whose data could not be read.
         """
+        user_scoped = self._user_scoped()
         try:
             from core.db_loader import load_frames_from_config
-            frames = load_frames_from_config()
+            frames = load_frames_from_config(client=self._client, org_id=self._org_id)
         except Exception as exc:
+            if user_scoped:
+                raise RuntimeError(
+                    f"The reference library could not be read for this account "
+                    f"({type(exc).__name__}: {exc}). The workbook in this repo is not a "
+                    f"substitute — it belongs to no client."
+                ) from exc
             logger.error("Could not load the library from the database (%s: %s). "
                          "Falling back to the workbook at %s — this data may be stale.",
                          type(exc).__name__, exc, self.path)
@@ -93,6 +132,12 @@ class Catalog:
             # An empty database reads as a successful load of nothing, which
             # would build an empty catalog and look like a data disaster rather
             # than a configuration one. Refuse it and use the workbook.
+            if user_scoped:
+                raise RuntimeError(
+                    f"The database returned no rows for {', '.join(missing)} as this account. "
+                    f"Either the client's library is not seeded, or the policies do not let "
+                    f"this account read it — the workbook is not the answer to either."
+                )
             logger.error("The database returned no rows for %s — it is probably not seeded. "
                          "Falling back to the workbook.", ", ".join(missing))
             return None
@@ -162,6 +207,11 @@ class Catalog:
                     f"(source: {self.active_source}). "
                     "Check that Jobs, TitleMapping, and SalaryBands are present."
                 )
+
+        # Keep the frames as they were read. The Repository is a typed view and
+        # cannot be turned back into the library; the export path needs what
+        # actually arrived, from whichever source it arrived from.
+        self.frames = dict(data)
 
         # build the repository (lazy import to keep circular imports clean)
         from core.repository import Repository
@@ -233,13 +283,8 @@ class Catalog:
         if not industry_id:
             return band
         factor = self.repository.industry_factors.get((industry_id, function), 1.0)
-        from core.models import SalaryBand
-        return SalaryBand(
-            function=band.function, level=band.level, grade=band.grade,
-            min=round(band.min * factor), max=round(band.max * factor),
-            p25=round(band.p25 * factor), p50=round(band.p50 * factor),
-            p75=round(band.p75 * factor), currency=band.currency,
-        )
+        from services.salary_service import scale_band
+        return scale_band(band, factor)
 
     def industry_factor(self, function: str, industry_id: str) -> float:
         return self.repository.industry_factors.get((industry_id, function), 1.0)
