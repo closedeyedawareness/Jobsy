@@ -29,6 +29,13 @@ class Job:
     level: str
     grade: int = 0
     category: str = ""
+    # The public occupational taxonomies. ISCO is the ILO's, ESCO the EU's; the
+    # library fills both for all 81 roles. The CODE was already consulted by the
+    # Data Quality scorecard while the LABELS were loaded and read by nothing —
+    # and the labels are the half a person can check.
+    isco_group: str = ""
+    isco_title: str = ""
+    esco_label: str = ""
 
     @property
     def title(self) -> str:
@@ -126,6 +133,13 @@ class SkillAssessment:
 
 @dataclass(frozen=True)
 class JobGrade:
+    """One rung of the grade ladder, with the factor language that defines it.
+
+    The point range (hay_min/hay_max) is Jobsy's OWN scale — 100 to 1800 across
+    the fourteen grades. It is not an ISF score and must never be looked up in
+    ISF's published boundary table, which runs 0 to 940 and belongs to a
+    protected method. See services/cao_crosswalk_service.
+    """
     grade: int
     label: str
     level_band: str
@@ -136,6 +150,28 @@ class JobGrade:
     pay_max: float = 0
     responsibilities: str = ""
     authority: str = ""
+    career_band: str = ""
+    hay_min: float = 0
+    hay_max: float = 0
+    # The factor descriptors. Four of these were already on screen, read out of
+    # a raw frame; autonomy and span_of_control were in the library and read by
+    # nothing at all. They are Art. 4 material — effort, responsibility,
+    # autonomy — so they belong on the typed record rather than in a DataFrame
+    # a page happens to hold.
+    scope: str = ""
+    complexity: str = ""
+    autonomy: str = ""
+    impact: str = ""
+    leadership: str = ""
+    span_of_control: str = ""
+    decision_rights: str = ""
+
+    @property
+    def hay_mid(self) -> float:
+        """The middle of this grade's own point range, or 0 if it has none."""
+        if not self.hay_min and not self.hay_max:
+            return 0
+        return (float(self.hay_min) + float(self.hay_max)) / 2
 
 
 @dataclass(frozen=True)

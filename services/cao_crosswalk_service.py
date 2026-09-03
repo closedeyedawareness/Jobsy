@@ -72,6 +72,7 @@ class IsfCrosswalkResult:
     is_hoger_personeel: bool
     rank_fraction: float          # 0-1: this job's position in the org's own grade range
     note: str
+    basis: str = "grade rank"     # "grade rank" | "own point range"
 
 
 @dataclass(frozen=True)
@@ -81,9 +82,41 @@ class CatsCrosswalkResult:
     salarisgroep: str | None
     rank_fraction: float | None
     note: str
+    basis: str = "grade rank"
 
 
-def crosswalk_to_isf(job_grade: float, grade_min: float, grade_max: float) -> IsfCrosswalkResult | None:
+def _position(job_grade: float, grade_min: float, grade_max: float,
+              points: float | None, points_min: float | None,
+              points_max: float | None) -> tuple[float, str] | None:
+    """Where this job sits on the org's own ladder, 0 to 1, and on what basis.
+
+    THE LINE THIS FUNCTION EXISTS TO HOLD. JobGrades carries a point range per
+    grade — Jobsy's own scale, 100 to 1800. ISF publishes point BOUNDARIES,
+    0 to 940. Both are called points and they are not the same quantity: the
+    scoring method that produces an ISF total is protected, so a job's own
+    point figure is not an ISF figure and must never be looked up in the ISF
+    table. A grade at 405 of our points is not "ISF group G because 405 falls
+    in 381-430".
+
+    What the points ARE good for is spacing. Ranking by grade number assumes
+    every rung is the same distance from the next; the point ranges say they
+    are not — grade 3 spans 35 points and grade 14 spans 530. So points give a
+    truer POSITION on our own ladder, and that proportion is what gets carried
+    across to the public sequence, exactly as the grade rank was before.
+    """
+    if points is not None and points_min is not None and points_max is not None             and points_max > points_min:
+        return (max(0.0, min(1.0, (points - points_min) / (points_max - points_min))),
+                "own point range")
+    if grade_max <= grade_min:
+        return None
+    return (max(0.0, min(1.0, (job_grade - grade_min) / (grade_max - grade_min))),
+            "grade rank")
+
+
+def crosswalk_to_isf(job_grade: float, grade_min: float, grade_max: float,
+                     *, points: float | None = None,
+                     points_min: float | None = None,
+                     points_max: float | None = None) -> IsfCrosswalkResult | None:
     """
     Positions Jobsy's OWN grade proportionally onto the PUBLIC ISF
     salary-group sequence -- never computes a fake ISF point score for the
@@ -92,24 +125,32 @@ def crosswalk_to_isf(job_grade: float, grade_min: float, grade_max: float) -> Is
     position is meaningful rather than arbitrary to whatever subset of rows
     happens to be loaded.
     """
-    if grade_max <= grade_min:
+    placed = _position(job_grade, grade_min, grade_max, points, points_min, points_max)
+    if placed is None:
         return None
-    frac = max(0.0, min(1.0, (job_grade - grade_min) / (grade_max - grade_min)))
+    frac, basis = placed
     idx = round(frac * (len(ISF_BANDS) - 1))
     letter, lo, hi = ISF_BANDS[idx]
     is_hp = letter in _HP_LETTERS
     scale = None if is_hp else ISF_MONTHLY_SCALES_2026.get(letter)
     return IsfCrosswalkResult(
         salarisgroep=letter, isf_point_range=(lo, hi), monthly_scale=scale,
-        is_hoger_personeel=is_hp, rank_fraction=round(frac, 3),
+        is_hoger_personeel=is_hp, rank_fraction=round(frac, 3), basis=basis,
         note=(f"Indicatief: salarisgroep {letter} — officiële ISF-indeling vereist een "
               f"gecertificeerde weging. Dit positioneert Jobsy's eigen gradering binnen de "
-              f"publieke ISF-bandbreedtes; het is geen berekende ISF-score."),
+              f"publieke ISF-bandbreedtes; het is geen berekende ISF-score."
+              + (" De positie volgt Jobsy's eigen puntenbereik per graad — een eigen schaal "
+                 "(100–1800), niet de ISF-puntenschaal en er niet in opgezocht."
+                 if basis == "own point range" else
+                 " De positie volgt de rangorde van de graad; het puntenbereik per graad is "
+                 "niet meegegeven.")),
     )
 
 
 def crosswalk_to_cats(
-    job_grade: float, grade_min: float, grade_max: float, sector: str = "Metaal en Techniek"
+    job_grade: float, grade_min: float, grade_max: float, sector: str = "Metaal en Techniek",
+    *, points: float | None = None, points_min: float | None = None,
+    points_max: float | None = None,
 ) -> CatsCrosswalkResult:
     """
     Label alignment only. CATS has no public point-boundary table (see
@@ -122,15 +163,16 @@ def crosswalk_to_cats(
     if not table:
         return CatsCrosswalkResult(sector=sector, functiegroep=None, salarisgroep=None, rank_fraction=None,
                                     note=f"No public functiegroep/salarisgroep table on file for '{sector}' yet.")
-    if grade_max <= grade_min:
+    placed = _position(job_grade, grade_min, grade_max, points, points_min, points_max)
+    if placed is None:
         return CatsCrosswalkResult(sector=sector, functiegroep=None, salarisgroep=None, rank_fraction=None,
                                     note="Grade range too narrow to position (grade_max <= grade_min).")
+    frac, basis = placed
     fgs = sorted(table.keys())
-    frac = max(0.0, min(1.0, (job_grade - grade_min) / (grade_max - grade_min)))
     idx = round(frac * (len(fgs) - 1))
     fg = fgs[idx]
     return CatsCrosswalkResult(
-        sector=sector, functiegroep=fg, salarisgroep=table[fg], rank_fraction=round(frac, 3),
+        sector=sector, functiegroep=fg, salarisgroep=table[fg], rank_fraction=round(frac, 3), basis=basis,
         note=("Label alignment only — CATS® has no public point-range table to position "
               "against (unlike ISF). Official classification requires reading the sector's "
               "niveaublad for the relevant functiefamilie, done by a certified CATS® user."),

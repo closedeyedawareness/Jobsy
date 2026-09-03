@@ -88,3 +88,65 @@ def test_cats_unknown_sector_is_explicit_about_missing_data():
 
 def test_known_cats_sectors_lists_what_is_actually_sourced():
     assert known_cats_sectors() == ["Metaal en Techniek"]
+
+
+# ── positioning by our own point range ───────────────────────────────────────
+#
+# JobGrades carries a point range per grade: Jobsy's own scale, 100 to 1800.
+# ISF publishes point boundaries, 0 to 940. Both are called points and they are
+# not the same quantity — the method that produces an ISF total is protected.
+# These tests hold that line mechanically instead of in a docstring.
+
+OWN_MIN, OWN_MAX = 100.0, 1800.0          # the real ladder, grades 1..14
+
+
+def test_our_points_are_never_looked_up_in_the_isf_table():
+    """Grade 7 sits at 405 of OUR points. 405 falls inside ISF band G (381-430),
+    so a naive lookup would answer G. The honest answer is where 405 sits on our
+    own 100-1800 scale — 18% of the way up — which is band D. If this ever
+    returns G, someone has started treating our points as ISF points."""
+    res = crosswalk_to_isf(7, 1, 14, points=405, points_min=OWN_MIN, points_max=OWN_MAX)
+    naive_band = next(b for b, lo, hi in ISF_BANDS if lo <= 405 <= hi)
+    assert naive_band == "G"
+    assert res.salarisgroep == "D"
+    assert res.salarisgroep != naive_band
+    assert res.basis == "own point range"
+
+
+def test_a_point_total_above_the_whole_isf_table_still_positions():
+    """Grade 14 tops out at 1800 of our points — off the end of ISF's 940. A
+    lookup has no answer at all; a proportion has the obvious one."""
+    res = crosswalk_to_isf(14, 1, 14, points=1800, points_min=OWN_MIN, points_max=OWN_MAX)
+    assert res.salarisgroep == "Q" and res.rank_fraction == 1.0
+
+
+def test_without_points_it_behaves_exactly_as_before():
+    before = crosswalk_to_isf(7, 1, 14)
+    assert before.basis == "grade rank"
+    assert before.salarisgroep == crosswalk_to_isf(7, 1, 14, points=None).salarisgroep
+
+
+def test_points_and_grade_rank_genuinely_disagree():
+    """If they always agreed, passing points would be decoration. They do not:
+    the rungs are not evenly spaced — grade 3 spans 35 points, grade 14 spans 530."""
+    by_rank = crosswalk_to_isf(7, 1, 14).salarisgroep
+    by_points = crosswalk_to_isf(7, 1, 14, points=405,
+                                 points_min=OWN_MIN, points_max=OWN_MAX).salarisgroep
+    assert by_rank != by_points
+
+
+def test_the_note_says_which_basis_and_that_it_is_not_an_isf_score():
+    res = crosswalk_to_isf(7, 1, 14, points=405, points_min=OWN_MIN, points_max=OWN_MAX)
+    assert "geen berekende ISF-score" in res.note
+    assert "eigen puntenbereik" in res.note
+
+
+def test_cats_takes_the_same_basis_and_still_claims_no_score():
+    res = crosswalk_to_cats(7, 1, 14, points=405, points_min=OWN_MIN, points_max=OWN_MAX)
+    assert res.basis == "own point range"
+    assert "no public point-range table" in res.note
+
+
+def test_a_degenerate_point_range_falls_back_to_grade_rank():
+    res = crosswalk_to_isf(7, 1, 14, points=405, points_min=500, points_max=500)
+    assert res.basis == "grade rank"

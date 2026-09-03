@@ -93,11 +93,11 @@ def data_quality_page(catalog):
     _c_exp, _c_note = st.columns([1, 3])
     with _c_exp:
         try:
-            from services.library_export_service import LibraryExportService
+            from services.library_export_service import LibraryExportService, export_bytes
             _exporter = LibraryExportService(catalog)
             st.download_button(
                 "Export library to Excel",
-                data=_exporter.to_bytes(),
+                data=export_bytes(catalog),
                 file_name=_exporter.suggested_filename(),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 help="A snapshot of the library the app is reading right now.",
@@ -272,6 +272,7 @@ def data_quality_page(catalog):
             with st.expander("Recent library changes"):
                 try:
                     from core.db_loader import client_and_org
+                    from services import auth_service as _auth_dq
                     from services.library_history_service import recent_changes, summarise
                     _client, _org = client_and_org()
                     _hist = recent_changes(_client, _org, limit=200)
@@ -279,7 +280,15 @@ def data_quality_page(catalog):
                     _hist = None
                     st.caption(f"The change history could not be read: {_exc}")
                 if _hist is not None:
-                    if _hist.empty:
+                    if _hist.empty and not _auth_dq.is_admin():
+                        # The policy on library_audit is app.is_org_admin, so a
+                        # non-admin sees an empty trail whatever happened. Same
+                        # fact the database uses, asked here, so the page can
+                        # tell the two silences apart.
+                        st.caption("The change history is administrator-only on this client, "
+                                   "and this account is not one — so this is what the policy "
+                                   "shows you, not what the library did.")
+                    elif _hist.empty:
                         # Read as the signed-in user, the trail is admin-only
                         # (app.is_org_admin), so empty has two meanings and this
                         # panel cannot tell them apart. Claiming the first one

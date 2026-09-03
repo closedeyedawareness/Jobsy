@@ -272,10 +272,12 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     # PayMix states what each Function × Level is entitled to, on exactly the
     # key this page already groups by — so the structural half is answerable
     # from data the client has already handed over.
-    # PayMix arrives with the rest of the library now, so this reads the frame
-    # the Repository was built from rather than fetching the sheet again.
-    _paymix = (getattr(catalog, "frames", None) or {}).get("paymix")
-    if _paymix is not None and not _paymix.empty:
+    # The typed record, not the frame: PayMix is on the Repository since it
+    # joined the library, and one fact reachable two ways is how two halves of
+    # a screen end up disagreeing.
+    _repo_pe = getattr(catalog, "repository", None)
+    _paymix = getattr(_repo_pe, "pay_mix", None) if _repo_pe is not None else None
+    if _paymix:
         try:
             from services.pay_equity_service import analyze_variable_pay_exposure
         except ImportError:
@@ -490,6 +492,32 @@ def pay_equity_page(catalog, service):
                             ["fte", "parttime", "deeltijd"])
     comp_cols = {"Bonus": bonus_col, "Allowances": allow_col, "LTI": lti_col}
     has_variable = any(comp_cols.values())
+
+    # PayElements marks which components are statutory in the Netherlands. The
+    # library has carried those flags all along and nothing asked them anything.
+    # What they can answer is a question about the FILE, never about the
+    # employer: a missing column means this analysis cannot see that component,
+    # not that it was not paid.
+    try:
+        from services import pay_components_service as _payc
+        _repo_sc = getattr(catalog, "repository", None)
+        _present = {
+            "PE-HOL": bool(allow_col),      # holiday allowance arrives inside allowances
+            "PE-13": bool(allow_col),
+            "PE-VAR": bool(bonus_col),
+            "PE-LTI": bool(lti_col),
+        }
+        _cov = _payc.statutory_coverage(_repo_sc, _present) if _repo_sc else []
+        _absent = [e for e, seen in _cov if not seen]
+        if _absent:
+            st.caption(
+                "Statutory in the Netherlands and not visible in this file: "
+                + ", ".join(f"**{e.name}** ({e.typical_value})" for e in _absent)
+                + ". The Directive reports on total pay, so a component this file does not "
+                  "carry is a component the gap below cannot see — which is a limit of the "
+                  "upload, not a finding about the employer.")
+    except Exception:
+        pass
     if not sal_col:
         st.error("No salary column found. Include an 'ActualSalary' column."); return
     _detected = [("Title", title_col), ("Salary", sal_col), ("Name", name_col), ("Gender", gender_col),
@@ -632,14 +660,60 @@ def pay_equity_page(catalog, service):
         g_min = grade_min_repo if grade_min_repo is not None else float(graded["Grade"].min())
         g_max = grade_max_repo if grade_max_repo is not None else float(graded["Grade"].max())
         _range_src = "org's full JobGrade ladder" if grade_min_repo is not None else "this file's own grade range"
-        st.caption(f"Rank-positioned against the {_range_src}: grade {g_min}–{g_max}.")
+
+        # The ladder's own point ranges, where the library has them. They give a
+        # truer position than the grade number, because the rungs are not evenly
+        # spaced -- grade 3 spans 35 points and grade 14 spans 530. They are OUR
+        # points on OUR scale and are never looked up in the ISF table; see
+        # cao_crosswalk_service._position.
+        _grades = getattr(repo, "job_grades", None) or {}
+        _pts = {g: gr.hay_mid for g, gr in _grades.items() if gr.hay_mid}
+        _pt_min = min((gr.hay_min for gr in _grades.values() if gr.hay_min), default=None)
+        _pt_max = max((gr.hay_max for gr in _grades.values() if gr.hay_max), default=None)
+        _has_points = bool(_pts) and _pt_min is not None and _pt_max is not None and _pt_max > _pt_min
+
+        def _pt(grade):
+            try:
+                return _pts.get(int(float(grade)))
+            except (TypeError, ValueError):
+                return None
+
+        # DEFAULT STAYS GRADE RANK, deliberately. The ladder's point ranges are
+        # real and were read by nothing until now, but they are OUR scale
+        # (100-1800) and ISF's sequence is theirs. Carrying a proportion across
+        # assumes their bands are evenly spaced in points, which cannot be
+        # checked without the method that is precisely the protected part. On
+        # the real ladder the two bases disagree on thirteen of fourteen grades,
+        # so making points the default would silently move a client-facing
+        # figure on an assumption. It is offered, labelled, and compared.
+        _use_points = False
+        if _has_points:
+            _use_points = st.checkbox(
+                "Space by the ladder's own point ranges instead of the grade number",
+                key="cao_by_points",
+                help=("Each grade carries its own point range — grade 3 spans 35 points and "
+                      "grade 14 spans 530 — so the rungs are not evenly spaced. This positions "
+                      "by that spacing. It is our scale, never looked up in ISF's, and it "
+                      "assumes ISF's published sequence is evenly spaced, which their method "
+                      "does not let anyone verify."))
+
+        st.caption(
+            f"Positioned against the {_range_src}: grade {g_min}–{g_max}."
+            + (f" Spacing follows each grade's own point range ({_pt_min:g}–{_pt_max:g} across the ladder)."
+               if _use_points else
+               (f" Spacing follows the grade number. The ladder also carries point ranges "
+                f"({_pt_min:g}–{_pt_max:g}) — tick the box to use them."
+                if _has_points else
+                " Spacing follows the grade number; the ladder carries no point ranges.")))
 
         _system = st.radio("CAO systeem", ["ISF (Metalektro)", "CATS® (kies sector)"],
                            key="cao_crosswalk_system", horizontal=True)
 
         if _system.startswith("ISF"):
             def _isf_row(grade):
-                r = crosswalk_to_isf(grade, g_min, g_max)
+                r = crosswalk_to_isf(grade, g_min, g_max,
+                                     points=_pt(grade) if _use_points else None,
+                                     points_min=_pt_min, points_max=_pt_max)
                 return (r.salarisgroep, f"{r.isf_point_range[0]}–{r.isf_point_range[1]}",
                         (f"€{r.monthly_scale[0]:,.0f}–€{r.monthly_scale[1]:,.0f}".replace(",", ".")
                          if r.monthly_scale else "— (Hoger Personeel, geen vaste schaal)")) if r else (None, None, None)
@@ -654,10 +728,27 @@ def pay_equity_page(catalog, service):
             st.caption(f"Indicatief: positionering van {_brand_name()}'s eigen gradering binnen de publieke "
                        "ISF-bandbreedtes — geen berekende ISF-score. Officiële ISF-indeling vereist "
                        "een gecertificeerde weging.")
+            if _has_points:
+                _other = {}
+                for _g in sorted(_pts):
+                    _a = crosswalk_to_isf(_g, g_min, g_max)
+                    _b = crosswalk_to_isf(_g, g_min, g_max, points=_pts[_g],
+                                          points_min=_pt_min, points_max=_pt_max)
+                    if _a and _b and _a.salarisgroep != _b.salarisgroep:
+                        _other[_g] = (_a.salarisgroep, _b.salarisgroep)
+                if _other:
+                    st.caption(
+                        f"The two bases disagree on {len(_other)} of {len(_pts)} grades — e.g. grade "
+                        + ", ".join(f"{g} ({a} by rank, {b} by points)"
+                                    for g, (a, b) in list(_other.items())[:3])
+                        + ". That disagreement is the ladder's own spacing telling you something, "
+                          "not one of them being wrong.")
         else:
             _sector = st.selectbox("Sector (CATS® handboek)", known_cats_sectors(), key="cats_sector")
             def _cats_row(grade):
-                r = crosswalk_to_cats(grade, g_min, g_max, sector=_sector)
+                r = crosswalk_to_cats(grade, g_min, g_max, sector=_sector,
+                                      points=_pt(grade) if _use_points else None,
+                                      points_min=_pt_min, points_max=_pt_max)
                 return (r.functiegroep, r.salarisgroep)
             graded[["Functiegroep", "Salarisgroep"]] = graded["Grade"].apply(lambda g: _pd.Series(_cats_row(g)))
             _groups = sorted(g for g in graded["Salarisgroep"].dropna().unique())
