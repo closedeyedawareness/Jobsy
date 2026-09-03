@@ -60,7 +60,22 @@ def test_the_two_graphs_are_reported_separately():
     assert "heuristic" in src
 
 
-def test_the_orphans_are_the_two_known_ones():
+#: Modules nothing imports, each with the reason it is allowed to stay that way.
+#: A new entry here has to be argued for, which is the point: this list is a
+#: statement of intent, not a snapshot of whatever happens to be unwired.
+DELIBERATE_ORPHANS = {
+    "core/loader.py": "one line, a placeholder comment — dead, and named so the count is known",
+    "core/logger.py": "two lines; every module calls logging.getLogger('jobsy') itself",
+    "services/art4_evaluation.py":
+        "the Art. 4 engine. No role is rated and no weighting is decided, so wiring an "
+        "unvalidated job evaluation into a product that prints pay findings would be worse "
+        "than not having one. Unreached is the correct state until the instrument is real.",
+}
+
+
+def test_every_orphan_is_one_we_argued_for():
+    """The guard that caught art4_evaluation the moment it landed — which is the
+    signal working, not the test being brittle."""
     mods = dm.modules()
     importers = set()
     for p in mods:
@@ -69,7 +84,12 @@ def test_the_orphans_are_the_two_known_ones():
         p.relative_to(dm.ROOT).as_posix() for p in mods
         if p.relative_to(dm.ROOT).as_posix() not in importers
         and p.parts[-2] != "tools" and p.name != "app.py")
-    assert orphans == ["core/loader.py", "core/logger.py"]
+    unexplained = [o for o in orphans if o not in DELIBERATE_ORPHANS]
+    assert not unexplained, (
+        f"reached by nothing and not argued for: {unexplained}. Either wire it, delete it, "
+        f"or add it to DELIBERATE_ORPHANS with the reason.")
+    stale = [o for o in DELIBERATE_ORPHANS if o not in orphans]
+    assert not stale, f"listed as a deliberate orphan but now reachable: {stale}"
 
 
 def test_it_runs_end_to_end():
