@@ -20,7 +20,8 @@ What the database already gives us, per factor:
 
 | Art. 4 factor | Coverage today | Source |
 |---|---|---|
-| Skills | ~80% — structured | `role_skill_map` (skill × level 1–5 × Core/Adjacent/Leadership), 75-skill taxonomy in 8 categories |
+| Skills — **depth** | ~80% — structured | `role_skill_map` (skill × level 1–5 × Core/Adjacent/Leadership), 75-skill taxonomy in 8 categories |
+| Skills — **certification** | **0%** — absent | Measured 2026-09-03: 0 of 75 skills name a licence, register or certification. The competency scale is proficiency only (Awareness→Expert). The library cannot currently express "this role legally requires WFT Vermogen + Hypothecair krediet", or that an RA title is a statutory precondition rather than a level of skill. |
 | Responsibility | ~50% — prose, needs scoring | `JobProfile.management_level`, `key_responsibilities`, `JobGrade.responsibilities/authority` |
 | Effort | ~0% — must be rated | inferable hints in descriptions only |
 | Working conditions | ~0% — must be rated | nothing (white-collar library never needed it) |
