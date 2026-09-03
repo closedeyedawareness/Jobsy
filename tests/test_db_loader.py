@@ -10,7 +10,7 @@ without a database or a key. The real comparison is tests/test_library_parity.py
 import pandas as pd
 import pytest
 
-from core.db_loader import load_frames, _to_text, _render, PAGE
+from core.db_loader import load_frames, load_frames_from_config, _to_text, _render, PAGE
 
 
 class _FakeQuery:
@@ -196,3 +196,52 @@ def test_pay_elements_arrive_too_and_keep_their_free_text():
     # A range must reach the app as a range. Rendering it as a number here would
     # be the loader inventing a point estimate the library refuses to give.
     assert df.iloc[0]["TypicalValue"] == "~10-15% (indicative)"
+
+
+# ── which credential the library is read with ────────────────────────────────
+#
+# The default is still the project's secret key, which bypasses RLS. These pin
+# the switch itself, so flipping config.LIBRARY_CLIENT is a one-line change with
+# known behaviour rather than a hope.
+
+def test_the_default_credential_is_the_configured_one(monkeypatch):
+    import core.db_loader as dl
+    seen = {}
+    monkeypatch.setattr(dl, "_user_client_and_org", lambda: (seen.setdefault("mode", "user"), "org"))
+    dl.client_and_org(mode="user")
+    assert seen["mode"] == "user"
+
+
+def test_user_mode_refuses_rather_than_falling_back_when_nobody_is_signed_in(monkeypatch):
+    """A fall back to the secret key would read exactly the same rows and prove
+    nothing — which is the failure this switch exists to remove."""
+    import sys, types
+    fake = types.ModuleType("services.auth_service")
+    fake.db = lambda: None
+    fake.active_org_id = lambda: None
+    monkeypatch.setitem(sys.modules, "services.auth_service", fake)
+
+    import core.db_loader as dl
+    with pytest.raises(RuntimeError, match="nobody is signed in"):
+        dl.client_and_org(mode="user")
+
+
+def test_user_mode_refuses_when_the_account_has_no_active_client(monkeypatch):
+    import sys, types
+    fake = types.ModuleType("services.auth_service")
+    fake.db = lambda: object()
+    fake.active_org_id = lambda: None
+    monkeypatch.setitem(sys.modules, "services.auth_service", fake)
+
+    import core.db_loader as dl
+    with pytest.raises(RuntimeError, match="no active client"):
+        dl.client_and_org(mode="user")
+
+
+def test_a_caller_that_holds_a_client_is_not_given_a_second_one():
+    """The app passes the signed-in session's client straight through; building
+    another one here would quietly go back to the secret key."""
+    client = _FakeClient({"jobs": [_row(job_id="J-1", standard_title="Engineer",
+                                        function="Eng", level="Medior")]})
+    frames = load_frames_from_config(client=client, org_id="org-1")
+    assert "jobs" in frames and len(frames["jobs"]) == 1

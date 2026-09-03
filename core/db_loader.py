@@ -201,14 +201,50 @@ def load_frames(client, org_id: str) -> dict[str, pd.DataFrame]:
     return frames
 
 
-def client_and_org():
+def _user_client_and_org():
+    """The signed-in user's own client and their active org.
+
+    This is the credential the 0008 policies were written for: the library comes
+    back filtered by membership rather than by the loader trusting itself. It
+    raises rather than falling back — a silent fall back to the secret key would
+    read exactly the same rows and prove nothing, which is the failure mode this
+    whole switch exists to remove.
+    """
+    from services import auth_service
+
+    client = auth_service.db()
+    if client is None:
+        raise RuntimeError(
+            "LIBRARY_CLIENT is 'user' but nobody is signed in, so there is no "
+            "credential to read the library with.")
+    org_id = auth_service.active_org_id()
+    if not org_id:
+        raise RuntimeError(
+            "LIBRARY_CLIENT is 'user' but this account has no active client "
+            "organisation, so there is no library to read.")
+    return client, org_id
+
+
+def client_and_org(mode: str | None = None):
     """A Supabase client and the org id, resolved from configuration.
 
     Split out of load_frames_from_config so anything else that needs to read
     this project — the audit-trail panel, for one — gets the same client and
     the same org, rather than a second answer to "which key, and where from"
     that can disagree with this one.
+
+    `mode` follows config.LIBRARY_CLIENT unless given: "secret" is the project
+    key, which bypasses RLS, and "user" is the signed-in session's own client.
     """
+    if mode is None:
+        try:
+            from core.config import LIBRARY_CLIENT
+            mode = LIBRARY_CLIENT
+        except Exception:
+            mode = "secret"
+    if mode == "user":
+        return _user_client_and_org()
+
     try:
         from services.library_import_service import _resolve_credentials, _require_writable_key
     except ImportError:  # pragma: no cover
@@ -238,7 +274,12 @@ def client_and_org():
     return client, org.data["id"]
 
 
-def load_frames_from_config() -> dict[str, pd.DataFrame]:
-    """load_frames() with the client and org resolved from configuration."""
-    client, org_id = client_and_org()
+def load_frames_from_config(*, client=None, org_id: str | None = None) -> dict[str, pd.DataFrame]:
+    """load_frames() with the client and org resolved from configuration.
+
+    A caller that already holds a client — the app, once it reads the library as
+    the signed-in user — passes it in rather than having a second one built.
+    """
+    if client is None or not org_id:
+        client, org_id = client_and_org()
     return load_frames(client, org_id)

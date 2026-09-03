@@ -307,11 +307,31 @@ def _workbook_sig(path):
 
 
 @st.cache_resource(show_spinner="Loading reference library…")
-def load_workbook_catalog(path, sig=None):
-    # `sig` only participates in the cache key: when the workbook file changes,
-    # sig changes and Streamlit rebuilds the catalog instead of serving a stale one.
+def load_workbook_catalog(path, sig=None, org_id=None):
+    """The reference library, cached for the life of the process.
+
+    `sig` only participates in the cache key: when the workbook file changes,
+    sig changes and Streamlit rebuilds the catalog instead of serving a stale one.
+
+    `org_id` is in the key for a harder reason. st.cache_resource is shared by
+    every browser session in this process, so without it two clients would share
+    one catalog — the failure auth_service warns about, arriving through the
+    cache instead of through a global. It is safe to share a catalog WITHIN an
+    org only because all 22 reference tables read through
+    `app.can_read_org(org_id)`, which depends on membership and not on the
+    member's role. If that ever becomes role-dependent, this key has to grow;
+    supabase/tests/0014_library_read_is_org_only.sql is what would notice.
+    """
     from core.catalog import Catalog
-    c=Catalog(path); c.load(); return c
+    client = None
+    try:
+        from core.config import LIBRARY_CLIENT
+        if LIBRARY_CLIENT == "user":
+            from services import auth_service
+            client = auth_service.db()
+    except Exception:
+        client = None
+    c = Catalog(path, client=client, org_id=org_id); c.load(); return c
 
 
 @st.cache_resource(show_spinner="Building sample catalog…")

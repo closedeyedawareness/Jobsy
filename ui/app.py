@@ -907,7 +907,17 @@ def main():
     path = WORKBOOK_PATH
     catalog = None
     try:
-        catalog = load_workbook_catalog(path, _workbook_sig(path))
+        # The active org is part of the cache key, so one client's library can
+        # never be served to another out of a process-wide cache.
+        _cat_org = None
+        try:
+            from core.config import LIBRARY_CLIENT as _lib_client
+            if _lib_client == "user":
+                from services import auth_service as _auth_cat
+                _cat_org = _auth_cat.active_org_id()
+        except Exception:
+            _cat_org = None
+        catalog = load_workbook_catalog(path, _workbook_sig(path), _cat_org)
     except Exception as exc:
         st.error(
             f"Could not load **{path}**. "

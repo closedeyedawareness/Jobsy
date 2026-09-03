@@ -280,8 +280,13 @@ def data_quality_page(catalog):
                     st.caption(f"The change history could not be read: {_exc}")
                 if _hist is not None:
                     if _hist.empty:
-                        st.caption("No changes recorded yet — the library has not been written "
-                                   "to since the audit trail was created.")
+                        # Read as the signed-in user, the trail is admin-only
+                        # (app.is_org_admin), so empty has two meanings and this
+                        # panel cannot tell them apart. Claiming the first one
+                        # would be telling a non-admin that nothing happened.
+                        st.caption("Nothing to show: either the library has not been written to, "
+                                   "or this account is not an administrator of the active client — "
+                                   "the change history is admin-only.")
                     else:
                         _s = summarise(_hist)
                         st.caption(f"{_s['rows']} most recent changes across {_s['tables']} tables "

@@ -54,7 +54,7 @@ class Catalog:
     """Reads the Excel reference library and builds a typed Repository."""
 
     def __init__(self, path: str = "jobsy_reference_library.xlsx",
-                 source: str | None = None) -> None:
+                 source: str | None = None, client=None, org_id: str | None = None) -> None:
         self.path = Path(path)
         self.repository = None
         self.frames: dict = {}
@@ -69,6 +69,13 @@ class Catalog:
             except Exception:
                 source = "excel"
         self.source = source
+        # A caller that already holds a database client passes it in — the app
+        # does exactly that once it reads the library as the signed-in user, so
+        # 0008's policies decide what comes back instead of the loader deciding
+        # for itself. None means "resolve from configuration", which is the
+        # secret key until LIBRARY_CLIENT says otherwise.
+        self._client = client
+        self._org_id = org_id
         # What the library was ACTUALLY read from, which is not always what was
         # asked for — see the fallback in _load_from_db(). The sidebar shows
         # this, because "which source am I looking at" stops being obvious the
@@ -86,7 +93,7 @@ class Catalog:
         """
         try:
             from core.db_loader import load_frames_from_config
-            frames = load_frames_from_config()
+            frames = load_frames_from_config(client=self._client, org_id=self._org_id)
         except Exception as exc:
             logger.error("Could not load the library from the database (%s: %s). "
                          "Falling back to the workbook at %s — this data may be stale.",
