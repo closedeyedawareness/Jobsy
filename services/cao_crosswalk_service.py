@@ -239,8 +239,14 @@ def _overlap_pct(ours: tuple[float, float], theirs: tuple[float, float]) -> floa
     means the ranges touch at most at a point.
     """
     lo, hi = ours
-    if hi <= lo:
-        return 0.0
+    if hi < lo:
+        lo, hi = hi, lo
+    if hi == lo:
+        # A single salary, not a range — one person in the cohort, or everyone
+        # paid the same. It is wholly inside the scale or wholly outside; 0%
+        # for a value that sits squarely in the band would be a measurement
+        # artefact reported as a finding.
+        return 100.0 if theirs[0] <= lo <= theirs[1] else 0.0
     inter = max(0.0, min(hi, theirs[1]) - max(lo, theirs[0]))
     return round(inter / (hi - lo) * 100, 1)
 

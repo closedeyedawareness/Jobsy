@@ -177,24 +177,52 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
 
         _lsys = st.radio("CAO systeem", ["ISF (Metalektro)", "CATS® (kies sector)"],
                          key="lg_cao_system", horizontal=True)
-        cw = pd.DataFrame({function_col: df[function_col], level_col: df[level_col], "_lvl_num": _lvl_num})
+        cw = pd.DataFrame({function_col: df[function_col], level_col: df[level_col],
+                           "_lvl_num": _lvl_num,
+                           "_pay": pd.to_numeric(df[salary_col], errors="coerce")})
         cw = cw[cw["_lvl_num"].notna()]
 
         if _lsys.startswith("ISF"):
-            def _isf_row(lv):
-                res = crosswalk_to_isf(lv, lg_min, lg_max)
-                return (res.salarisgroep, f"{res.isf_point_range[0]}–{res.isf_point_range[1]}",
-                        (f"€{res.monthly_scale[0]:,.0f}–€{res.monthly_scale[1]:,.0f}".replace(",", ".")
-                         if res.monthly_scale else "— (Hoger Personeel, geen vaste schaal)")) if res else (None, None, None)
-            cw[["Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]] = cw["_lvl_num"].apply(
-                lambda v: pd.Series(_isf_row(v)))
-            _groups = sorted(g for g in cw["Salarisgroep"].dropna().unique())
+            # THE SAME TREATMENT AS THE MATCHED PATH. This half of the page used
+            # to print a bare salarisgroep while the other half qualified the
+            # identical claim with an overlap and a scope — one screen making a
+            # flat assertion and a careful one at the same time.
+            #
+            # There is no grade ladder here and no library band, so the second
+            # basis cannot exist. What this mode DOES have is the file's own
+            # salaries, so the overlap is measured against what the client
+            # actually pays that cohort — a different source from the matched
+            # path's salary band, and labelled as such rather than blended.
+            _cohort_pay = (cw.dropna(subset=["_pay"])
+                             .groupby([function_col, level_col])["_pay"]
+                             .agg(["min", "max"]).to_dict("index"))
+
+            def _isf_row(row):
+                key = (row[function_col], row[level_col])
+                span = _cohort_pay.get(key)
+                pay = (float(span["min"]), float(span["max"])) if span else None
+                ind = isf_indicator(row["_lvl_num"], lg_min, lg_max, our_pay=pay)
+                if ind.indicated_group is None:
+                    return ("— buiten bereik", "—", ind.overlap_reason.split(".")[0])
+                overlap = (f"{ind.pay_overlap_pct:g}%" if ind.pay_overlap_pct is not None
+                           else "— (geen gepubliceerde schaal)")
+                scale = (f"€{ind.published_scale[0]:,.0f}–€{ind.published_scale[1]:,.0f}".replace(",", ".")
+                         if ind.published_scale else "— (Hoger Personeel)")
+                return (ind.indicated_group, overlap, scale)
+
+            cw[["Indicatief ISF", "Loonoverlap", "ISF-schaal (jaar)"]] = cw.apply(
+                lambda r: pd.Series(_isf_row(r)), axis=1)
+            _groups = sorted(g for g in cw["Indicatief ISF"].dropna().unique())
             _pick = st.multiselect("Filter op salarisgroep", _groups, default=_groups, key="lg_isf_group_filter")
-            _shown = cw[cw["Salarisgroep"].isin(_pick)]
-            st.dataframe(_shown[[function_col, level_col, "Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]],
+            _shown = cw[cw["Indicatief ISF"].isin(_pick)]
+            st.dataframe(_shown[[function_col, level_col, "Indicatief ISF", "Loonoverlap", "ISF-schaal (jaar)"]],
                         use_container_width=True, hide_index=True)
             st.caption("Indicatief: positionering binnen de publieke ISF-bandbreedtes — geen berekende "
-                       "ISF-score. Officiële ISF-indeling vereist een gecertificeerde weging.")
+                       "ISF-score. Officiële ISF-indeling vereist een gecertificeerde weging. "
+                       "**Loonoverlap** is hier gemeten tegen het loon dat in dít bestand aan die "
+                       "Functie × Niveau wordt betaald (niet tegen een loonband uit de bibliotheek — "
+                       "die is in deze modus niet beschikbaar). Er is geen tweede positioneringsbasis: "
+                       "zonder gradenladder bestaat er geen puntenbereik om mee te vergelijken.")
         else:
             _sector = st.selectbox("Sector (CATS® handboek)", known_cats_sectors(), key="lg_cats_sector")
             def _cats_row(lv):
