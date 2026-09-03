@@ -4,10 +4,20 @@ Two properties that are invisible when broken, so a test holds them.
 Neither needs a database. They read the source, because what they guard is a
 shape the code must keep, and the failure mode in both cases is an app that
 works perfectly while doing the wrong thing.
+
+
+Every read here names its encoding. Without it, read_text() uses the platform
+default — cp1252 on a Dutch Windows machine — and ui/app.py contains characters
+it cannot decode, so these guards raised UnicodeDecodeError before testing
+anything. They passed in CI and could never run locally, which is the worst
+place for an invariant to be: green where nobody is looking and silent where
+the code is written.
 """
 from __future__ import annotations
 
 import ast
+
+import pytest
 import json
 import pathlib
 
@@ -24,7 +34,7 @@ def _module_level_assignments(path: pathlib.Path) -> set[str]:
     this test noise that someone eventually deletes. What it must still catch is
     the real shape — `_client = None` later filled in by a factory.
     """
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     names: set[str] = set()
 
     def interesting(value: ast.AST | None) -> bool:
@@ -42,7 +52,7 @@ def _module_level_assignments(path: pathlib.Path) -> set[str]:
 
 
 def _global_statements(path: pathlib.Path) -> list[str]:
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     found: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Global):
@@ -86,7 +96,7 @@ def test_the_app_cannot_create_an_account():
     Accounts come from tools/manage_users.py, which runs with the secret key on
     a machine an operator controls.
     """
-    source = AUTH.read_text()
+    source = AUTH.read_text(encoding="utf-8")
     forbidden = ["sign_up", "signUp", "sign_in_with_oauth", "sign_in_with_o_auth"]
     for token in forbidden:
         # The docstring says these must not exist; that mention is not a call.
@@ -111,7 +121,7 @@ def test_the_app_never_reads_the_secret_key():
     holding it reaches every client's data no matter what migration 0008 says.
     It has one legitimate home left, and it is not the web app."""
     for path in (AUTH, PERSIST):
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -128,7 +138,7 @@ def test_session_codes_are_not_guessable():
     """B-5. The code was 5 characters from `random.choices` — the Mersenne
     Twister, not a cryptographic generator — across 36^5 ≈ 60 million, with no
     rate limit, and it was the only thing protecting a client's roster."""
-    source = PERSIST.read_text()
+    source = PERSIST.read_text(encoding="utf-8")
     tree = ast.parse(source)
     imported = {n.name for node in ast.walk(tree) if isinstance(node, ast.Import) for n in node.names}
     assert "secrets" in imported, "persistence_service must generate codes with `secrets`."
@@ -278,10 +288,24 @@ def test_bad_colours_fall_back_rather_than_emitting_broken_css(monkeypatch):
     assert _brand(monkeypatch).css_overrides() == ""
 
 
-def test_no_user_facing_string_hard_codes_the_product_name():
-    """F-2. Every remaining "Jobsy" in app.py must be a comment, a docstring, or
+def _ui_sources():
+    """Every module that can put a string in front of a user.
+
+    app.py alone was the whole UI when this guard was written. The 2026-09-03
+    split moved twelve pages into ui/views/ and the shared chrome into
+    ui/shared.py, which would have taken most of the user-facing strings out
+    from under this test without a single line of it failing. An invariant has
+    to follow the code it is about.
+    """
+    ui = ROOT / "ui"
+    return [ui / "app.py", ui / "shared.py"] + sorted((ui / "views").glob("*.py"))
+
+
+@pytest.mark.parametrize("path", _ui_sources(), ids=lambda p: p.name)
+def test_no_user_facing_string_hard_codes_the_product_name(path):
+    """F-2. Every remaining "Jobsy" in the UI must be a comment, a docstring, or
     the single fallback in _brand_name() — never something a user reads."""
-    source = (ROOT / "ui" / "app.py").read_text()
+    source = path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     # Docstrings are for whoever maintains this, not for whoever uses it. They
@@ -303,7 +327,7 @@ def test_no_user_facing_string_hard_codes_the_product_name():
                 offenders.append((node.lineno, node.value[:70]))
     # A bare "Jobsy" is the fallback; anything longer is a sentence somebody sees.
     assert not offenders, (
-        "user-visible strings still hard-code the product name: "
+        f"user-visible strings in {path.name} still hard-code the product name: "
         + "; ".join(f"line {ln}: {t!r}" for ln, t in offenders)
         + " — route them through _brand_name()"
     )
