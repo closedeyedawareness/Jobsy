@@ -145,3 +145,107 @@ def test_a_weight_that_reorders_nothing_is_visible_as_such():
     sens = sensitivity(roles, {"low_wc": Weights(.4, .3, .29, .01),
                                "high_wc": Weights(.4, .3, .1, .2)})
     assert roles_moved(sens) == 0
+
+
+# ── a weight cannot be adopted without its reason ────────────────────────────
+
+from services.art4_evaluation import (
+    FactorSeparation, Rationale, Weighting, factor_influence, separation,
+)
+
+
+def _full_rationale():
+    return {f: Rationale(relevance=f"why {f} is relevant here",
+                         neutrality=f"why weighting {f} this way disadvantages nobody")
+            for f in FACTORS}
+
+
+def test_a_bare_weighting_is_usable_for_exploration_but_not_adoptable():
+    """Exploring a weighting you have not justified is exactly what a
+    sensitivity run is for. Adopting one quietly is the thing to stop."""
+    w = Weighting(weights=equal_weights())
+    assert not w.adoptable
+    assert w.unjustified() == list(FACTORS)
+
+
+def test_every_factor_needs_both_a_relevance_and_a_neutrality_note():
+    """Recital 26 asks why this weight; Art. 4(4) asks who it disadvantages.
+    They are different questions and one does not answer the other."""
+    half = {f: Rationale(relevance="relevant", neutrality="") for f in FACTORS}
+    w = Weighting(weights=equal_weights(), rationale=half, no_representatives_exist=True)
+    assert w.unjustified() == list(FACTORS)
+
+
+def test_agreement_with_representatives_is_required_or_their_absence_asserted():
+    w = Weighting(weights=equal_weights(), rationale=_full_rationale())
+    assert any("agreed with workers" in b for b in w.blockers())
+
+
+def test_silence_is_not_the_same_as_there_being_nobody_to_ask():
+    """An empty agreed_with could mean 'no OR exists' or 'nobody asked'. Only one
+    of those is a defence, so the lawful one has to be asserted."""
+    w = Weighting(weights=equal_weights(), rationale=_full_rationale(),
+                  no_representatives_exist=True)
+    assert w.adoptable
+
+
+def test_an_agreement_without_a_date_is_incomplete():
+    w = Weighting(weights=equal_weights(), rationale=_full_rationale(),
+                  agreed_with="OR Northwind BV")
+    assert not w.adoptable
+    assert any("without a date" in b for b in w.blockers())
+
+
+def test_a_fully_recorded_weighting_is_adoptable():
+    w = Weighting(weights=equal_weights(), rationale=_full_rationale(),
+                  agreed_with="OR Northwind BV", agreed_on="2026-11-04")
+    assert w.adoptable and w.blockers() == []
+
+
+# ── a factor that separates nobody ───────────────────────────────────────────
+
+def test_a_factor_every_role_scores_the_same_cannot_change_any_ranking():
+    """Not 'barely' — mathematically cannot, at any weight. Arguing about it
+    looks like diligence and is arguing about nothing."""
+    roles = {"A": _rated(2, 3, 4, 1), "B": _rated(5, 3, 2, 1), "C": _rated(4, 3, 6, 1)}
+    sep = separation(roles)
+    assert not sep["working_conditions"].separates
+    assert sep["working_conditions"].degrees_used == (1,)
+    assert "cannot change any ranking" in sep["working_conditions"].note
+
+    # and prove it: the weight can travel a long way and reorder nothing
+    infl = factor_influence(roles, equal_weights(), "working_conditions")
+    assert infl["roles_moved"] == 0
+
+
+def test_a_factor_in_genuine_use_is_reported_as_separating():
+    roles = {"A": _rated(2, 3, 4, 1), "B": _rated(5, 1, 2, 4)}
+    sep = separation(roles)
+    assert sep["skills"].separates
+    assert "separates roles" in sep["skills"].note
+
+
+def test_an_unrated_factor_says_it_distinguishes_nothing_YET():
+    """Different from 'does not vary': one is a finding, the other is unfinished
+    work, and reporting them the same way would hide 324 blank ratings."""
+    roles = {"A": Degrees(skills=3, responsibility=2)}
+    sep = separation(roles)
+    assert sep["effort"].n_rated == 0
+    assert "no role is rated" in sep["effort"].note
+    assert sep["effort"].note.endswith("yet")        # unfinished, not a finding
+    assert not sep["effort"].separates
+
+
+def test_a_factor_can_vary_and_still_move_nothing():
+    """The empirical companion: the other three already order the roles the same
+    way, so this one varies without carrying the decision."""
+    roles = {"A": _rated(6, 6, 6, 1), "B": _rated(2, 2, 2, 6)}
+    infl = factor_influence(roles, Weights(.3, .3, .3, .1), "working_conditions",
+                            low=0.02, high=0.10)
+    assert infl["roles_moved"] == 0
+    assert "reorders 0 role" in infl["note"]
+
+
+def test_influence_on_an_unknown_factor_is_refused():
+    with pytest.raises(ValueError, match="unknown factor"):
+        factor_influence({}, equal_weights(), "charisma")
