@@ -245,3 +245,41 @@ def test_a_caller_that_holds_a_client_is_not_given_a_second_one():
                                         function="Eng", level="Medior")]})
     frames = load_frames_from_config(client=client, org_id="org-1")
     assert "jobs" in frames and len(frames["jobs"]) == 1
+
+
+# ── the fallback, once the read is user-scoped ───────────────────────────────
+
+def test_a_user_scoped_failure_does_not_fall_back_to_the_committed_workbook():
+    """With the secret key, an unreachable database means "stay up on the
+    workbook". With the user's own credential it means something else entirely:
+    this account may not read that org. Answering THAT with the repo's workbook
+    would hand one client the default library as if it were theirs."""
+    from core.catalog import Catalog
+
+    class _Boom:
+        def table(self, *_a, **_k):
+            raise RuntimeError("permission denied")
+
+    cat = Catalog(path="jobsy_reference_library.xlsx", source="db",
+                  client=_Boom(), org_id="org-1")
+    with pytest.raises(RuntimeError, match="not a substitute"):
+        cat.load()
+
+
+def test_an_empty_user_scoped_read_is_refused_rather_than_papered_over():
+    from core.catalog import Catalog
+
+    cat = Catalog(path="jobsy_reference_library.xlsx", source="db",
+                  client=_FakeClient({}), org_id="org-1")
+    with pytest.raises(RuntimeError, match="policies do not let"):
+        cat.load()
+
+
+def test_the_secret_key_path_still_falls_back_to_the_workbook():
+    """Unchanged, and deliberately so: one tenant, a key that reads everything,
+    and a committed workbook that is genuinely the same library."""
+    from core.catalog import Catalog
+
+    cat = Catalog(path="jobsy_reference_library.xlsx", source="db").load()
+    assert cat.active_source == "excel"
+    assert cat.fell_back_to_excel is True

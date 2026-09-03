@@ -82,6 +82,16 @@ class Catalog:
         # moment a fallback exists.
         self.active_source = None
 
+    def _user_scoped(self) -> bool:
+        """Is the library being read with the signed-in user's own credential?"""
+        if self._client is not None:
+            return True
+        try:
+            from core.config import LIBRARY_CLIENT
+            return LIBRARY_CLIENT == "user"
+        except Exception:
+            return False
+
     def _load_from_db(self) -> dict | None:
         """Frames from Postgres, or None to fall back to the workbook.
 
@@ -90,11 +100,27 @@ class Catalog:
         beats failing hard. But falling back SILENTLY would be worse than
         either — a stale library that looks live is the exact thing this
         migration is meant to end — so it is logged loudly and surfaced.
+
+        THE FALLBACK IS OFF WHEN THE READ IS USER-SCOPED, and that is not a
+        detail. Once the library is read through the signed-in user's client,
+        the reason it can come back empty is no longer "the database is down" —
+        it is "this account may not read that org". Answering that with the
+        workbook committed to this repo would hand one client the default
+        library as though it were theirs: a tenancy leak wearing the clothes of
+        a resilience feature. There is nothing safe to fall back TO, so it
+        fails, loudly, and the app says whose data could not be read.
         """
+        user_scoped = self._user_scoped()
         try:
             from core.db_loader import load_frames_from_config
             frames = load_frames_from_config(client=self._client, org_id=self._org_id)
         except Exception as exc:
+            if user_scoped:
+                raise RuntimeError(
+                    f"The reference library could not be read for this account "
+                    f"({type(exc).__name__}: {exc}). The workbook in this repo is not a "
+                    f"substitute — it belongs to no client."
+                ) from exc
             logger.error("Could not load the library from the database (%s: %s). "
                          "Falling back to the workbook at %s — this data may be stale.",
                          type(exc).__name__, exc, self.path)
@@ -106,6 +132,12 @@ class Catalog:
             # An empty database reads as a successful load of nothing, which
             # would build an empty catalog and look like a data disaster rather
             # than a configuration one. Refuse it and use the workbook.
+            if user_scoped:
+                raise RuntimeError(
+                    f"The database returned no rows for {', '.join(missing)} as this account. "
+                    f"Either the client's library is not seeded, or the policies do not let "
+                    f"this account read it — the workbook is not the answer to either."
+                )
             logger.error("The database returned no rows for %s — it is probably not seeded. "
                          "Falling back to the workbook.", ", ".join(missing))
             return None
