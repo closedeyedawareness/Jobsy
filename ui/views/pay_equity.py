@@ -158,10 +158,10 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     if _lvl_num.notna().mean() > 0.9:
         try:
             from services.cao_crosswalk_service import (
-                crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
+                crosswalk_to_cats, crosswalk_to_isf, isf_indicator, known_cats_sectors)
         except ImportError:
             from jobsy.services.cao_crosswalk_service import (
-                crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
+                crosswalk_to_cats, crosswalk_to_isf, isf_indicator, known_cats_sectors)
 
         st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
                     f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
@@ -641,10 +641,10 @@ def pay_equity_page(catalog, service):
     if len(priced) and priced["Grade"].notna().any():
         try:
             from services.cao_crosswalk_service import (
-                crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
+                crosswalk_to_cats, crosswalk_to_isf, isf_indicator, known_cats_sectors)
         except ImportError:
             from jobsy.services.cao_crosswalk_service import (
-                crosswalk_to_cats, crosswalk_to_isf, known_cats_sectors)
+                crosswalk_to_cats, crosswalk_to_isf, isf_indicator, known_cats_sectors)
 
         st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
                     f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">'
@@ -686,45 +686,62 @@ def pay_equity_page(catalog, service):
         # the real ladder the two bases disagree on thirteen of fourteen grades,
         # so making points the default would silently move a client-facing
         # figure on an assumption. It is offered, labelled, and compared.
-        _use_points = False
-        if _has_points:
-            _use_points = st.checkbox(
-                "Space by the ladder's own point ranges instead of the grade number",
-                key="cao_by_points",
-                help=("Each grade carries its own point range — grade 3 spans 35 points and "
-                      "grade 14 spans 530 — so the rungs are not evenly spaced. This positions "
-                      "by that spacing. It is our scale, never looked up in ISF's, and it "
-                      "assumes ISF's published sequence is evenly spaced, which their method "
-                      "does not let anyone verify."))
-
+        # NEITHER BASIS IS PICKED. Both are reported, next to a measured overlap
+        # and the scope, because the choice between them was the wrong question:
+        # both stretch our ladder onto ISF's sequence end to end, and the two
+        # do not cover the same jobs. Our grade is the answer; ISF is an
+        # indicator carrying the quality of its own reading.
         st.caption(
-            f"Positioned against the {_range_src}: grade {g_min}–{g_max}."
-            + (f" Spacing follows each grade's own point range ({_pt_min:g}–{_pt_max:g} across the ladder)."
-               if _use_points else
-               (f" Spacing follows the grade number. The ladder also carries point ranges "
-                f"({_pt_min:g}–{_pt_max:g}) — tick the box to use them."
-                if _has_points else
-                " Spacing follows the grade number; the ladder carries no point ranges.")))
+            f"**Our grade is the classification.** It is our own gender-neutral system, and it is "
+            f"what this analysis runs on. The ISF column beside it is an *indicator* — where a job "
+            f"would sit in the sector CAO — with the quality of that reading attached, never a "
+            f"substitute for a certified weging."
+            + (f" Positioned against the {_range_src} (grade {g_min:g}–{g_max:g}), by grade rank and "
+               f"by each grade's own point range ({_pt_min:g}–{_pt_max:g}); both are shown."
+               if _has_points else
+               f" Positioned against the {_range_src}: grade {g_min:g}–{g_max:g}."))
 
         _system = st.radio("CAO systeem", ["ISF (Metalektro)", "CATS® (kies sector)"],
                            key="cao_crosswalk_system", horizontal=True)
 
         if _system.startswith("ISF"):
-            def _isf_row(grade):
-                r = crosswalk_to_isf(grade, g_min, g_max,
-                                     points=_pt(grade) if _use_points else None,
-                                     points_min=_pt_min, points_max=_pt_max)
-                return (r.salarisgroep, f"{r.isf_point_range[0]}–{r.isf_point_range[1]}",
-                        (f"€{r.monthly_scale[0]:,.0f}–€{r.monthly_scale[1]:,.0f}".replace(",", ".")
-                         if r.monthly_scale else "— (Hoger Personeel, geen vaste schaal)")) if r else (None, None, None)
-            graded[["Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]] = graded["Grade"].apply(
-                lambda g: _pd.Series(_isf_row(g)))
-            _groups = sorted(g for g in graded["Salarisgroep"].dropna().unique())
+            def _isf_row(row):
+                grade = row["Grade"]
+                pay = None
+                _lo, _hi = row.get("Band min"), row.get("Band max")
+                try:
+                    if _lo is not None and _hi is not None and not _pd.isna(_lo) and not _pd.isna(_hi):
+                        pay = (float(_lo), float(_hi))
+                except (TypeError, ValueError):
+                    pay = None
+                ind = isf_indicator(grade, g_min, g_max, our_pay=pay,
+                                    points=_pt(grade) if _has_points else None,
+                                    points_min=_pt_min, points_max=_pt_max)
+                if ind.indicated_group is None:
+                    return ("— buiten bereik", "—", "—", ind.overlap_reason.split(".")[0])
+                agree = ("beide gelijk" if ind.bases_agree
+                         else (f"{ind.group_by_rank} / {ind.group_by_points}"
+                               if ind.bases_agree is False else "—"))
+                overlap = (f"{ind.pay_overlap_pct:g}%" if ind.pay_overlap_pct is not None
+                           else "— (geen gepubliceerde schaal)")
+                scale = (f"€{ind.published_scale[0]:,.0f}–€{ind.published_scale[1]:,.0f}".replace(",", ".")
+                         if ind.published_scale else "— (Hoger Personeel)")
+                return (ind.indicated_group, agree, overlap, scale)
+
+            graded[["Indicatief ISF", "Rang / punten", "Loonoverlap", "ISF-schaal (jaar)"]] =                 graded.apply(lambda r: _pd.Series(_isf_row(r)), axis=1)
+            _groups = sorted(g for g in graded["Indicatief ISF"].dropna().unique())
             _pick = st.multiselect("Filter op salarisgroep", _groups, default=_groups, key="isf_group_filter")
-            _shown = graded[graded["Salarisgroep"].isin(_pick)]
+            _shown = graded[graded["Indicatief ISF"].isin(_pick)]
             st.dataframe(_shown[["Name", "Matched role", "Function", "Level", "Grade",
-                                 "Salarisgroep", "ISF puntenbereik", "Maandschaal 2026"]],
+                                 "Indicatief ISF", "Rang / punten", "Loonoverlap", "ISF-schaal (jaar)"]],
                         use_container_width=True, hide_index=True)
+            st.caption(
+                "**Loonoverlap** is het enige percentage hier, en het is een meting: welk deel van "
+                "onze eigen loonbandbreedte binnen de gepubliceerde schaal van die groep valt. "
+                "Laag betekent dat de letter weinig zegt. **Rang / punten** toont beide "
+                "positioneringen apart — waar ze verschillen, vertelt dat verschil iets. Er is "
+                "bewust géén samengestelde betrouwbaarheidsscore: die zou een precisie suggereren "
+                "die geen van de onderdelen heeft.")
             st.caption(f"Indicatief: positionering van {_brand_name()}'s eigen gradering binnen de publieke "
                        "ISF-bandbreedtes — geen berekende ISF-score. Officiële ISF-indeling vereist "
                        "een gecertificeerde weging.")
@@ -746,9 +763,11 @@ def pay_equity_page(catalog, service):
         else:
             _sector = st.selectbox("Sector (CATS® handboek)", known_cats_sectors(), key="cats_sector")
             def _cats_row(grade):
-                r = crosswalk_to_cats(grade, g_min, g_max, sector=_sector,
-                                      points=_pt(grade) if _use_points else None,
-                                      points_min=_pt_min, points_max=_pt_max)
+                # Rank only, and not an oversight: CATS publishes no point
+                # table and no salary scale, so there is neither a second basis
+                # to compare against nor an overlap to measure. The note the
+                # service returns says exactly that.
+                r = crosswalk_to_cats(grade, g_min, g_max, sector=_sector)
                 return (r.functiegroep, r.salarisgroep)
             graded[["Functiegroep", "Salarisgroep"]] = graded["Grade"].apply(lambda g: _pd.Series(_cats_row(g)))
             _groups = sorted(g for g in graded["Salarisgroep"].dropna().unique())

@@ -150,3 +150,86 @@ def test_cats_takes_the_same_basis_and_still_claims_no_score():
 def test_a_degenerate_point_range_falls_back_to_grade_rank():
     res = crosswalk_to_isf(7, 1, 14, points=405, points_min=500, points_max=500)
     assert res.basis == "grade rank"
+
+
+# ── the indicator: our grade first, ISF beside it, quality attached ──────────
+
+from services.cao_crosswalk_service import isf_indicator, ISF_HP_INCOME_CAP_2026
+
+
+def test_our_grade_is_the_answer_and_isf_is_an_indicator():
+    ind = isf_indicator(4, 1, 14, our_pay=(34000, 48000))
+    assert ind.our_grade == 4
+    assert ind.summary.startswith("Grade 4 — our own classification")
+    assert ind.is_indicative_only is True
+
+
+def test_the_overlap_is_a_measurement_of_our_range_inside_theirs():
+    """Band D publishes roughly EUR 38,291-41,412 annualised. A job paying
+    34,000-48,000 has about a fifth of its range inside that."""
+    ind = isf_indicator(4, 1, 14, our_pay=(34000, 48000))
+    assert ind.indicated_group == "D"
+    assert 20 <= ind.pay_overlap_pct <= 25
+
+
+def test_a_letter_can_be_returned_with_almost_no_overlap_and_says_so():
+    """Sales/Senior in the real library: 60,000-85,000 against group J's
+    published 47,987-60,329. The letter alone would read as a match; 1.3% is
+    what stops anyone leaning on it."""
+    ind = isf_indicator(8, 1, 14, our_pay=(60000, 85000))
+    assert ind.indicated_group == "J"
+    assert ind.pay_overlap_pct is not None and ind.pay_overlap_pct < 5
+    assert "falls inside" in ind.summary
+
+
+def test_no_overlap_at_all_is_zero_not_missing():
+    ind = isf_indicator(2, 1, 14, our_pay=(20000, 30000))
+    assert ind.pay_overlap_pct == 0.0
+
+
+def test_hoger_personeel_refuses_the_overlap_instead_of_inventing_one():
+    ind = isf_indicator(11, 1, 14, our_pay=(80000, 125000))
+    assert ind.scope == "hoger personeel"
+    assert ind.pay_overlap_pct is None
+    assert "no rigid step table" in ind.overlap_reason
+
+
+def test_above_the_income_cap_indicates_no_group_at_all():
+    """The refusal that rank-mapping could never make: our top grade is not
+    group Q, it is outside the structure."""
+    ind = isf_indicator(14, 1, 14, our_pay=(140000, 280000))
+    assert ind.scope == "above the cap"
+    assert ind.indicated_group is None
+    assert "not group Q" in ind.overlap_reason
+    assert str(int(ISF_HP_INCOME_CAP_2026)) in ind.overlap_reason.replace(",", "").replace(".", "")
+
+
+def test_the_two_bases_are_reported_separately_and_never_averaged():
+    ind = isf_indicator(7, 1, 14, our_pay=(52000, 78000),
+                        points=405, points_min=100, points_max=1800)
+    assert ind.group_by_rank == "H" and ind.group_by_points == "D"
+    assert ind.bases_agree is False
+    assert "the two bases differ" in ind.summary
+
+
+def test_without_points_there_is_no_agreement_claim_either_way():
+    ind = isf_indicator(7, 1, 14, our_pay=(52000, 78000))
+    assert ind.bases_agree is None
+    assert "agree" not in ind.summary and "differ" not in ind.summary
+
+
+def test_there_is_no_blended_confidence_number():
+    """Every measured part stays named. A single score averaging an agreement
+    flag, an overlap and a scope would manufacture a precision none of them has
+    — and it is exactly the figure that survives into a slide unchallenged."""
+    ind = isf_indicator(7, 1, 14, our_pay=(52000, 78000),
+                        points=405, points_min=100, points_max=1800)
+    fields = ind.__dataclass_fields__
+    assert not [f for f in fields if "confidence" in f or "score" in f]
+    assert ind.pay_overlap_pct is not None      # the one % is a measurement
+
+
+def test_without_a_pay_range_the_overlap_says_why_rather_than_reading_zero():
+    ind = isf_indicator(4, 1, 14)
+    assert ind.pay_overlap_pct is None
+    assert "No pay range supplied" in ind.overlap_reason

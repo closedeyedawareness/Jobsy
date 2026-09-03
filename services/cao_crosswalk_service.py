@@ -181,3 +181,129 @@ def crosswalk_to_cats(
 
 def known_cats_sectors() -> list[str]:
     return sorted(CATS_FUNCTIEGROEP_TO_SALARISGROEP.keys())
+
+# ── the indicator ──────────────────────────────────────────────────────────
+#
+# OUR GRADE IS THE ANSWER. It is our own independent, gender-neutral system and
+# it is what a client is classified on. ISF is an INDICATOR beside it — useful
+# for the conversation "where would this sit in the sector CAO", never the
+# classification itself, which needs a certified weging nobody here can perform.
+#
+# So this does not pick a basis and present one letter. It reports the letter
+# each basis gives, whether they agree, how much of our pay range actually
+# falls inside that group's published scale, and whether the job is inside the
+# published table at all.
+#
+# THE ONLY PERCENTAGE HERE IS A MEASUREMENT. Pay overlap is computable from two
+# published figures and can be checked by anyone. There is deliberately no
+# blended "confidence score": averaging an agreement flag, an overlap and a
+# scope into one number would manufacture a precision none of the three has,
+# and it is exactly the kind of figure that survives into a slide unchallenged.
+
+
+@dataclass(frozen=True)
+class IsfIndicator:
+    """Our grade, with an ISF reading beside it and the quality of that reading."""
+    our_grade: float
+    our_pay: tuple[float, float] | None
+
+    group_by_rank: str | None
+    group_by_points: str | None
+    bases_agree: bool | None          # None when only one basis was available
+
+    indicated_group: str | None       # the letter to show, or None when out of scope
+    published_scale: tuple[float, float] | None   # annualised, A-K only
+    pay_overlap_pct: float | None     # share of OUR range inside that scale
+    overlap_reason: str               # why the overlap is None, when it is
+
+    scope: str                        # "published table" | "hoger personeel" | "above the cap"
+    summary: str
+
+    @property
+    def is_indicative_only(self) -> bool:
+        return True                   # always. There is no certified weging here.
+
+
+def _annualised(letter: str) -> tuple[float, float] | None:
+    scale = ISF_MONTHLY_SCALES_2026.get(letter)
+    if not scale:
+        return None
+    return (scale[0] * ISF_HP_ANNUALISE_MULTIPLIER, scale[1] * ISF_HP_ANNUALISE_MULTIPLIER)
+
+
+def _overlap_pct(ours: tuple[float, float], theirs: tuple[float, float]) -> float:
+    """How much of OUR pay range falls inside THEIR published scale.
+
+    Deliberately asymmetric: the question a client asks is "how much of what we
+    pay is covered by this group", not the reverse. 0.0 is a real answer and
+    means the ranges touch at most at a point.
+    """
+    lo, hi = ours
+    if hi <= lo:
+        return 0.0
+    inter = max(0.0, min(hi, theirs[1]) - max(lo, theirs[0]))
+    return round(inter / (hi - lo) * 100, 1)
+
+
+def isf_indicator(our_grade: float, grade_min: float, grade_max: float, *,
+                  our_pay: tuple[float, float] | None = None,
+                  points: float | None = None,
+                  points_min: float | None = None,
+                  points_max: float | None = None) -> IsfIndicator:
+    """Our grade first; ISF beside it, with the quality of the reading stated."""
+    by_rank = crosswalk_to_isf(our_grade, grade_min, grade_max)
+    by_points = (crosswalk_to_isf(our_grade, grade_min, grade_max, points=points,
+                                  points_min=points_min, points_max=points_max)
+                 if points is not None and points_min is not None and points_max is not None
+                 else None)
+
+    g_rank = by_rank.salarisgroep if by_rank else None
+    g_pts = by_points.salarisgroep if (by_points and by_points.basis == "own point range") else None
+    agree = None if g_pts is None else (g_rank == g_pts)
+    indicated = g_rank
+
+    scope = "published table"
+    scale = _annualised(indicated) if indicated else None
+    overlap: float | None = None
+    reason = ""
+
+    if indicated and indicated in _HP_LETTERS:
+        scope = "hoger personeel"
+        reason = ("Hoger Personeel has no rigid step table in the CAO, so there is no published "
+                  "scale to measure a pay overlap against.")
+    elif scale is None:
+        reason = "No published scale on file for that group."
+    elif our_pay is None:
+        reason = "No pay range supplied for this job, so the overlap cannot be measured."
+    else:
+        overlap = _overlap_pct(our_pay, scale)
+
+    if our_pay and our_pay[0] > ISF_HP_INCOME_CAP_2026:
+        scope = "above the cap"
+        indicated = None
+        overlap, scale = None, None
+        reason = (f"This pay range starts above the Hoger Personeel income cap "
+                  f"(€{ISF_HP_INCOME_CAP_2026:,.0f}), so the ISF structure does not reach it. "
+                  f"No salarisgroep is indicated — that is the honest answer, not group Q.")
+
+    # The summary names each measured part. It never blends them.
+    bits = [f"Grade {our_grade:g} — our own classification"]
+    if indicated:
+        bits.append(f"indicatief ISF {indicated}")
+        if agree is False:
+            bits.append(f"the two bases differ ({g_rank} by rank, {g_pts} by points)")
+        elif agree is True:
+            bits.append("both bases agree")
+        if overlap is not None:
+            bits.append(f"{overlap:g}% of our pay range falls inside that group's published scale")
+        elif reason:
+            bits.append(reason.rstrip("."))
+    else:
+        bits.append(reason.rstrip("."))
+    return IsfIndicator(
+        our_grade=our_grade, our_pay=our_pay,
+        group_by_rank=g_rank, group_by_points=g_pts, bases_agree=agree,
+        indicated_group=indicated, published_scale=scale,
+        pay_overlap_pct=overlap, overlap_reason=reason,
+        scope=scope, summary=" · ".join(bits),
+    )
