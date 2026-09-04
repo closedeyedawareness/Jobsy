@@ -8,7 +8,6 @@ gets read.
 """
 
 import io
-import pathlib
 import random
 
 import pandas as pd
@@ -20,25 +19,28 @@ from services.architecture_report_service import ArchitectureReportService
 from services.matching_service import MatchingService
 
 WORKBOOK = "jobsy_reference_library.xlsx"
-DEMO_ROSTER = "jobsy_demo_100_people.csv"
+
+# A COMMITTED fixture, not the local demo file. These tests read
+# jobsy_demo_100_people.csv, which .gitignore excludes (*people*.csv), so they
+# passed on the machine that wrote them and raised FileNotFoundError everywhere
+# else -- including CI, where a missing file in a FIXTURE is reported as an
+# ERROR rather than a FAILURE and is easy to read past under a cheerful "444
+# passed". main has been red since 2026-09-03 for exactly this.
+#
+# fixtures/synthetic-100-people.csv is generated from this workbook's own 81
+# standard titles, so matching exercises the real path rather than the
+# not-found path, and it carries part-timers because the Overview's
+# "compared full-time-equivalent" line has nothing to say without them.
+# .gitignore already carved out !fixtures/synthetic-*.csv for this purpose.
+# No real people are in it.
+ROSTER = "fixtures/synthetic-100-people.csv"
 
 
 @pytest.fixture(scope="module")
 def report():
-    # Both inputs are gitignored (.gitignore: *people*.csv), so they exist on
-    # the machine that wrote these tests and nowhere else -- CI and every other
-    # clone raised FileNotFoundError at fixture setup, which pytest reports as
-    # an ERROR rather than a failure and is easy to read past. Skipping states
-    # the dependency instead of erroring on it; the tests still run wherever the
-    # files are present. Committing a small fixture roster would be the better
-    # fix, but that is a decision about what demo data belongs in the repo.
-    for f in (WORKBOOK, DEMO_ROSTER):
-        if not pathlib.Path(f).exists():
-            pytest.skip(f"{f} is not in the repository (gitignored); "
-                        f"these tests need it and cannot run here")
     cat = Catalog(WORKBOOK, source="excel").load()
     svc = MatchingService(cat, index=cat.repository.index)
-    emp = pd.read_csv(DEMO_ROSTER)
+    emp = pd.read_csv(ROSTER)
     results = [svc.match(str(t)) for t in emp["CurrentTitle"]]
     random.seed(7)
     emp = emp.copy()
