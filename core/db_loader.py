@@ -234,7 +234,13 @@ def load_frames(client, org_id: str, library_org_id: str | None = None,
             # Data Quality page reads UpdatedAt to judge staleness.
             for db_col, wb_col in (("owner", "Owner"), ("status", "Status"),
                                    ("effective_from", "EffectiveFrom"),
-                                   ("source", "Source"), ("updated_at", "UpdatedAt")):
+                                   ("source", "Source"), ("updated_at", "UpdatedAt"),
+                                   # 0012 put country on the priced tables. It is
+                                   # carried here rather than added to TableSpec
+                                   # because TableSpec also drives the WORKBOOK
+                                   # import, and a sheet that predates 0012 has no
+                                   # Country column to map. Read side only.
+                                   ("country", "Country")):
                 if db_col in row:
                     rec[wb_col] = _render(db_col, row.get(db_col))
             # CareerPaths' Status means top-of-ladder, not lifecycle — see 0002.
@@ -244,6 +250,11 @@ def load_frames(client, org_id: str, library_org_id: str | None = None,
 
         columns = list(spec.columns.keys()) + ["Source", "Owner", "Status",
                                                "EffectiveFrom", "UpdatedAt"]
+        # Only for the tables that actually carry it; a country column on a
+        # country-neutral table is one that drifts and is then believed, which
+        # is the reasoning 0012 used to decide which tables got one.
+        if any("Country" in rec for rec in records):
+            columns.append("Country")
         df = pd.DataFrame(records, columns=columns)
 
         # Catalog coerces exactly these back to numbers, so this does too.

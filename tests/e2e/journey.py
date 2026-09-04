@@ -73,6 +73,8 @@ with sync_playwright() as pw:
     check("  their own client is named", "Northwind" in body)
     check("  a sibling client under the same partner is NOT shown", "Contoso" not in body)
     check("  another partner's client is NOT shown", "Initech" not in body)
+    check("  and their own admin can read the access trail, not just us",
+          "Activity trail" in body, "readable by the client, not only from a shell")
     page.screenshot(path=f"{SHOT}/j3_client_admin.png", full_page=True)
 
     # Try to open the other partner's roster by its code.
@@ -116,6 +118,43 @@ with sync_playwright() as pw:
     page.screenshot(path=f"{SHOT}/j5_consultant.png", full_page=True)
     page.close()
 
+    # ── 4b. Money follows the CLIENT'S market ─────────────────────────
+    #
+    # ui/app.py wrote "€" at twenty-four call sites. That is right for the
+    # Netherlands and silently wrong for Contoso, which is Polish -- and a
+    # salary shown as "€90.000" when it is 90,000 zloty is a different number,
+    # on a screen someone sets pay from. The unit tests cover the formatting;
+    # what only a browser can show is that the chain from the signed-in user
+    # through RLS to orgs.default_country to a currency actually joins up, and
+    # that switching client switches market with it.
+    page = browser.new_page(viewport={"width": 1280, "height": 900}); only_local(page)
+    sign_in(page, "consultant@acme.example", "acme-pw-2026")
+
+    def market_line(pg):
+        sb = pg.query_selector("section[data-testid='stSidebar']")
+        text = sb.inner_text() if sb else pg.inner_text("body")
+        return next((l.strip() for l in text.split("\n") if l.strip().startswith("Market:")), "")
+
+    check("a Polish client's market is stated as Polish",
+          market_line(page) == "Market: Poland (PLN)", market_line(page) or "no market line")
+
+    # Both clients have bands in their own country, so neither may be told its
+    # data is missing. This warning fired wrongly on first run: it asked for a
+    # row COUNT, which arrives in a response header, and read None as zero.
+    check("  and a market that HAS data is not warned about",
+          "No salary reference data" not in page.inner_text("body"))
+
+    sel = page.query_selector("div[data-testid='stSelectbox']")
+    sel.click(); page.wait_for_timeout(1200)
+    for o in page.query_selector_all("li, div[role='option']"):
+        if "Northwind" in (o.inner_text() or ""):
+            o.click(); break
+    page.wait_for_timeout(6000)
+    check("  switching to the Dutch client switches the market with it",
+          market_line(page) == "Market: Netherlands (EUR)", market_line(page) or "no market line")
+    page.screenshot(path=f"{SHOT}/j8_market.png", full_page=True)
+    page.close()
+
     # ── 5. A read-only viewer ─────────────────────────────────────────
     page = browser.new_page(viewport={"width": 1280, "height": 900}); only_local(page)
     sign_in(page, "viewer@northwind.example", "viewer-pw-2026")
@@ -131,6 +170,10 @@ with sync_playwright() as pw:
     check("  no Save button is rendered at all",
           not any("save progress" in (b.inner_text() or "").lower()
                   for b in page.query_selector_all("button")))
+    # The activity trail answers "who touched our data". It is for the people
+    # accountable for the client's data, not for everyone who can see it.
+    check("  and the activity trail is not offered to a viewer",
+          "Activity trail" not in page.inner_text("body"))
     page.screenshot(path=f"{SHOT}/j6_viewer.png", full_page=True)
     page.close()
 

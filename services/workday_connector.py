@@ -110,7 +110,14 @@ class WorkdayConnector:
             r = self.session.get(f"{base}/workers?limit=1", timeout=15)
             if r.status_code == 200:
                 return True, "Connected"
-            return False, f"HTTP {r.status_code}: {r.text[:200]}"
+            # The status code, not the body. Workday's error bodies can echo
+            # the record that failed -- names, worker ids -- and this string is
+            # rendered straight into a UI banner, so pasting a third party's
+            # response into it puts employee data on screen (and into any log
+            # that captures the banner) for what is meant to be a connectivity
+            # check. The body is still available to whoever holds the Workday
+            # credentials, in Workday.
+            return False, f"HTTP {r.status_code} from Workday. Check the tenant, credentials and permissions."
         except Exception as exc:
             return False, str(exc)
 
@@ -144,9 +151,22 @@ class WorkdayConnector:
             if not batch:
                 break
             all_workers.extend(batch)
-            total = data.get("total", 0)
+            # "total" absent defaulted to 0, so `cur_offset >= 0` was true on
+            # the first pass and the loop stopped after one page -- silently
+            # building the whole report on however many workers fitted in it,
+            # with no error and nothing on screen to say the roster was cut
+            # short. A headcount that is quietly too small is worse than a
+            # failed import, because it looks like an answer.
+            #
+            # When the tenant tells us the total, trust it. When it does not,
+            # stop on a SHORT PAGE, which is the standard signal that there is
+            # nothing more to fetch.
+            total = data.get("total")
             cur_offset += limit
-            if cur_offset >= total:
+            if total is None:
+                if len(batch) < limit:
+                    break
+            elif cur_offset >= total:
                 break
 
         if not all_workers:

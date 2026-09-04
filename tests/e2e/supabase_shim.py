@@ -88,13 +88,31 @@ def user_obj(uid, email, meta):
             "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}
 
 
+# Response headers PostgREST sets that the client actually reads. Content-Range
+# carries the row count; Preference-Applied tells the client which Prefer was
+# honoured. Anything not listed is dropped, as before.
+_PASSTHROUGH = ("content-range", "preference-applied")
+
+
+def _passthrough(headers):
+    return {k: v for k, v in headers.items() if k.lower() in _PASSTHROUGH}
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", extra=None):
         raw = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        # Content-Range is where supabase-py reads .count from. Dropping it made
+        # every .count come back None through this shim while the rows arrived
+        # perfectly -- so a "does any row exist" check answered "no" and the app
+        # told a Dutch client it had no Dutch salary data. The shim is supposed
+        # to stub GoTrue and nothing else; silently altering REST responses is
+        # exactly the kind of fake that makes a test worse than no test.
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
@@ -161,9 +179,13 @@ class H(BaseHTTPRequestHandler):
         # the publishable key is a real anon JWT — exactly as Supabase does it.
         try:
             with urllib.request.urlopen(req) as r:
-                return self._send(r.status, r.read(), r.headers.get("Content-Type", "application/json"))
+                return self._send(r.status, r.read(),
+                                  r.headers.get("Content-Type", "application/json"),
+                                  _passthrough(r.headers))
         except urllib.error.HTTPError as e:
-            return self._send(e.code, e.read(), e.headers.get("Content-Type", "application/json"))
+            return self._send(e.code, e.read(),
+                              e.headers.get("Content-Type", "application/json"),
+                              _passthrough(e.headers))
 
     def _route(self):
         path = self.path

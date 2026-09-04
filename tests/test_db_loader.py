@@ -220,14 +220,31 @@ def test_the_default_credential_is_the_configured_one(monkeypatch):
     assert seen["mode"] == "user"
 
 
+def _fake_auth_service(monkeypatch, *, db, active_org_id):
+    """Stand a fake services.auth_service in front of core.db_loader.
+
+    Patching sys.modules alone is not enough. db_loader says
+    `from services import auth_service`, which resolves through the ATTRIBUTE on
+    the already-imported `services` package, not through a sys.modules lookup --
+    so once anything in the suite has imported the real auth_service, these
+    tests silently got the real one and took a different error path. They passed
+    only while they happened to run before anything that imports it, which is a
+    property of alphabetical file order rather than of the code under test.
+    Patching both is order-independent.
+    """
+    import sys, types, services
+    fake = types.ModuleType("services.auth_service")
+    fake.db = db
+    fake.active_org_id = active_org_id
+    monkeypatch.setitem(sys.modules, "services.auth_service", fake)
+    monkeypatch.setattr(services, "auth_service", fake, raising=False)
+    return fake
+
+
 def test_user_mode_refuses_rather_than_falling_back_when_nobody_is_signed_in(monkeypatch):
     """A fall back to the secret key would read exactly the same rows and prove
     nothing — which is the failure this switch exists to remove."""
-    import sys, types
-    fake = types.ModuleType("services.auth_service")
-    fake.db = lambda: None
-    fake.active_org_id = lambda: None
-    monkeypatch.setitem(sys.modules, "services.auth_service", fake)
+    _fake_auth_service(monkeypatch, db=lambda: None, active_org_id=lambda: None)
 
     import core.db_loader as dl
     with pytest.raises(RuntimeError, match="nobody is signed in"):
@@ -235,11 +252,7 @@ def test_user_mode_refuses_rather_than_falling_back_when_nobody_is_signed_in(mon
 
 
 def test_user_mode_refuses_when_the_account_has_no_active_client(monkeypatch):
-    import sys, types
-    fake = types.ModuleType("services.auth_service")
-    fake.db = lambda: object()
-    fake.active_org_id = lambda: None
-    monkeypatch.setitem(sys.modules, "services.auth_service", fake)
+    _fake_auth_service(monkeypatch, db=lambda: object(), active_org_id=lambda: None)
 
     import core.db_loader as dl
     with pytest.raises(RuntimeError, match="no active client"):

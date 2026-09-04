@@ -100,7 +100,7 @@ def data_quality_page(catalog):
         try:
             from services.library_export_service import LibraryExportService, export_bytes
             _exporter = LibraryExportService(catalog)
-            st.download_button(
+            _logged_download(
                 "Export library to Excel",
                 data=export_bytes(catalog),
                 file_name=_exporter.suggested_filename(),

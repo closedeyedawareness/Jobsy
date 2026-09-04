@@ -89,7 +89,7 @@ def skill_gap_page(catalog, service):
                 with st.expander(f"Exceeds requirement ({len(exceeds)})"): st.markdown("".join(gap_card(g) for g in exceeds),unsafe_allow_html=True)
             import io as _io, pandas as _pd
             buf=_io.BytesIO(); _pd.DataFrame(gaps).to_excel(buf,index=False)
-            st.download_button("⬇ Download gap report",buf.getvalue(),file_name=f"gap_{from_id}_to_{to_id}.xlsx",
+            _logged_download("⬇ Download gap report",buf.getvalue(),file_name=f"gap_{from_id}_to_{to_id}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     # ── Tab 2: Batch Overview ─────────────────────────────────────────────
@@ -140,7 +140,7 @@ def skill_gap_page(catalog, service):
                         "Skills to Dev":st.column_config.NumberColumn("To Develop",format="%d"),
                         "Skills Ready":st.column_config.NumberColumn("Ready",format="%d")})
                 buf2=_io2.BytesIO(); df_out.to_excel(buf2,index=False)
-                st.download_button("⬇ Download batch overview",buf2.getvalue(),file_name="jobsy_batch_overview.xlsx",
+                _logged_download("⬇ Download batch overview",buf2.getvalue(),file_name="jobsy_batch_overview.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     # ── Tab 3: Succession Planning ────────────────────────────────────────
@@ -219,7 +219,7 @@ def skill_gap_page(catalog, service):
                         "Level":c["level"],"Headcount":c["headcount"],"Readiness %":c["score"],"Status":c["label"],
                         "Pipeline":c["pipeline"],"To Develop":c["n_develop"],"Top Gap 1":c["top_gaps"][0] if c["top_gaps"] else "",
                         "Top Gap 2":c["top_gaps"][1] if len(c["top_gaps"])>1 else ""} for c in candidates]).to_excel(sbuf,index=False)
-                    st.download_button("⬇ Download succession report",sbuf.getvalue(),file_name=f"succession_{target_id}.xlsx",
+                    _logged_download("⬇ Download succession report",sbuf.getvalue(),file_name=f"succession_{target_id}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
@@ -353,6 +353,6 @@ def skill_gap_page(catalog, service):
                 # Export
                 export_df = _pdr.DataFrame([{k:v for k,v in r.items() if k!="_risk_col"} for r in risk_rows])
                 buf_r = _ior.BytesIO(); export_df.to_excel(buf_r, index=False)
-                st.download_button("⬇ Download succession risk report", buf_r.getvalue(),
+                _logged_download("⬇ Download succession risk report", buf_r.getvalue(),
                     file_name="jobsy_succession_risk.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

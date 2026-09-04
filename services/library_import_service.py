@@ -443,10 +443,17 @@ def import_library(path: str = DEFAULT_WORKBOOK, *, write: bool = False,
     # An import that reports 2,578 rows over an empty table is the failure this
     # guards against. Count what is actually there, from the database's answer
     # rather than from what we believed we sent.
+    # `.data`, not `.count`. A count is derived from PostgREST's Content-Range
+    # header, so it is None whenever anything in the path drops that header --
+    # and `(None or 0) == 0` reads as "this table is empty", condemning an
+    # import that had in fact just written every row. That turns the one guard
+    # meant to catch a real silent-write failure into a guard that cries wolf,
+    # and a guard operators learn to ignore is worse than no guard. Asking for
+    # one row answers the same question and cannot be lost in transit.
     empty = [spec.table for spec in SPECS
              if (payload.get(spec.table) or [])
-             and (client.table(spec.table).select("id", count="exact")
-                  .limit(1).execute().count or 0) == 0]
+             and not (client.table(spec.table).select("id")
+                      .limit(1).execute().data)]
     if empty:
         raise RuntimeError(
             f"The import reported rows but these tables are still empty: {', '.join(empty)}. "

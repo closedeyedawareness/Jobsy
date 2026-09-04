@@ -74,7 +74,7 @@ def job_family_page(catalog):
     _repo = catalog.repository
 
     def _euro0(v):
-        try: return "€{:,.0f}".format(float(v)).replace(",", ".")
+        try: return _money(float(v))
         except Exception: return "—"
     def _cell(v, n=170):
         s = "" if v is None else str(v)
@@ -215,7 +215,7 @@ def job_family_page(catalog):
                                     for f in ("Min", "P25", "Median", "P75", "Max")]
         base = _alt.Chart(df).encode(x=_alt.X("Role:N", sort=order, axis=_alt.Axis(labelAngle=-20, title=None)))
         rule = base.mark_rule(color="#8850EF", strokeWidth=2, opacity=0.45).encode(
-            y=_alt.Y("Min:Q", title="Base salary (€)"), y2="Max:Q")
+            y=_alt.Y("Min:Q", title=f"Base salary ({_cur()})"), y2="Max:Q")
         def _pt(field, shape, color, size=70):
             return base.mark_point(shape=shape, filled=True, color=color, size=size, opacity=0.9).encode(
                 y=f"{field}:Q", tooltip=tips)

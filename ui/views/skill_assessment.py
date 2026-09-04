@@ -291,7 +291,7 @@ def skill_assessment_page(catalog):
         tmpl_df.to_excel(_xl, index=False, sheet_name="Assessment")
         if _rubric_rows:
             _pdsa.DataFrame(_rubric_rows).to_excel(_xl, index=False, sheet_name="Proficiency Rubric")
-    st.download_button("⬇ Download assessment template (.xlsx)", tmpl_buf.getvalue(),
+    _template_download("⬇ Download assessment template (.xlsx)", tmpl_buf.getvalue(),
         file_name="jobsy_skills_assessment_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -720,6 +720,6 @@ def _show_assessment_preview(catalog, assessments):
             for g in gaps]
     import io as _ioex, pandas as _pdex
     buf_ex = _ioex.BytesIO(); _pdex.DataFrame(rows).to_excel(buf_ex, index=False)
-    st.download_button(f"⬇ Download development plan — {selected}", buf_ex.getvalue(),
+    _logged_download(f"⬇ Download development plan — {selected}", buf_ex.getvalue(),
         file_name=f"dev_plan_{selected.replace(' ','_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

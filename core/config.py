@@ -1,5 +1,20 @@
 """Jobsy core configuration."""
-COUNTRY           = "NL"
+# The country a deployment defaults to when nothing else says otherwise. It is
+# a DEFAULT, not a fact: migration 0012 puts a country on every priced reference
+# row, on each client (orgs.default_country) and on each employee, because the
+# customers Jobsy is sold to have staff in several. Anything that reads this
+# constant is answering "what should I assume", never "where is this person
+# paid" -- ask the row for that.
+#
+# ROADMAP 3.1. Adding a market is: import rows carrying its code, then flip
+# is_live in the countries table.
+DEFAULT_COUNTRY   = "NL"
+COUNTRY           = DEFAULT_COUNTRY   # kept: ui/app.py reads it for the badge
+
+# Currency follows the country, not the deployment -- countries.currency is the
+# source of truth. This is only the fallback for a display before any country is
+# known, and PLN/SEK/DKK exist in that table precisely so nothing assumes euro.
+DEFAULT_CURRENCY  = "EUR"
 DEFAULT_THRESHOLD = 85
 WORKBOOK_PATH     = "jobsy_reference_library.xlsx"
 

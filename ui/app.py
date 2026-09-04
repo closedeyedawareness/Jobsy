@@ -729,6 +729,44 @@ def _force_password_change():
     st.stop()
 
 
+def _activity_trail_panel():
+    """Who touched this client's data, for the people answerable for it.
+
+    activity_log has been readable by org admins since 0009, but only from a
+    shell via `manage_users.py log`. An audit trail an operator can read and a
+    client's own admin cannot is a trail that answers to the wrong person.
+
+    Read-only by construction: there is no write policy on the table, and no
+    grant behind one, so this cannot become an edit screen by accident.
+    """
+    from services import auth_service
+    if not auth_service.is_admin():
+        return
+    client = auth_service.db()
+    org = auth_service.active_org()
+    if client is None or not org:
+        return
+
+    with st.expander("🧾 Activity trail", expanded=False):
+        st.caption(f"Access to **{org['name']}**'s data. Append-only: nobody can "
+                   f"edit or delete these entries, including us.")
+        try:
+            rows = (client.table("activity_log")
+                    .select("at, actor, action, subject")
+                    .eq("org_id", org["id"])
+                    .order("at", desc=True)
+                    .limit(100)
+                    .execute()).data or []
+        except Exception as exc:
+            st.caption(f"The trail could not be read: {exc}")
+            return
+        if not rows:
+            st.caption("Nothing recorded yet.")
+            return
+        import pandas as _pd
+        st.dataframe(_pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
 def _sidebar_account():
     """Who you are, which client you are working on, and the way out."""
     from services import auth_service
@@ -759,6 +797,23 @@ def _sidebar_account():
                 (getattr(st, "rerun", None) or getattr(st, "experimental_rerun"))()
         elif active:
             st.caption(f'{active["name"]} · {active["role"].replace("_", " ")}')
+
+        # Which market's money is on screen. Silent when it is the only live one
+        # and its data exists -- a line that never changes is a line nobody reads.
+        try:
+            from services import country_service
+            _ctry = country_service.active_country()
+            if len(country_service.live_countries()) > 1:
+                st.caption(f"Market: {country_service.name_for(_ctry)} "
+                           f"({country_service.currency_for(_ctry)})")
+            if not country_service.has_reference_data(_ctry):
+                st.warning(f"No salary reference data for "
+                           f"{country_service.name_for(_ctry)} yet. Bands and "
+                           f"benchmarks will be empty rather than wrong.")
+        except Exception:
+            pass
+
+        _activity_trail_panel()
 
         if st.button("Sign out", use_container_width=True):
             auth_service.sign_out()
@@ -1245,7 +1300,7 @@ def main():
                 "Add Bonus / Allowances / LTI to see the gender gap on TOTAL pay (base + variable), not just base — the EU Directive basis.",
                 "Spelling wobbles are fine (fuzzy matching handles them), but cleaner titles score higher.",
                 f"Keep these exact headers so {_brand_name()} auto-detects each column; extra columns you add are preserved too.",
-                "ActualSalary must be a plain number (68000, not '€68.000' or '68k'). FTE as 1.0 / 0.8. Dates as YYYY-MM-DD.",
+                f"ActualSalary must be a plain number (68000, not '{_money(68000)}' or '68k'). FTE as 1.0 / 0.8. Dates as YYYY-MM-DD.",
                 "Add Performance + Potential (1-3) to auto-place people on the 9-Box grid — no re-entry needed.",
                 "Put skills in one cell as 'Skill:Level; Skill:Level' under SkillProficiency, or use the dedicated Skills template for a per-skill grid.",
                 "Both .csv and .xlsx upload fine.",
@@ -1254,7 +1309,7 @@ def main():
         st.markdown("**New here?** Download the template, fill in **CurrentTitle** (add salary/gender for Pay Equity), then upload below.")
         _tc1, _tc2 = st.columns(2)
         with _tc1:
-            st.download_button(
+            _logged_download(
                 "⬇ Import template (.csv)",
                 _tpl_df.to_csv(index=False).encode("utf-8"),
                 file_name="jobsy_import_template.csv",
@@ -1267,7 +1322,7 @@ def main():
                 _tpl_df.to_excel(_xl, index=False, sheet_name="Workforce")
                 _instr_df.to_excel(_xl, index=False, sheet_name="Instructions")
                 _tips_df.to_excel(_xl, index=False, sheet_name="Match tips")
-            st.download_button(
+            _logged_download(
                 "⬇ Import template (.xlsx)",
                 _xbuf.getvalue(),
                 file_name="jobsy_import_template.xlsx",
@@ -1449,7 +1504,7 @@ def main():
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     col_dl, col_reset = st.columns([3,1])
     with col_dl:
-        st.download_button(
+        _logged_download(
             "⬇  Download results (.xlsx)",
             data=ExportService().to_workbook_bytes(results, summary),
             file_name="jobsy_matches.xlsx",

@@ -269,6 +269,26 @@ def save_session(code: str, payload: dict, org_label: str = "",
         body = _pseudonymise_names(body, salt=code,
                                    name_col=body.get("upload_name_col"))
 
+    # A session code belongs to the client it was created for, permanently.
+    # Without this check the upsert would happily rewrite an existing code's
+    # org_id: someone with edit rights on two clients -- the ordinary shape for
+    # a reseller's consultant -- could load client A's session, switch the
+    # active client to B, press Save, and reparent A's roster into B's org.
+    # RLS permits it, because they may legitimately write to both; what it
+    # cannot know is that this row was never B's to take. Nothing in the
+    # product needs a code to change hands, so the safe rule is that it never
+    # does.
+    try:
+        owner = (client.table("jobsy_sessions")
+                 .select("org_id")
+                 .eq("session_code", code)
+                 .limit(1)
+                 .execute()).data or []
+    except Exception:
+        owner = []
+    if owner and str(owner[0].get("org_id")) != str(org):
+        return False
+
     try:
         client.table("jobsy_sessions").upsert({
             "session_code": code,

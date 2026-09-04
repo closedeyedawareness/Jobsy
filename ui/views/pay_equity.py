@@ -5,6 +5,27 @@ from __future__ import annotations
 from ui.shared import *  # noqa: F401,F403
 
 
+def _is_dutch_client() -> bool:
+    """Whether the Dutch collective-agreement crosswalk may be shown at all.
+
+    ISF and CATS are Metalektro institutions -- Dutch ones -- which is exactly
+    why cao_crosswalk_service encodes them as code rather than data. Rendering
+    them for a Polish client positions their grades onto Dutch salarisgroepen
+    beside euro monthly scales, implying a legal classification that does not
+    apply to them. Germany's ERA and France's conventions collectives are
+    different institutions, not different numbers, so each becomes its own
+    module rather than a translated label.
+
+    Both crosswalk render sites call this, so the rule lives in one place and
+    the two cannot drift apart.
+    """
+    try:
+        from services import country_service
+        return country_service.active_country() == "NL"
+    except Exception:
+        return True     # no session to ask: the library is Dutch
+
+
 def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, salary_already_fte=False, catalog=None):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
@@ -154,8 +175,16 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     # JobGrade ladder (see the compa-ratio path's version of this for that
     # richer case). No skill/description context here either, by design --
     # this mode doesn't collect that data.
+    #
+    # GATED ON THE CLIENT'S MARKET. ISF and CATS are Metalektro institutions --
+    # Dutch ones -- which is exactly why cao_crosswalk_service encodes them as
+    # code rather than data. Rendering them for a Polish client positions their
+    # grades onto Dutch salarisgroepen beside euro monthly scales, which implies
+    # a legal classification that does not apply to them. Germany's ERA and
+    # France's conventions collectives are different institutions, not different
+    # numbers, so each becomes its own module rather than a translated label.
     _lvl_num = pd.to_numeric(df[level_col], errors="coerce")
-    if _lvl_num.notna().mean() > 0.9:
+    if _is_dutch_client() and _lvl_num.notna().mean() > 0.9:
         try:
             from services.cao_crosswalk_service import (
                 crosswalk_to_cats, crosswalk_to_isf, isf_indicator, known_cats_sectors)
@@ -206,7 +235,7 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
                     return ("— buiten bereik", "—", ind.overlap_reason.split(".")[0])
                 overlap = (f"{ind.pay_overlap_pct:g}%" if ind.pay_overlap_pct is not None
                            else "— (geen gepubliceerde schaal)")
-                scale = (f"€{ind.published_scale[0]:,.0f}–€{ind.published_scale[1]:,.0f}".replace(",", ".")
+                scale = (f"{_money(ind.published_scale[0])}–{_money(ind.published_scale[1])}"
                          if ind.published_scale else "— (Hoger Personeel)")
                 return (ind.indicated_group, overlap, scale)
 
@@ -382,7 +411,7 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
                            key="lg_report_lang", horizontal=True)
     _lang_code = "nl" if _report_lang == "Nederlands" else "en"
     _report_bytes = PayEquityExportService().to_workbook_bytes(r, lang=_lang_code)
-    st.download_button(
+    _logged_download(
         "⬇ Download pay equity report (.xlsx)" if _lang_code == "en"
         else "⬇ Download loonkloofrapport (.xlsx)",
         _report_bytes,
@@ -425,7 +454,7 @@ def pay_equity_page(catalog, service):
         {"EmployeeID": "E1002", "Name": "Sam Jansen", "JobTitle": "Head of Sales", "ActualSalary": 118000, "Gender": "M"},
     ])
     _b = _io.BytesIO(); tmpl.to_excel(_b, index=False)
-    st.download_button("⬇ Download pay template (.xlsx)", _b.getvalue(),
+    _template_download("⬇ Download pay template (.xlsx)", _b.getvalue(),
         file_name="jobsy_pay_equity_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     _salkeys = {"actualsalary", "actual salary", "salary", "base salary", "basesalary", "grosssalary",
@@ -666,7 +695,8 @@ def pay_equity_page(catalog, service):
             pass
 
     # ── CAO crosswalk (ISF / CATS®, indicative, public bands only) ─────────
-    if len(priced) and priced["Grade"].notna().any():
+    # Gated on the client's market -- see _is_dutch_client().
+    if _is_dutch_client() and len(priced) and priced["Grade"].notna().any():
         try:
             from services.cao_crosswalk_service import (
                 crosswalk_to_cats, crosswalk_to_isf, isf_indicator, known_cats_sectors)
@@ -752,7 +782,7 @@ def pay_equity_page(catalog, service):
                                if ind.bases_agree is False else "—"))
                 overlap = (f"{ind.pay_overlap_pct:g}%" if ind.pay_overlap_pct is not None
                            else "— (geen gepubliceerde schaal)")
-                scale = (f"€{ind.published_scale[0]:,.0f}–€{ind.published_scale[1]:,.0f}".replace(",", ".")
+                scale = (f"{_money(ind.published_scale[0])}–{_money(ind.published_scale[1])}"
                          if ind.published_scale else "— (Hoger Personeel)")
                 return (ind.indicated_group, agree, overlap, scale)
 
@@ -1014,7 +1044,7 @@ def pay_equity_page(catalog, service):
         rem_min = float(sum(max(0.0, float(pr["Band min"]) - float(pr["Actual"])) for _, pr in priced.iterrows()))
         rem_p50 = float(sum(max(0.0, float(pr["Band P50"]) - float(pr["Actual"])) for _, pr in priced.iterrows()))
         n_below = int((priced["Actual"] < priced["Band min"]).sum())
-        _e = lambda v: "€{:,.0f}".format(v).replace(",", ".")
+        _e = _money
         st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
                     f'text-transform:uppercase;color:{C["muted"]};margin:16px 0 6px">Workforce cost & remediation</div>',
                     unsafe_allow_html=True)
@@ -1055,6 +1085,6 @@ def pay_equity_page(catalog, service):
                  if c in res.columns]
     st.dataframe(res[show_cols].style.apply(_row_style, axis=1), use_container_width=True, hide_index=True)
     _xb = _io.BytesIO(); res.to_excel(_xb, index=False)
-    st.download_button("⬇ Download pay-equity analysis (.xlsx)", _xb.getvalue(),
+    _logged_download("⬇ Download pay-equity analysis (.xlsx)", _xb.getvalue(),
         file_name="jobsy_pay_equity.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

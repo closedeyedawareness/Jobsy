@@ -53,7 +53,12 @@ done
 
 echo
 OUT=""
-for t in supabase/tests/[0-9]*_test.sql; do
+# Every numbered file, not just those ending _test.sql. 0014 arrived named
+# 0014_library_read_is_org_only.sql and was therefore never run at all -- a
+# whole test file silently excluded by a naming convention, which the error
+# check below cannot catch because nothing errored: nothing ran. Matching on the
+# number is matching on the thing that actually identifies these files.
+for t in supabase/tests/[0-9]*.sql; do
   echo "── $(basename "$t") ──────────────────────────────────────────"
   # Each test file runs against the same database, in filename order: 0008's
   # fixtures build on 0007 having run, and both are written to be re-runnable.
@@ -66,5 +71,23 @@ done
 
 FAILED=$(printf '%s\n' "$OUT" | grep -c '^FAIL' || true)
 PASSED=$(printf '%s\n' "$OUT" | grep -c '^ok' || true)
+
+# A statement that ERRORS is neither a pass nor a fail: t_eq never gets called,
+# so the assertion inside it simply does not happen, and the total quietly drops
+# by one. Two assertions had been dead this way -- both from putting a
+# data-modifying statement inside a subquery, which Postgres refuses -- while
+# the suite reported "227 passed, 0 failed" and looked entirely healthy. The
+# test files run WITHOUT ON_ERROR_STOP on purpose (t_reject provokes errors and
+# catches them itself), so the errors that escape have to be counted here.
+# Matching on psql's own "psql:file:line: ERROR:" prefix, not on the word
+# anywhere, keeps the error text t_reject prints inside [...] on an ok line from
+# counting as a failure.
+BROKEN=$(printf '%s\n' "$OUT" | grep -cE '^psql:.*(ERROR|FATAL):' || true)
+
 echo "$PASSED passed, $FAILED failed"
+if [ "$BROKEN" -gt 0 ]; then
+  echo "$BROKEN statement(s) raised instead of asserting — those checks did not run:"
+  printf '%s\n' "$OUT" | grep -E '^psql:.*(ERROR|FATAL):'
+  exit 1
+fi
 [ "$FAILED" -eq 0 ] || exit 1

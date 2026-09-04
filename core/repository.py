@@ -527,12 +527,19 @@ class Repository:
             category = _val(row, "Category", "category")
             value = _num(row, "Value", "value")
             if not industry_id or not category or value is None: continue
+            # Missing country means the Dutch library, matching 0012's backfill.
+            country = (_val(row, "Country", "country") or "NL").strip().upper()
             obs = BenefitObservation(
                 industry_id=industry_id, category=category, value=value,
                 unit=_val(row, "Unit", "unit") or "",
-                currency=_val(row, "Currency", "currency") or "",
+                currency=(_val(row, "Currency", "currency") or "").strip().upper(),
+                country=country,
             )
-            self.benefit_observations.setdefault((industry_id, category), []).append(obs)
+            # Country is part of the KEY, not just a field on the row. Left as a
+            # field only, it was captured and then dropped at grouping time, so a
+            # Polish client's benefits were benchmarked against a distribution
+            # that was mostly Dutch euro values.
+            self.benefit_observations.setdefault((industry_id, category, country), []).append(obs)
 
     def _build_level_benefit_factors(self, df) -> None:
         if df is None: return

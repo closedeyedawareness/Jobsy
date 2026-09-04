@@ -68,7 +68,7 @@ def architecture_report_page(catalog):
                 from datetime import date
                 fname = f"{_brand_name()}_Architecture_Report_{safe_label}_{date.today().strftime('%Y%m%d')}.xlsx"
                 st.success("✓ Report generated. Download below.")
-                st.download_button(
+                _logged_download(
                     "⬇  Download Architecture Report (.xlsx)",
                     data=report_bytes,
                     file_name=fname,

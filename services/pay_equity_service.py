@@ -161,6 +161,11 @@ class PayGapResult:
     women_by_function: dict[str, float]
 
     fte_normalised: bool
+    # Countries present in the analysed rows, and whether the adjusted figure
+    # controls for them. A roster spanning two countries is two pay markets, not
+    # one population -- see the module note on country pooling.
+    countries: tuple[str, ...] = ()
+    country_controlled: bool = False
     # Levels where every worker is one gender: no gap is computable, so they
     # never appear in the cohort table -- but 100%-one-gender levels are
     # themselves a segregation signal, so they must be visible, not silent.
@@ -176,9 +181,11 @@ class PayGapResult:
 def _regression_adjusted_gap(
     salary: np.ndarray, is_female: np.ndarray, function: pd.Series, level: pd.Series,
     tenure: np.ndarray | None = None, age: np.ndarray | None = None,
+    country: pd.Series | None = None,
 ) -> tuple[float | None, tuple[float, float] | None, bool | None, tuple[str, ...]]:
     """
-    Adjusted gap from  log(salary) ~ female + C(function) + C(level) [+ tenure] [+ age].
+    Adjusted gap from  log(salary) ~ female + C(function) + C(level)
+    [+ C(country)] [+ tenure] [+ age].
 
     tenure/age are optional continuous controls -- each included only when
     supplied AND at least 95% of rows have a real value (missing rows get the
@@ -197,6 +204,20 @@ def _regression_adjusted_gap(
         fun = pd.get_dummies(function.astype(str), prefix="fun", drop_first=True)
         lvl = pd.get_dummies(level.astype(str), prefix="lvl", drop_first=True)
         cols = [np.ones(len(y)), is_female.astype(float)]
+
+        # Country, when the roster spans more than one. Without it, a workforce
+        # split across two pay markets produces a gap made almost entirely of
+        # country mix: measured on a synthetic roster that is gender-blind BY
+        # CONSTRUCTION inside each country (+0.8% NL, +0.7% PL), pooling
+        # Netherlands and Poland reported a 27.0% adjusted gap and called it
+        # statistically significant. The directive's joint-pay-assessment
+        # trigger is 5%.
+        ctry = None
+        if country is not None:
+            ctry = pd.get_dummies(country.astype(str), prefix="ctry", drop_first=True)
+            if ctry.shape[1]:
+                cols.append(ctry.to_numpy(dtype=float))
+                controls_used.append("country")
         if fun.shape[1]:
             cols.append(fun.to_numpy(dtype=float))
         if lvl.shape[1]:
@@ -212,22 +233,75 @@ def _regression_adjusted_gap(
         if len(y) <= X.shape[1] + 1:
             return None, None, None, ()
 
-        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+        beta, _resid, rank, _sv = np.linalg.lstsq(X, y, rcond=None)
+
+        # A rank-deficient design does not identify the female coefficient at
+        # all. It happens for real: when women never share an exact level with
+        # men -- which is precisely the segregation the grade-assignment check
+        # exists to find -- "female" is a linear combination of the level
+        # dummies, and lstsq still returns numbers. They were being reported. A
+        # -364% "adjusted pay gap" is not a gap, it is an unfittable model, and
+        # the honest answer is that there is no adjusted figure rather than a
+        # confident nonsensical one.
+        # The controls are still reported: "we controlled for tenure and age and
+        # still cannot separate the effect" is a different and more useful
+        # statement than "we controlled for nothing".
+        if rank < X.shape[1]:
+            return None, None, None, tuple(controls_used)
+
         coef_f = float(beta[1])                       # effect of being female on log-pay
+        if not math.isfinite(coef_f):
+            return None, None, None, tuple(controls_used)
         gap_pct = round((1.0 - math.exp(coef_f)) * 100, 1)
 
         # Standard error for a CI / significance (needs a non-singular X'X).
         ci = None
         significant: bool | None = None
+
+        # Below this there is not enough evidence for an adjusted figure to mean
+        # anything, whatever the arithmetic says. Per-cohort gaps have had this
+        # floor (SMALL_N) since the beginning; the population-level regression
+        # had none at all, so four people -- two of each -- produced "21.8%,
+        # statistically significant". A number a client may be required to act
+        # on should not be available at n=4.
+        n_f = int(np.sum(is_female != 0))
+        n_m = int(len(is_female) - n_f)
+        if min(n_f, n_m) < SMALL_N:
+            return gap_pct, None, None, tuple(controls_used)
+
         try:
             dof = len(y) - X.shape[1]
             resid = y - X @ beta
             sigma2 = float(resid @ resid) / dof
+
+            # A model that fits perfectly is not a certain one -- it is a
+            # saturated one. Real HR data is full of clean banded salary grids
+            # where every person's pay is exactly determined by their function
+            # and level, so the residuals collapse to float64 noise, the
+            # standard error collapses with them, and a 0.1% gap comes back
+            # "statistically significant" with a confidence interval of zero
+            # width. Zero width is the giveaway: it claims to know the gap
+            # exactly. Scaled against the spread of y, because sigma2 is not
+            # comparable across payrolls in different currencies.
+            _scale = float(np.var(y))
+            if sigma2 <= 1e-9 * max(_scale, 1e-12):
+                raise ZeroDivisionError("saturated design: no residual variance")
             se_f = float(np.sqrt(np.diag(sigma2 * np.linalg.inv(X.T @ X))[1]))
-            lo = (1.0 - math.exp(coef_f + 1.96 * se_f)) * 100
-            hi = (1.0 - math.exp(coef_f - 1.96 * se_f)) * 100
-            ci = (round(min(lo, hi), 1), round(max(lo, hi), 1))
-            significant = abs(coef_f / se_f) > 1.96 if se_f else None
+            # `if se_f` was not enough, and the way it failed mattered: NaN is
+            # TRUTHY in Python, so a standard error that came back NaN passed
+            # the guard, and `nan > 1.96` is False -- reporting "not
+            # statistically significant" for a regression that could not be fit
+            # at all. Under the Directive that reads as "nothing to
+            # investigate". A standard error must be finite and positive before
+            # anything may be concluded from it; when it is not, the answer is
+            # "we cannot say", which is what None means here.
+            if not math.isfinite(se_f) or se_f <= 0:
+                ci, significant = None, None
+            else:
+                lo = (1.0 - math.exp(coef_f + 1.96 * se_f)) * 100
+                hi = (1.0 - math.exp(coef_f - 1.96 * se_f)) * 100
+                ci = (round(min(lo, hi), 1), round(max(lo, hi), 1))
+                significant = abs(coef_f / se_f) > 1.96
         except (np.linalg.LinAlgError, ZeroDivisionError, ValueError):
             pass
         return gap_pct, ci, significant, tuple(controls_used)
@@ -286,10 +360,24 @@ def _grade_assignment_gap(
 
         ci = None
         significant: bool | None = None
+
         try:
             dof = len(y) - X.shape[1]
             resid = y - X @ beta
             sigma2 = float(resid @ resid) / dof
+
+            # A model that fits perfectly is not a certain one -- it is a
+            # saturated one. Real HR data is full of clean banded salary grids
+            # where every person's pay is exactly determined by their function
+            # and level, so the residuals collapse to float64 noise, the
+            # standard error collapses with them, and a 0.1% gap comes back
+            # "statistically significant" with a confidence interval of zero
+            # width. Zero width is the giveaway: it claims to know the gap
+            # exactly. Scaled against the spread of y, because sigma2 is not
+            # comparable across payrolls in different currencies.
+            _scale = float(np.var(y))
+            if sigma2 <= 1e-9 * max(_scale, 1e-12):
+                raise ZeroDivisionError("saturated design: no residual variance")
             se_f = float(np.sqrt(np.diag(sigma2 * np.linalg.inv(X.T @ X))[1]))
             lo, hi = -coef_f - 1.96 * se_f, -coef_f + 1.96 * se_f
             ci = (round(min(lo, hi), 2), round(max(lo, hi), 2))
@@ -314,6 +402,7 @@ def analyze_gender_pay_gap(
     fte_col: str | None = None,
     tenure_col: str | None = None,
     age_col: str | None = None,
+    country_col: str | None = None,
     male_label: str = "M",
     female_label: str = "F",
     salary_already_fte: bool = False,
@@ -333,7 +422,8 @@ def analyze_gender_pay_gap(
     just the grade-assignment side-test.
     """
     notes: list[str] = []
-    d = df[[c for c in {function_col, level_col, gender_col, salary_col, fte_col, tenure_col, age_col} if c]].copy()
+    d = df[[c for c in {function_col, level_col, gender_col, salary_col, fte_col,
+                        tenure_col, age_col, country_col} if c]].copy()
 
     d["_sal"] = pd.to_numeric(d[salary_col], errors="coerce")
     fte_normalised = False
@@ -348,6 +438,33 @@ def analyze_gender_pay_gap(
     elif fte_col:
         fte = pd.to_numeric(d[fte_col], errors="coerce")
         d["_sal"] = np.where((fte > 0), d["_sal"] / fte, d["_sal"])
+        # np.where leaves rows with a blank, zero or negative FTE at their RAW
+        # salary -- a part-timer's actual pay compared against everybody else's
+        # full-time-equivalent. Part-time work skews female, so each such row
+        # pushes the reported gap up, in the direction that triggers a filing.
+        # Claiming fte_normalised=True regardless said the opposite of what had
+        # happened. Report the truth, and name the rows.
+        # A row whose FTE is missing, zero or negative has an UNKNOWN
+        # full-time-equivalent salary, and np.where above quietly left it at its
+        # raw one -- a part-timer's actual pay set beside everybody else's
+        # full-time figure. Part-time work skews female, so each such row pushes
+        # the reported gap up, in the direction that triggers a Directive
+        # filing: one blank cell in a four-person test manufactured a 35% gap
+        # out of a workforce paid identically per FTE.
+        #
+        # So it is excluded and counted, not guessed -- the same rule this
+        # module already applies to an unknown gender, and that 0012 applies to
+        # an employee with no country. Unknown is not zero and it is not the
+        # average either.
+        _fte_bad = int((~(fte > 0)).sum())
+        if _fte_bad:
+            d.loc[~(fte > 0), "_sal"] = np.nan
+            notes.append(
+                f"{_fte_bad} row(s) excluded: an FTE column was supplied but "
+                f"theirs is missing, zero or negative, so their full-time-"
+                f"equivalent pay is unknown. Comparing their raw salary against "
+                f"full-time colleagues would overstate the gap — part-time work "
+                f"skews female. Fill the FTE column to include them.")
         fte_normalised = True
     else:
         notes.append("No FTE column supplied — part-time pay is not pro-rated, "
@@ -420,7 +537,24 @@ def analyze_gender_pay_gap(
     n_flagged = sum(1 for c in cohorts if c.flagged)
     n_flagged_reliable = sum(1 for c in cohorts if c.flagged and c.reliable)
 
-    # Adjusted (controls for function + level [+ tenure] [+ age])
+    # Country, if the roster carries one. Uppercased and stripped so "nl", "NL "
+    # and "Nl" are one market rather than three.
+    if country_col and country_col in binary.columns:
+        # Nulls are dropped BEFORE stringifying, not blocklisted afterwards.
+        # `.astype(str)` turns None into "NONE", NaN into "NAN", NaT into "NAT"
+        # and pd.NA into "<NA>" -- each of which would become a country in its
+        # own right, splitting a cohort and inventing a market. A blocklist of
+        # those spellings always misses one; asking pandas what is missing does
+        # not. (Caught by tests/test_country_pooling.py, which grew "NONE".)
+        _raw = binary[country_col]
+        _known = _raw.notna()
+        binary = binary.assign(
+            _ctry=_raw.where(_known, "").astype(str).str.strip().str.upper())
+        binary = binary[_known.to_numpy() & binary["_ctry"].ne("").to_numpy()]
+    countries_present = tuple(sorted(binary["_ctry"].unique())) if "_ctry" in binary.columns else ()
+    multi_country = len(countries_present) > 1
+
+    # Adjusted (controls for function + level [+ country] [+ tenure] [+ age])
     adj_gap = adj_ci = adj_sig = None
     adj_controls: tuple[str, ...] = ()
     if n_m and n_f:
@@ -429,6 +563,7 @@ def analyze_gender_pay_gap(
             binary["_fun"], binary["_lvl"],
             tenure=binary["_ten"].to_numpy() if "_ten" in binary.columns else None,
             age=binary["_age"].to_numpy() if "_age" in binary.columns else None,
+            country=binary["_ctry"] if multi_country else None,
         )
 
     # Grade-assignment gap: does gender predict the LEVEL itself, not pay
@@ -496,6 +631,37 @@ def analyze_gender_pay_gap(
                  "this mechanism. Frame this analysis as getting ahead of the law, not as a live "
                  "compliance deadline, unless the client is already at 150+.")
 
+    # ── country, said plainly ────────────────────────────────────────────
+    #
+    # This block exists because of a measured result, not a theory. On a
+    # synthetic roster built to be gender-blind INSIDE each country (+0.8% NL,
+    # +0.7% PL), pooling the Netherlands and Poland produced a 27.0% adjusted
+    # gap, reported as statistically significant, with nothing anywhere saying
+    # "these are two pay markets". The directive's joint-pay-assessment trigger
+    # is 5%, so that number could start a formal remediation process over an
+    # artefact of who happens to work where.
+    if multi_country:
+        notes.append(
+            f"This workforce spans {len(countries_present)} countries "
+            f"({', '.join(countries_present)}). Pay is set per market, so the "
+            f"HEADLINE mean and median gaps above pool different pay levels and "
+            f"should not be read as a pay-fairness finding, nor reported under "
+            f"the directive, which is a per-country obligation. The ADJUSTED gap "
+            f"controls for country and is the only figure here comparable "
+            f"across the group. Analyse each country separately for anything "
+            f"you intend to act on or file.")
+    elif country_col and not countries_present:
+        notes.append(
+            "A country column was supplied but no row carried a usable value, so "
+            "the analysis treats this workforce as a single pay market. If it is "
+            "not one, the gaps below mix pay levels.")
+    elif not country_col:
+        notes.append(
+            "No country column was supplied, so this is analysed as ONE pay "
+            "market. That is right for a single-country workforce and wrong for "
+            "a multinational one, where a gap can be produced entirely by which "
+            "country people work in.")
+
     return PayGapResult(
         n=n_total, n_m=n_m, n_f=n_f, n_excluded=n_excluded,
         n_input=n_input, n_dropped_invalid=n_dropped_invalid,
@@ -507,7 +673,9 @@ def analyze_gender_pay_gap(
         n_cohorts_flagged=n_flagged, n_cohorts_flagged_reliable=n_flagged_reliable,
         pct_women_overall=pct_women_overall,
         women_by_level=_pct_women("_lvl"), women_by_function=_pct_women("_fun"),
-        fte_normalised=fte_normalised, single_gender_levels=single_gender_levels, notes=notes,
+        fte_normalised=fte_normalised, single_gender_levels=single_gender_levels,
+        countries=countries_present, country_controlled=("country" in adj_controls),
+        notes=notes,
     )
 
 
@@ -650,14 +818,47 @@ def analyze_variable_pay_exposure(
         raise ValueError("PayMix must carry Function and Level columns")
     pm["_fun"] = pm["Function"].astype(str).str.strip()
     pm["_lvl"] = pm["Level"].astype(str).str.strip()
-    pm["_tv"] = pd.to_numeric(pm.get("TargetVariablePct"), errors="coerce").fillna(0.0)
-    pm["_13"] = pd.to_numeric(pm.get("ThirteenthMonthPct"), errors="coerce").fillna(0.0)
+    # pm.get() on an ABSENT column returns None, and pd.to_numeric(None) is a
+    # bare scalar with no .fillna -- an AttributeError that took the whole page
+    # down for a client whose reference library is still being filled in. The
+    # very next line already guards exactly this for LTIEligible.
+    def _pm_num(col: str) -> pd.Series:
+        if col not in pm.columns:
+            return pd.Series([np.nan] * len(pm), index=pm.index)
+        return pd.to_numeric(pm[col], errors="coerce")
+
+    # Left as NaN rather than filled with 0.0. A blank target-variable cell is
+    # an unknown bonus, not a zero one, and this module already argues that for
+    # a wholly missing PayMix row ("excluded and named ... unknown, not zero").
+    # Filling it manufactured a variable-pay gap out of a data-entry hole in the
+    # reference library.
+    pm["_tv"] = _pm_num("TargetVariablePct")
+    pm["_13"] = _pm_num("ThirteenthMonthPct")
     _lti_raw = pm["LTIEligible"] if "LTIEligible" in pm.columns else pd.Series([""] * len(pm))
     pm["_lti"] = _lti_raw.astype(str).str.strip().str.lower().isin(["yes", "y", "true", "1", "ja"])
+    # An explicit join indicator. "matched" means the PayMix key was FOUND --
+    # a different question from whether any particular figure on that row is
+    # filled in. The two were conflated: `matched` was read off _tv.notna(),
+    # which only ever worked because _tv was force-filled with 0.0, so an
+    # unknown bonus and a missing cohort were the same value. Separating them is
+    # what lets a blank TargetVariablePct be honestly unknown without throwing
+    # away the LTI and thirteenth-month facts on the same row.
+    pm["_pm_hit"] = True
     pm = pm.drop_duplicates(subset=["_fun", "_lvl"], keep="first")
 
-    merged = d.merge(pm[["_fun", "_lvl", "_tv", "_13", "_lti"]], on=["_fun", "_lvl"], how="left")
-    matched = merged["_tv"].notna()
+    merged = d.merge(pm[["_fun", "_lvl", "_tv", "_13", "_lti", "_pm_hit"]],
+                     on=["_fun", "_lvl"], how="left")
+    matched = merged["_pm_hit"].fillna(False).astype(bool)
+    # An absent COLUMN and a blank CELL are different facts and get different
+    # treatment. No TargetVariablePct column at all means the metric is
+    # unavailable for everybody -- a property of the workbook, not of any
+    # cohort, so nobody is singled out as unmatched. A column that exists with
+    # this one cohort's cell empty means THAT cohort's entitlement is unknown,
+    # and it is named in unmatched_keys so somebody can go and fill it in --
+    # rather than being read as a genuine 0% bonus, which manufactures a
+    # variable-pay gap out of a hole in the reference library.
+    if "TargetVariablePct" in pm.columns:
+        matched &= merged["_tv"].notna()
     n_matched = int(matched.sum())
     n_unmatched = int(n - n_matched)
     # zip, not itertuples: itertuples renames any column whose name starts with

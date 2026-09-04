@@ -208,7 +208,7 @@ def org_hierarchy_page(catalog):
         exp_df = pd_exp.DataFrame(rows)
         buf = io.BytesIO()
         exp_df.to_excel(buf, index=False)
-        st.download_button(
+        _logged_download(
             "⬇  Download org structure (.xlsx)",
             data=buf.getvalue(),
             file_name="jobsy_org_hierarchy.xlsx",

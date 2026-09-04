@@ -121,7 +121,7 @@ def benefits_benchmarking_page(catalog, benefits_svc):
     st.dataframe(show.style.apply(_row_style, axis=1), use_container_width=True, hide_index=True)
 
     _xb = _io.BytesIO(); show.to_excel(_xb, index=False)
-    st.download_button("⬇ Download benefits benchmarking (.xlsx)", _xb.getvalue(),
+    _logged_download("⬇ Download benefits benchmarking (.xlsx)", _xb.getvalue(),
         file_name="jobsy_benefits_benchmarking.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -156,7 +156,7 @@ def benefits_benchmarking_page(catalog, benefits_svc):
                                 index=funcs.index("Engineering") if "Engineering" in funcs else 0,
                                 key="tr_function")
         with colB:
-            actual_pay = st.number_input("Your actual base salary (€, optional)", min_value=0.0, step=1000.0,
+            actual_pay = st.number_input(f"Your actual base salary ({_cur()}, optional)", min_value=0.0, step=1000.0,
                                          value=0.0, key="tr_actual_pay")
         pay_compa = None
         if actual_pay:

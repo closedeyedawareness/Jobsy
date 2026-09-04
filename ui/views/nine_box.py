@@ -94,7 +94,7 @@ def nine_box_page(catalog):
                              for i,r in matched_all]
                 tmpl_r = _pd9.DataFrame(tmpl_rows)
                 tbuf = _io9.BytesIO(); tmpl_r.to_excel(tbuf, index=False)
-                st.download_button("⬇ Download template", tbuf.getvalue(),
+                _template_download("⬇ Download template", tbuf.getvalue(),
                     file_name="jobsy_9box_template.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             with col_b:
@@ -263,6 +263,6 @@ def nine_box_page(catalog):
             df_ex = _pd9.DataFrame(rows_ex).sort_values(["Performance","Potential"],ascending=[False,False])
             st.dataframe(df_ex, use_container_width=True, hide_index=True)
             buf_ex = _io9.BytesIO(); df_ex.to_excel(buf_ex,index=False)
-            st.download_button("⬇ Download 9-box report", buf_ex.getvalue(),
+            _logged_download("⬇ Download 9-box report", buf_ex.getvalue(),
                 file_name="jobsy_9box_grid.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

@@ -77,8 +77,25 @@ def _hdr(ws, row, col, text, bg=TEAL, size=10, align="left"):
     c.alignment = Alignment(horizontal=align, vertical="center", wrap_text=True)
     return c
 
+def _defuse(text):
+    """Stop a spreadsheet from executing a client's own data.
+
+    Excel treats a cell whose text begins with "=" as a formula, and openpyxl
+    writes it as one. Most of what lands in this workbook is uploaded by the
+    client -- employee names, job titles typed by whoever filled in the
+    spreadsheet -- so a name of `=HYPERLINK("http://...","click")` becomes a
+    live formula in a file that a works council or a board opens. Prefixing an
+    apostrophe is Excel's own "treat this as text" marker and does not show in
+    the cell. +, - and @ are included because the same string is dangerous again
+    the moment anyone re-exports this sheet as CSV.
+    """
+    if isinstance(text, str) and text[:1] in ("=", "+", "-", "@"):
+        return "'" + text
+    return text
+
+
 def _cell(ws, row, col, text, fg=INK, bg=WHITE, bold=False, size=9, align="left", italic=False):
-    c = ws.cell(row, col, text)
+    c = ws.cell(row, col, _defuse(text))
     c.font      = Font(name="Arial", color=fg, bold=bold, size=size, italic=italic)
     c.fill      = PatternFill("solid", fgColor=bg)
     c.alignment = Alignment(horizontal=align, vertical="center", wrap_text=True)
@@ -112,7 +129,16 @@ class ArchitectureReportService:
     }
 
     def __init__(self, catalog, results: list, df_employees: Optional[pd.DataFrame] = None,
-                 org_label: str = ""):
+                 org_label: str = "", currency: str = "\u20ac",
+                 country: str = ""):
+        # The symbol is passed in rather than read from a session, because a
+        # service that builds a workbook must work from a script and a cron job
+        # as well as from a browser. The caller knows the client's market; this
+        # only has to not assume euro. See services/country_service.py.
+        self.currency     = currency or "\u20ac"
+        # Which market's benefit observations this report may draw on. Empty
+        # means the deployment default; BenefitsService resolves it.
+        self.country      = (country or "").strip().upper()
         self.catalog      = catalog
         self.results      = [r for r in results if r.matched]
         self.df_employees = df_employees
@@ -127,6 +153,30 @@ class ArchitectureReportService:
         self._facts: dict = {}
 
     # ── Public entry point ────────────────────────────────────────────────
+
+    def _money(self, value, blank: str = "\u2014") -> str:
+        """One amount, formatted the way this client's market writes money.
+
+        Every money cell used to be `f"{self.currency}{v:,}"` -- the symbol
+        always in front. That is right for the euro and the pound and wrong for
+        every other currency Jobsy covers: zloty, krona, krone and koruna are
+        written after the number. Passing `symbol_for()` into the old code
+        produced "zl50.000" and "kr60.000" in a workbook a client forwards to
+        their works council. Placement follows country_service.money(), which is
+        where the convention is defined; this cannot call it because the report
+        must build from a script with no session, so it takes the symbol and
+        applies the same rule to it.
+        """
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            return blank
+        if n != n or n in (float("inf"), float("-inf")):
+            return blank
+        formatted = f"{n:,.0f}".replace(",", ".")
+        sym = self.currency
+        return f"{sym}{formatted}" if sym in ("\u20ac", "\u00a3") else f"{formatted} {sym}"
+
     def generate(self) -> bytes:
         self._wb.remove(self._wb.active)
         self._build_executive_summary()
@@ -213,7 +263,11 @@ class ArchitectureReportService:
 
         lift = f.get("lift_to_minimum")
         below = f.get("below")
-        money = ("\u20ac{:,.0f}".format(lift).replace(",", ".")) if lift else ("\u2014" if lift is None else "\u20ac0")
+        # self._money() rather than a euro literal: this tile is the first number
+        # a board reads, and for a Polish or Swedish client a euro sign here is
+        # not a formatting slip but a different amount. _money() already returns
+        # the em dash for None, so the three cases collapse into one call.
+        money = self._money(lift)
         tiles = [
             (money, "Annual cost to lift everyone to their band minimum",
              RED if lift else (GREEN if lift == 0 else INK)),
@@ -403,7 +457,7 @@ class ArchitectureReportService:
         ws = self._wb.create_sheet("3. Job Architecture")
         ws.sheet_view.showGridLines = False
         col_ws = [3,14,22,14,10,12,12,12,12,12,12]
-        headers = ["","Function","Standard Role","Grade","Band","Min €","P25 €","P50 €","P75 €","Max €","Hay Range"]
+        headers = ["","Function","Standard Role","Grade","Band",f"Min {self.currency}", f"P25 {self.currency}", f"P50 {self.currency}", f"P75 {self.currency}", f"Max {self.currency}","Hay Range"]
         for ci,(w,h) in enumerate(zip(col_ws,headers),1):
             ws.column_dimensions[get_column_letter(ci)].width = w
             _hdr(ws,1,ci,h, bg=TEAL)
@@ -446,7 +500,7 @@ class ArchitectureReportService:
             _cell(ws, ri, 5, band,                  bg=bg, fg=band_col)
             for ci_s, attr in enumerate(["min_salary","p25","p50","p75","max_salary"], 6):
                 val = int(getattr(sal, attr, 0) or 0) if sal else 0
-                _cell(ws, ri, ci_s, f"€{val:,}".replace(",",".") if val else "—", bg=bg, fg=TEAL if val else MUTED)
+                _cell(ws, ri, ci_s, self._money(val) if val else "—", bg=bg, fg=TEAL if val else MUTED)
             _cell(ws, ri, 11, hay_str, bg=bg, fg=MUTED)
             ws.row_dimensions[ri].height = 20
             ri += 1
@@ -515,9 +569,9 @@ class ArchitectureReportService:
                 (r.level, INK, False),
                 (f"G{grade}" if grade else "—", band_col, True),
                 (band, band_col, False),
-                (f"€{int(sal.min_salary):,}".replace(",",".") if sal else "—", MUTED, False),
-                (f"€{int(p50):,}".replace(",",".") if p50 else "—", TEAL, False),
-                (f"€{int(salary):,}".replace(",",".") if salary else "—", INK, False),
+                (self._money(sal.min_salary) if sal else "—", MUTED, False),
+                (self._money(p50) if p50 else "—", TEAL, False),
+                (self._money(salary) if salary is not None else "—", INK, False),
                 (pay_pos, pay_col, False),
                 (f"{r.confidence}%", TEAL if r.confidence>=96 else AMBER, False),
             ]
@@ -531,7 +585,7 @@ class ArchitectureReportService:
     def _build_grade_distribution(self):
         ws = self._wb.create_sheet("5. Grade Distribution")
         ws.sheet_view.showGridLines = False
-        headers = ["Grade","Band","Employees","% of Total","Band Min €","P50 €","Band Max €","Avg Salary","Pay Position vs P50"]
+        headers = ["Grade","Band","Employees","% of Total",f"Band Min {self.currency}", f"P50 {self.currency}", f"Band Max {self.currency}","Avg Salary","Pay Position vs P50"]
         widths  = [10,20,12,12,12,12,12,12,22]
         for ci,(h,w) in enumerate(zip(headers,widths),1):
             ws.column_dimensions[get_column_letter(ci)].width = w
@@ -559,9 +613,9 @@ class ArchitectureReportService:
             _cell(ws,ri,2,band,fg=band_col,bg=bg)
             _cell(ws,ri,3,count,fg=INK,bg=bg)
             _cell(ws,ri,4,f"{pct}%",fg=MUTED,bg=bg)
-            _cell(ws,ri,5,f"€{int(sal.min_salary):,}".replace(",",".") if sal else "—",fg=MUTED,bg=bg)
-            _cell(ws,ri,6,f"€{int(sal.p50):,}".replace(",",".") if sal else "—",fg=TEAL,bg=bg)
-            _cell(ws,ri,7,f"€{int(sal.max_salary):,}".replace(",",".") if sal else "—",fg=MUTED,bg=bg)
+            _cell(ws,ri,5,self._money(sal.min_salary) if sal else "—",fg=MUTED,bg=bg)
+            _cell(ws,ri,6,self._money(sal.p50) if sal else "—",fg=TEAL,bg=bg)
+            _cell(ws,ri,7,self._money(sal.max_salary) if sal else "—",fg=MUTED,bg=bg)
             _cell(ws,ri,8,"—",fg=MUTED,bg=bg)
             _cell(ws,ri,9,"—",fg=MUTED,bg=bg)
             ws.row_dimensions[ri].height = 22
@@ -754,7 +808,7 @@ class ArchitectureReportService:
             except (TypeError, ValueError): pass
 
         def _e(v):
-            try: return "€{:,.0f}".format(float(v)).replace(",", ".")
+            try: return self._money(float(v))
             except Exception: return "—"
         def _t(v, n=180):
             s = "" if v is None else str(v)
@@ -831,7 +885,7 @@ class ArchitectureReportService:
         bmap = {(r["Function"], r["Level"]): r for _, r in bands.iterrows()}
 
         def _e(v):
-            try: return "€{:,.0f}".format(float(v)).replace(",", ".")
+            try: return self._money(float(v))
             except Exception: return "—"
 
         ri = 2
@@ -998,8 +1052,8 @@ class ArchitectureReportService:
             _cell(ws, rr, 1, r["name"], bg=bg)
             _cell(ws, rr, 2, r["role"], bg=bg)
             _cell(ws, rr, 3, str(r["level"]), fg=MUTED, bg=bg)
-            _cell(ws, rr, 4, f"€{r['actual']:,}".replace(",", "."), bg=bg)
-            _cell(ws, rr, 5, f"€{r['p50']:,}".replace(",", "."), fg=MUTED, bg=bg)
+            _cell(ws, rr, 4, self._money(r['actual']), bg=bg)
+            _cell(ws, rr, 5, self._money(r['p50']), fg=MUTED, bg=bg)
             _cell(ws, rr, 6, r["compa"], bg=bg)
             _cell(ws, rr, 7, r["status"], fg=SC.get(r["status"], MUTED), bold=True, bg=bg)
         _border_range(ws, hdr_row, hdr_row + len(rows), 1, 7)
@@ -1014,7 +1068,7 @@ class ArchitectureReportService:
             return
 
         from services.benefits_service import BenefitsService
-        svc = BenefitsService(self.catalog)
+        svc = BenefitsService(self.catalog, country=self.country or None)
         industries = sorted(repo.industries.keys()) if repo.industries else []
 
         headers = ["Category", "Unit", "Market P25", "Market Median", "Market P75", "Market P90", "n"]
@@ -1029,7 +1083,7 @@ class ArchitectureReportService:
         def _fmt(v, unit):
             if v is None:
                 return "—"
-            return f"€{v:,.0f}".replace(",", ".") if unit == "EUR" else f"{v:g} {unit}".strip()
+            return self._money(v) if unit == "EUR" else f"{v:g} {unit}".strip()
 
         ri = 2
         for category in svc.categories():

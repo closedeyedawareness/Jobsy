@@ -339,8 +339,89 @@ def load_sample_catalog():
     return _SampleCatalog()
 
 
+# ── money ──────────────────────────────────────────────────────────────────
+#
+# This was `_euro()`, and it was right for the Netherlands and silently wrong
+# for Poland, Sweden and Denmark -- all seeded in `countries` precisely so that
+# nothing may assume euro. A salary rendered "€90.000" when it is 90,000 zloty
+# is not a formatting bug; it is a number that means something else, on a screen
+# somebody sets pay from. See services/country_service.py and migration 0012.
+
+def _money(n, decimals=0):
+    """Format an amount in the ACTIVE CLIENT'S currency."""
+    try:
+        from services import country_service
+        return country_service.money(n, decimals=decimals)
+    except Exception:
+        # No session to ask: euro is the deployment default. This fallback and
+        # _cur()'s are the only places in the UI where a euro sign is correct.
+        try:
+            return "\u20ac{:,.{}f}".format(float(n), decimals).replace(",", ".")
+        except (TypeError, ValueError):
+            return "\u2014"
+
+
+def _cur():
+    """The active market's currency symbol, for labels and axis titles."""
+    try:
+        from services import country_service
+        return country_service.symbol_for()
+    except Exception:
+        return "\u20ac"
+
+
+def _country():
+    """The active client's market code, for services that must be told one.
+
+    Returns "" rather than guessing when there is no session, so the service
+    applies its own default instead of being handed a country nobody chose.
+    """
+    try:
+        from services import country_service
+        return country_service.active_country()
+    except Exception:
+        return ""
+
+
+# Kept as an alias: call sites across ui/views read _euro(...) and renaming them
+# all would bury the actual change in noise. It no longer means euro.
+_euro = _money
+
+
+def _logged_download(*args, audit: bool = True, **kwargs):
+    """st.download_button, plus a record that client data left the building.
+
+    Every export is somebody's roster leaving in a file nobody can recall. 0009
+    gave us activity_log; this is the UI half. `audit=False` marks the blank
+    templates -- recording those would bury the real exports in noise.
+    """
+    clicked = st.download_button(*args, **kwargs)
+    if clicked and audit:
+        try:
+            from services import auth_service
+            name = kwargs.get("file_name")
+            if name is None and len(args) > 2:
+                name = args[2]
+            auth_service.log("export.download", subject=str(name or "unnamed"),
+                             detail={"label": str(args[0]) if args else ""})
+        except Exception as exc:
+            # An export that happened must not fail because the note about it
+            # did. The trail is evidence, not a gate.
+            print(f"[audit] export not recorded: {exc}")
+    return clicked
+
+
+
+def _template_download(*args, **kwargs):
+    """A blank template leaving is not client data leaving.
+
+    Separate name rather than `audit=False` at the call site, because the label
+    is the first positional argument and a keyword cannot precede it.
+    """
+    return _logged_download(*args, audit=False, **kwargs)
+
+
 # ── inline-style helpers ───────────────────────────────────────────────────
-def _euro(n): return "€{:,.0f}".format(n).replace(",",".")
 
 
 def _chip(text, bg, fg, size="11px"):
