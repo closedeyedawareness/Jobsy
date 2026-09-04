@@ -19,11 +19,19 @@ class _FakeQuery:
     def __init__(self, rows):
         self._rows = rows
         self._lo, self._hi = 0, None
+        self.filters = []
 
     def select(self, *_a, **_k):
         return self
 
     def eq(self, *_a, **_k):
+        return self
+
+    def in_(self, column, values):
+        """PostgREST's IN. The loader asks for the client org and the library
+        org together; like eq above, this fake records rather than filters —
+        the rows it was given are the rows those orgs have."""
+        self.filters.append((column, tuple(values)))
         return self
 
     def range(self, lo, hi):
@@ -296,3 +304,93 @@ def test_the_secret_key_path_still_falls_back_to_the_workbook():
     cat = Catalog(path="jobsy_reference_library.xlsx", source="db").load()
     assert cat.active_source == "excel"
     assert cat.fell_back_to_excel is True
+
+
+# ── the client's own rows, over the library's ────────────────────────────────
+#
+# The rule, stated once: a client organisation may hold its own version of a
+# library row. Client wins where both exist; the library is a floor, never a
+# ceiling. These pin it, because precedence that is inferred from behaviour is
+# precedence nobody can rely on.
+
+from core.db_loader import _merge_by_precedence
+
+LIB, CLIENT = "org-library", "org-client"
+
+
+def _band(org, function, level, p50, country=None):
+    row = {"org_id": org, "function": function, "level": level, "p50": p50}
+    if country:
+        row["country"] = country
+    return row
+
+
+def test_the_client_row_wins_where_both_exist():
+    rows, n = _merge_by_precedence(
+        [_band(LIB, "Eng", "Medior", 60000), _band(CLIENT, "Eng", "Medior", 72000)],
+        ("function", "level"), CLIENT, LIB)
+    assert len(rows) == 1 and rows[0]["p50"] == 72000
+    assert n == 1
+
+
+def test_order_does_not_decide_it():
+    """The library row arriving second must not win by being later."""
+    rows, _ = _merge_by_precedence(
+        [_band(CLIENT, "Eng", "Medior", 72000), _band(LIB, "Eng", "Medior", 60000)],
+        ("function", "level"), CLIENT, LIB)
+    assert rows[0]["p50"] == 72000
+
+
+def test_a_library_row_the_client_has_not_touched_is_inherited():
+    rows, n = _merge_by_precedence(
+        [_band(LIB, "Eng", "Medior", 60000), _band(LIB, "Eng", "Senior", 80000),
+         _band(CLIENT, "Eng", "Medior", 72000)],
+        ("function", "level"), CLIENT, LIB)
+    assert sorted(r["p50"] for r in rows) == [72000, 80000]
+    assert n == 1
+
+
+def test_a_row_only_the_client_has_is_kept():
+    rows, n = _merge_by_precedence(
+        [_band(CLIENT, "Ops", "Lead", 95000)], ("function", "level"), CLIENT, LIB)
+    assert len(rows) == 1 and n == 0
+
+
+def test_country_is_part_of_the_key_even_though_the_spec_predates_it():
+    """title_mapping's real constraint is (org_id, country, existing_title) while
+    its spec key is ('existing_title',). Merging on the spec key alone would fold
+    a Dutch and a Belgian row into one — invisible today, because every row is NL."""
+    rows, n = _merge_by_precedence(
+        [_band(LIB, "Eng", "Medior", 60000, country="NL"),
+         _band(LIB, "Eng", "Medior", 55000, country="BE")],
+        ("function", "level"), CLIENT, LIB)
+    assert len(rows) == 2 and n == 0
+
+
+def test_one_org_means_no_merging_at_all():
+    """Today's shape: a single organisation that is also the library. The union
+    must be a no-op, not a reshuffle."""
+    given = [_band(LIB, "Eng", "Medior", 60000), _band(LIB, "Eng", "Senior", 80000)]
+    rows, n = _merge_by_precedence(given, ("function", "level"), LIB, LIB)
+    assert rows == given and n == 0
+
+
+def test_two_rows_from_the_same_org_are_not_silently_picked_between():
+    """The unique constraint says this cannot happen. If it does, the database is
+    broken, and choosing a winner here would hide that."""
+    rows, n = _merge_by_precedence(
+        [_band(LIB, "Eng", "Medior", 60000), _band(LIB, "Eng", "Medior", 61000)],
+        ("function", "level"), CLIENT, LIB)
+    assert len(rows) == 1 and n == 0
+
+
+def test_the_loader_reports_what_it_overrode():
+    """Precedence that happens silently is the failure this codebase keeps
+    finding. The count comes back so a page can say it."""
+    client = _FakeClient({"salary_bands": [
+        _row(function="Eng", level="Medior", p50="60000", org_id=LIB),
+        _row(function="Eng", level="Medior", p50="72000", org_id=CLIENT)]})
+    seen = {}
+    frames = load_frames(client, CLIENT, library_org_id=LIB, overrides=seen)
+    assert seen.get("SalaryBands") == 1
+    assert len(frames["salary"]) == 1

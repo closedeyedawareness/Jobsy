@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from ui.shared import *  # noqa: F401,F403
 
+# Named rather than inherited from `import *`: a dependency the import
+# graph cannot see is a dependency nobody can find. The rest of what this
+# module uses is chrome (theme tokens, helpers) and stays with the star.
+from services.afas_connector import AfasConnector
+from services.workday_connector import WorkdayConnector
+
 
 def connect_page():
     """Live data connection — AFAS Profit or Workday."""

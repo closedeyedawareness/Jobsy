@@ -18,15 +18,45 @@ from openpyxl.styles import (Alignment, Border, Font, GradientFill,
                                PatternFill, Side)
 from openpyxl.utils import get_column_letter
 
-# ── Design tokens ─────────────────────────────────────────────────────────
-TEAL   = "0E7C66"; TEAL_L  = "E2F1ED"
-BLUE   = "2B5FA6"; BLUE_L  = "E6EDF7"
-VIOLET = "6A53B0"; VIOLET_L= "EDE9F7"
-AMBER  = "B9791A"; AMBER_L = "F7EEDD"
-RED    = "A8443A"; RED_L   = "F6E5E3"
-GREEN  = "2B6E4F"; GREEN_L = "E2F1EC"
-INK    = "17212E"; MUTED   = "5A6B7A"
-GREY   = "F4F6F8"; WHITE   = "FFFFFF"; LINE = "D9E0E5"
+from services import salary_service as _salary
+
+# ── Design tokens, read from the app's own theme ──────────────────────────
+#
+# This file used to carry its OWN palette -- teal #0E7C66, slate #17212E -- and
+# when Jobsy moved onto the People Harmonics system in aead07e the report was
+# left behind. A client got a violet product and a teal workbook. The names
+# below are unchanged so the eleven sheets need no edits; only where they point
+# has changed, and they now point at ui/theme.py, which is the thing that moves.
+#
+# The workbook stays LIGHT deliberately. A dark Excel sheet is unreadable when
+# printed and wrong for a board pack, so this uses PH's own light palette --
+# the on_light_* tokens taken from corporate.css, the same white-and-blue
+# system as the investor sheet -- rather than inventing a light theme.
+try:
+    from ui.theme import COLORS as _PH
+except Exception:                                     # pragma: no cover
+    _PH = {}
+
+
+def _hx(key: str, fallback: str) -> str:
+    """A theme colour as openpyxl wants it: six hex digits, no leading hash."""
+    return str(_PH.get(key) or fallback).lstrip("#").upper()
+
+
+BLUE   = _hx("fill_accent", "#1B4DD8");      BLUE_L  = _hx("on_light_tint", "#F4F7FE")
+TEAL   = _hx("fill_accent_deep", "#0B2A5B"); TEAL_L  = BLUE_L
+INK    = _hx("on_light_ink", "#0B1729")
+MUTED  = _hx("on_light_muted", "#6B7A8F")
+LINE   = _hx("on_light_line", "#E3E8EF")
+GREY   = "F7F9FC"; WHITE = "FFFFFF"
+
+# Categorical hues: the PH brand accents, darkened where they must carry white
+# text or sit on paper. Kept as literals with the token they descend from, since
+# the dark-ground originals fail contrast on white.
+VIOLET = "6B2FD6"; VIOLET_L = "F0EAFF"    # <- primary / --ac  #8850EF
+AMBER  = "9A6B14"; AMBER_L  = "FBF3E2"    # <- gold           #E6B25E
+RED    = "B03A2E"; RED_L    = "FBE9E7"    # <- danger         #FF5A7A
+GREEN  = "17916B"; GREEN_L  = "E4F5EF"    # <- success        #6EE7B7
 
 BAND_COLORS = {
     "Support":         AMBER,
@@ -117,6 +147,10 @@ class ArchitectureReportService:
         self._wb          = Workbook()
         self._findings: list[dict] = []
         self._recommendations: list[dict] = []
+        # What each sheet learned, for the overview to quote. The cover is built
+        # LAST and moved to the front, so it reports what the report actually
+        # found rather than recomputing it and risking a different answer.
+        self._facts: dict = {}
 
     # ── Public entry point ────────────────────────────────────────────────
 
@@ -156,13 +190,176 @@ class ArchitectureReportService:
         self._build_total_pay()
         self._build_pay_equity()
         self._build_benefits_benchmarking()
+        self._build_overview()
+        self._wb.move_sheet(self._wb["1. Overview"], -(len(self._wb.sheetnames) - 1))
         buf = io.BytesIO()
         self._wb.save(buf)
         return buf.getvalue()
 
     # ── Sheet 1: Executive Summary ────────────────────────────────────────
+    # ── Cover: the page a CHRO puts in front of a board ───────────────
+    def _build_overview(self):
+        """One page, written for the room it is read in.
+
+        A CHRO does not open a board pack with "83% of roles have a profile".
+        They open with what it costs, what the risk is, and what needs deciding.
+        So completeness moved off the headline and became the CONFIDENCE line
+        underneath: it qualifies the numbers rather than being one of them.
+
+        Built last and moved to the front, so every figure here is one another
+        sheet already reported. Recomputing them on the cover is how a summary
+        starts quietly disagreeing with its own report.
+        """
+        f = self._facts
+        ws = self._wb.create_sheet("1. Overview")
+        ws.sheet_view.showGridLines = False
+        for ci, w in enumerate([2, 27, 21, 21, 21, 21, 30], 1):
+            ws.column_dimensions[get_column_letter(ci)].width = w
+
+        # masthead
+        ws.row_dimensions[2].height = 46
+        ws.merge_cells("B2:F2")
+        c = ws.cell(2, 2, self.org_label)
+        c.font = Font(name="Calibri", bold=True, size=24, color=WHITE)
+        c.fill = PatternFill("solid", fgColor=TEAL)
+        c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+
+        ws.row_dimensions[3].height = 24
+        ws.merge_cells("B3:F3")
+        c = ws.cell(3, 2, "Job architecture & reward review  \u00b7  " + self.today)
+        c.font = Font(name="Calibri", size=11, color=WHITE)
+        c.fill = PatternFill("solid", fgColor=BLUE)
+        c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+
+        score, score_col = self._compute_health_score()
+        highs = [x for x in self._findings if x["severity"] == "high"]
+
+        # the verdict, in a sentence
+        ws.row_dimensions[5].height = 34
+        ws.merge_cells("B5:F5")
+        verdict = ("Architecture health " + str(score) + "/100 \u2014 "
+                   + ("no high-severity findings."
+                      if not highs else
+                      str(len(highs)) + " finding(s) need a decision, below."))
+        c = ws.cell(5, 2, verdict)
+        c.font = Font(name="Calibri", bold=True, size=13, color=score_col)
+        c.fill = PatternFill("solid", fgColor=BLUE_L)
+        c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+
+        # the numbers a board acts on: money and risk first
+        ws.row_dimensions[7].height = 30
+        ws.row_dimensions[8].height = 30
+
+        def tile(col, value, label, colour):
+            v = ws.cell(7, col, value)
+            v.font = Font(name="Calibri", bold=True, size=17, color=colour)
+            v.alignment = Alignment(horizontal="left", vertical="center")
+            lab = ws.cell(8, col, label)
+            lab.font = Font(name="Calibri", size=9, color=MUTED)
+            lab.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+            for row in (7, 8):
+                ws.cell(row, col).border = Border(top=Side("thin", color=LINE),
+                                                  bottom=Side("thin", color=LINE))
+
+        lift = f.get("lift_to_minimum")
+        below = f.get("below")
+        # self._money() rather than a euro literal: this tile is the first number
+        # a board reads, and for a Polish or Swedish client a euro sign here is
+        # not a formatting slip but a different amount. _money() already returns
+        # the em dash for None, so the three cases collapse into one call.
+        money = self._money(lift)
+        tiles = [
+            (money, "Annual cost to lift everyone to their band minimum",
+             RED if lift else (GREEN if lift == 0 else INK)),
+            (str(below) if below is not None else "\u2014", "People paid below their band",
+             RED if below else (GREEN if below == 0 else INK)),
+            (str(f.get("avg_compa") or "\u2014"), "Average compa-ratio (1.00 = at market)", INK),
+            (str(len(self.results)), "Roles matched to the architecture", INK),
+            (str(len(highs)), "High-severity findings", RED if highs else GREEN),
+        ]
+        for i, (val, lab, col) in enumerate(tiles):
+            tile(2 + i, val, lab, col)
+
+        # the confidence line: what the numbers rest on, and who is not in them
+        ws.merge_cells("B10:F10")
+        basis = []
+        if f.get("priced") is not None:
+            basis.append(str(f["priced"]) + " employees could be priced against a band")
+        if f.get("pro_rated"):
+            basis.append(str(f["pro_rated"]) + " part-time salaries compared full-time-equivalent")
+        basis.append(str(len(self.results)) + " job titles matched a reference role")
+        c = ws.cell(10, 2, "Basis: " + "; ".join(basis) + ". Anyone who could not be matched "
+                    "or priced is absent from every figure above \u2014 the Pay Equity sheet "
+                    "carries the reconciliation.")
+        c.font = Font(name="Calibri", size=9, italic=True, color=MUTED)
+        c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        ws.row_dimensions[10].height = 30
+
+        # what needs a decision
+        r = 12
+        c = ws.cell(r, 2, "What needs a decision")
+        c.font = Font(name="Calibri", bold=True, size=12, color=INK)
+        r += 1
+        recs = self._recommendations[:3]
+        if not recs:
+            ws.cell(r, 2, "Nothing outstanding at this level.").font = Font(
+                name="Calibri", size=10, color=MUTED)
+            r += 1
+        for i, rec in enumerate(recs, 1):
+            ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
+            c = ws.cell(r, 2, str(i) + ".  " + str(rec.get("title", "")))
+            c.font = Font(name="Calibri", bold=True, size=10, color=INK)
+            c.fill = PatternFill("solid", fgColor=GREY)
+            c.alignment = Alignment(vertical="center", indent=1)
+            r += 1
+            ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
+            c = ws.cell(r, 2, str(rec.get("impact") or rec.get("action", "")))
+            c.font = Font(name="Calibri", size=9, color=MUTED)
+            c.alignment = Alignment(wrap_text=True, vertical="top", indent=1)
+            ws.row_dimensions[r].height = 28
+            r += 2
+
+        # the shape of the organisation, as a real chart
+        c = ws.cell(r, 2, "Where the roles sit")
+        c.font = Font(name="Calibri", bold=True, size=12, color=INK)
+        levels = {}
+        for res in self.results:
+            key = res.level or "\u2014"
+            levels[key] = levels.get(key, 0) + 1
+        order = [lv for lv in ("Junior", "Medior", "Senior", "Lead") if lv in levels]
+        order += [lv for lv in levels if lv not in order]
+
+        # the chart's data lives in two hidden columns, out of the reading area
+        data_row = 40
+        for i, lv in enumerate(order):
+            ws.cell(data_row + i, 9, lv)
+            ws.cell(data_row + i, 10, levels[lv])
+        if order:
+            ch = BarChart()
+            ch.type = "col"
+            ch.style = 2
+            ch.legend = None
+            ch.height, ch.width = 6.0, 13.5
+            ch.add_data(Reference(ws, min_col=10, min_row=data_row,
+                                  max_row=data_row + len(order) - 1))
+            ch.set_categories(Reference(ws, min_col=9, min_row=data_row,
+                                        max_row=data_row + len(order) - 1))
+            ws.add_chart(ch, "B" + str(r + 1))
+            ws.column_dimensions["I"].hidden = True
+            ws.column_dimensions["J"].hidden = True
+
+        # contents, beside the chart rather than under it
+        cr = 12
+        ws.cell(cr, 7, "Contents").font = Font(name="Calibri", bold=True, size=11, color=INK)
+        cr += 1
+        for name in self._wb.sheetnames:
+            if name == "1. Overview":
+                continue
+            ws.cell(cr, 7, name).font = Font(name="Calibri", size=9.5, color=BLUE)
+            cr += 1
+
     def _build_executive_summary(self):
-        ws = self._wb.create_sheet("1. Executive Summary")
+        ws = self._wb.create_sheet("2. Executive Summary")
         ws.sheet_view.showGridLines = False
         ws.column_dimensions["A"].width = 3
         ws.column_dimensions["B"].width = 30
@@ -257,7 +454,7 @@ class ArchitectureReportService:
 
     # ── Sheet 2: Job Architecture ─────────────────────────────────────────
     def _build_job_architecture(self):
-        ws = self._wb.create_sheet("2. Job Architecture")
+        ws = self._wb.create_sheet("3. Job Architecture")
         ws.sheet_view.showGridLines = False
         col_ws = [3,14,22,14,10,12,12,12,12,12,12]
         headers = ["","Function","Standard Role","Grade","Band",f"Min {self.currency}", f"P25 {self.currency}", f"P50 {self.currency}", f"P75 {self.currency}", f"Max {self.currency}","Hay Range"]
@@ -312,7 +509,7 @@ class ArchitectureReportService:
 
     # ── Sheet 3: Org Snapshot ─────────────────────────────────────────────
     def _build_org_snapshot(self):
-        ws = self._wb.create_sheet("3. Org Snapshot")
+        ws = self._wb.create_sheet("4. Org Snapshot")
         ws.sheet_view.showGridLines = False
         headers = ["Name","Input Title","Matched Role","Function","Level","Grade","Band",
                    "Salary Band Min","P50 Market","Salary","Pay Position","Confidence"]
@@ -386,7 +583,7 @@ class ArchitectureReportService:
 
     # ── Sheet 4: Grade Distribution ───────────────────────────────────────
     def _build_grade_distribution(self):
-        ws = self._wb.create_sheet("4. Grade Distribution")
+        ws = self._wb.create_sheet("5. Grade Distribution")
         ws.sheet_view.showGridLines = False
         headers = ["Grade","Band","Employees","% of Total",f"Band Min {self.currency}", f"P50 {self.currency}", f"Band Max {self.currency}","Avg Salary","Pay Position vs P50"]
         widths  = [10,20,12,12,12,12,12,12,22]
@@ -427,7 +624,7 @@ class ArchitectureReportService:
 
     # ── Sheet 5: Career Paths ─────────────────────────────────────────────
     def _build_career_paths(self):
-        ws = self._wb.create_sheet("5. Career Paths")
+        ws = self._wb.create_sheet("6. Career Paths")
         ws.sheet_view.showGridLines = False
         headers = ["Function","From Role","Level","Grade","→ Next Role","Next Level","Next Grade","Steps to Lead"]
         widths  = [18,28,10,8,28,10,10,14]
@@ -472,7 +669,7 @@ class ArchitectureReportService:
 
     # ── Sheet 6: Succession Risk ──────────────────────────────────────────
     def _build_succession_risk(self):
-        ws = self._wb.create_sheet("6. Succession Risk")
+        ws = self._wb.create_sheet("7. Succession Risk")
         ws.sheet_view.showGridLines = False
         headers=["Role","Function","Grade","Ready Now","6-12 Months","Developing","Total Pipeline","Risk Status","Action Required"]
         widths=[26,16,8,12,14,12,14,14,36]
@@ -543,7 +740,7 @@ class ArchitectureReportService:
 
     # ── Sheet 7: Recommendations ──────────────────────────────────────────
     def _build_recommendations(self):
-        ws = self._wb.create_sheet("7. Recommendations")
+        ws = self._wb.create_sheet("8. Recommendations")
         ws.sheet_view.showGridLines = False
         ws.column_dimensions["A"].width = 3
         ws.column_dimensions["B"].width = 26
@@ -583,7 +780,7 @@ class ArchitectureReportService:
 
     # ── Sheet 8: Job Family & Pay (leveling grid) ─────────────────────────
     def _build_job_family_leveling(self):
-        ws = self._wb.create_sheet("8. Job Family & Pay")
+        ws = self._wb.create_sheet("9. Job Family & Pay")
         ws.sheet_view.showGridLines = False
         headers = ["Role", "Level", "Grade", "Salary Min", "Median (P50)", "Salary Max",
                    "Knowledge / Scope", "Problem Solving", "Accountability", "Top Skills"]
@@ -658,7 +855,7 @@ class ArchitectureReportService:
 
     # ── Sheet 9: Total Pay & Reward ───────────────────────────────────────
     def _build_total_pay(self):
-        ws = self._wb.create_sheet("9. Total Pay & Reward")
+        ws = self._wb.create_sheet("10. Total Pay & Reward")
         ws.sheet_view.showGridLines = False
         headers = ["Role", "Function", "Level", "Base median (P50)", "Holiday allowance",
                    "13th month", "Variable (on-target)", "Total target cash",
@@ -742,7 +939,7 @@ class ArchitectureReportService:
     # ── Sheet 10: Pay Equity (compa-ratio) ────────────────────────────────
     def _build_pay_equity(self):
         import re as _re
-        ws = self._wb.create_sheet("10. Pay Equity")
+        ws = self._wb.create_sheet("11. Pay Equity")
         ws.sheet_view.showGridLines = False
         for ci, w in enumerate([30, 26, 10, 12, 12, 12, 14], 1):
             ws.column_dimensions[get_column_letter(ci)].width = w
@@ -766,6 +963,7 @@ class ArchitectureReportService:
         title_col = _find(df.columns, ["jobtitle", "functie", "title", "role", "current"])
         name_col = _find(df.columns, ["name", "naam"])
         gender_col = _find(df.columns, ["gender", "geslacht", "sex"])
+        fte_col = _find(df.columns, ["fte", "parttime", "deeltijd"])
         if not sal_col:
             _cell(ws, 2, 1, "No actual-salary column in the uploaded data — add one (e.g. ActualSalary) "
                             "to compute compa-ratios and outliers.", fg=MUTED)
@@ -788,13 +986,22 @@ class ArchitectureReportService:
             band = repo.salary.get((res.function, res.level)) if (res and res.matched) else None
             if band is None:
                 continue
-            p50 = band.p50 or round((band.min + band.max) / 2)
-            compa = round(actual / p50, 2) if p50 else 0
-            status = ("Below range" if actual < band.min else "Above range" if actual > band.max
-                      else "Below market" if compa < 0.9 else "Above market" if compa > 1.1 else "At market")
+            # The SAME placement the Pay Equity page uses. This sheet had its own
+            # copy -- actual / p50, no FTE -- so after the app started pro-rating
+            # part-time pay the report and the screen disagreed about the same
+            # person. One calculation, one place.
+            _fte = None
+            if fte_col:
+                try:
+                    _fte = float(str(er.get(fte_col, "")).replace(",", "."))
+                except (TypeError, ValueError):
+                    _fte = None
+            pos = _salary.position(actual, band, _fte)
             rows.append({"name": (str(er.get(name_col)) if name_col else title), "role": res.standard_title,
-                         "level": res.level, "actual": actual, "p50": int(p50), "compa": compa,
-                         "status": status, "gender": (str(er.get(gender_col, "")).strip().upper()[:1] if gender_col else "")})
+                         "level": res.level, "actual": actual, "p50": int(pos.band_p50 or 0),
+                         "min": int(pos.band_min or 0), "compared": pos.compared_pay or actual,
+                         "compa": pos.compa_ratio or 0, "status": pos.status, "pro_rated": pos.pro_rated,
+                         "gender": (str(er.get(gender_col, "")).strip().upper()[:1] if gender_col else "")})
         if not rows:
             _cell(ws, 2, 1, "No salaries could be matched to role bands.", fg=MUTED)
             return
@@ -803,6 +1010,19 @@ class ArchitectureReportService:
         avg = round(sum(compas) / len(compas), 2)
         below = sum(1 for r in rows if r["status"] == "Below range")
         above = sum(1 for r in rows if r["status"] == "Above range")
+        # The board question is not "how many", it is "what does it cost to
+        # stop". Annual base cost to lift everyone below their band up to its
+        # minimum -- the smallest defensible remediation, not the nicest one.
+        self._facts.update({
+            "priced": len(rows), "avg_compa": avg, "below": below, "above": above,
+            "pro_rated": sum(1 for r in rows if r.get("pro_rated")),
+            # Measured on the pay that was COMPARED (full-time-equivalent where an
+            # FTE was supplied), because that is the basis the "below range"
+            # verdict was reached on. Mixing the two would quote a cost for a
+            # finding made another way.
+            "lift_to_minimum": sum(max(0, r["min"] - r["compared"])
+                                   for r in rows if r.get("min") and r["status"] == "Below range"),
+        })
         SC = {"Below range": RED, "Below market": AMBER, "At market": GREEN,
               "Above market": BLUE, "Above range": VIOLET}
         # summary block
@@ -840,7 +1060,7 @@ class ArchitectureReportService:
 
     # ── Sheet 11: Benefits Benchmarking (market reference) ────────────────
     def _build_benefits_benchmarking(self):
-        ws = self._wb.create_sheet("11. Benefits Benchmarking")
+        ws = self._wb.create_sheet("12. Benefits Benchmarking")
         ws.sheet_view.showGridLines = False
         repo = self.catalog.repository
         if not getattr(repo, "benefits_catalog", None):

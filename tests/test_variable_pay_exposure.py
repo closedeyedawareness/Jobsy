@@ -110,3 +110,32 @@ def test_real_library_paymix_joins_the_real_salary_band_grain():
     xl = pd.ExcelFile("jobsy_reference_library.xlsx")
     pm, sb = xl.parse("PayMix"), xl.parse("SalaryBands")
     assert set(zip(pm.Function, pm.Level)) == set(zip(sb.Function, sb.Level))
+
+
+# ── the typed record is the route the product uses ───────────────────────────
+
+def test_the_typed_pay_mix_gives_the_same_answer_as_the_frame():
+    """PayMix reached this analysis as a raw frame until it joined the library.
+    Both routes must agree, or the screen showing exposure and the screen
+    showing total reward are reading two different libraries."""
+    from core.models import PayMixEntry
+
+    df = _grid(4, 1, 1, 4)
+    typed = {(r["Function"], r["Level"]): PayMixEntry(
+                function=r["Function"], level=r["Level"],
+                target_variable_pct=float(r["TargetVariablePct"]),
+                thirteenth_month_pct=float(r["ThirteenthMonthPct"]),
+                lti_eligible_text=str(r["LTIEligible"]))
+             for _, r in PAYMIX.iterrows()}
+
+    a = _run(df, PAYMIX)
+    b = _run(df, typed)
+
+    assert a.n_matched == b.n_matched
+    assert a.pct_women_lti_eligible == b.pct_women_lti_eligible
+    assert a.pct_men_lti_eligible == b.pct_men_lti_eligible
+
+
+def test_an_empty_typed_pay_mix_says_what_is_missing():
+    with pytest.raises(ValueError, match="Function and Level"):
+        _run(_grid(2, 2, 2, 2), {})

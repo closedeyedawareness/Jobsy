@@ -92,6 +92,11 @@ def job_family_page(catalog):
     for role in fam.itertuples(index=False):
         jid = getattr(role, "JobID"); lvl = getattr(role, "Level"); fn = getattr(role, "Function")
         b = bmap.get((fn, lvl)); g = gmap.get(getattr(role, "Grade")); p = pmap.get(jid)
+        try:
+            _g = _repo.job_grades.get(int(float(getattr(role, "Grade"))))
+        except (TypeError, ValueError):
+            _g = None
+        _j = _repo.jobs.get(jid)
         base = b.get("P50") if b is not None else None
         base = None if (base is None or _pd.isna(base)) else float(base)
         comp = _pay.compose(base, fn, lvl, _repo) if base is not None else None
@@ -124,10 +129,19 @@ def job_family_page(catalog):
                         if comp is not None else "—"),
             "lti": ("—" if comp is None or comp.lti_eligible is None
                     else ("Yes" if comp.lti_eligible else "No")),
-            "knowledge": _cell(g.get("Scope") if g is not None else None),
-            "problem": _cell(g.get("Complexity") if g is not None else None),
-            "account": _cell(g.get("DecisionRights") if g is not None else None),
-            "lead": _cell(g.get("Leadership") if g is not None else None, 60),
+            # From the typed JobGrade rather than the frame: the same four that
+            # were already here, plus the two the library carried and nothing
+            # read, plus the career band and the grade's own point range.
+            "band": _cell(getattr(_g, "career_band", "") if _g else None, 30),
+            "points": (f'{_g.hay_min:g}–{_g.hay_max:g}' if _g and _g.hay_mid else "—"),
+            "knowledge": _cell(getattr(_g, "scope", "") if _g else None),
+            "problem": _cell(getattr(_g, "complexity", "") if _g else None),
+            "autonomy": _cell(getattr(_g, "autonomy", "") if _g else None),
+            "account": _cell(getattr(_g, "decision_rights", "") if _g else None),
+            "span": _cell(getattr(_g, "span_of_control", "") if _g else None),
+            "lead": _cell(getattr(_g, "leadership", "") if _g else None, 60),
+            "esco": _cell((f"{_j.esco_label} · ISCO {_j.isco_group}" if _j and _j.esco_label
+                           else (_j.isco_title if _j else None))),
             "skills": _skills_for(jid),
         })
 
@@ -161,9 +175,16 @@ def job_family_page(catalog):
         + _row("+ Other benefits", "ben", mono=True)
         + _row("= Total reward", "treward", mono=True)
         + _row("LTI eligible", "lti", mono=True)
+        + _row("Career band", "band", mono=True)
+        + _row("Grade points (own scale)", "points", mono=True)
         + _row("Knowledge / scope", "knowledge")
-        + _row("Problem solving", "problem") + _row("Accountability", "account")
-        + _row("Leadership", "lead") + _row("Top skills", "skills")
+        + _row("Problem solving", "problem")
+        + _row("Autonomy", "autonomy")
+        + _row("Accountability", "account")
+        + _row("Span of control", "span")
+        + _row("Leadership", "lead")
+        + _row("ESCO / ISCO", "esco")
+        + _row("Top skills", "skills")
         + "</table></div>"
     )
     st.markdown(grid, unsafe_allow_html=True)

@@ -118,20 +118,27 @@ def _render(db_col: str, value: Any) -> Any:
     return text
 
 
-def _fetch_all(client, table: str, org_id: str) -> list[dict]:
-    """Every active row of one table, paged.
+def _fetch_all(client, table: str, org_ids) -> list[dict]:
+    """Every active row of one table, for the organisations asked for, paged.
 
     PostgREST returns at most a page per request. benefits_observations has
     1,008 rows, so a single unpaged select would silently return the first
     1,000 and the library would come back quietly incomplete — the failure
     mode this whole migration exists to stop.
+
+    The org list is explicit rather than left to row-level security. As the
+    signed-in user RLS would return exactly the right set on its own, but the
+    same code runs under the secret key, which sees every tenant — and a loader
+    whose correctness depends on which credential happens to be in use is not a
+    loader anybody can reason about.
     """
+    ids = [org_ids] if isinstance(org_ids, str) else [o for o in org_ids if o]
     rows: list[dict] = []
     start = 0
     while True:
         resp = (client.table(table)
                 .select("*")
-                .eq("org_id", org_id)
+                .in_("org_id", ids)
                 .eq("status", "active")
                 .range(start, start + PAGE - 1)
                 .execute())
@@ -142,7 +149,53 @@ def _fetch_all(client, table: str, org_id: str) -> list[dict]:
         start += PAGE
 
 
-def load_frames(client, org_id: str) -> dict[str, pd.DataFrame]:
+def _merge_by_precedence(rows: list[dict], key: tuple, client_org: str,
+                        library_org: str) -> tuple[list[dict], int]:
+    """One row per natural key: the client's own beats the library's.
+
+    THE RULE, stated once so nothing has to infer it: a client organisation may
+    hold its own version of a library row. Where both exist for the same key,
+    the client's wins; where only the library has one, the client inherits it;
+    where only the client has one, it is theirs alone. The library is a floor,
+    never a ceiling.
+
+    The key is the spec's natural key PLUS country when the row carries one.
+    The specs were written before the country dimension existed and their keys
+    do not mention it, while the database's unique constraints do — so merging
+    on the spec key alone would fold a Dutch and a Belgian row into one. Read
+    from the row rather than from a list of which tables have grown a country,
+    because that list is exactly the thing that goes out of date.
+    """
+    if not client_org or not library_org or client_org == library_org:
+        return rows, 0
+
+    def key_of(row):
+        k = tuple(row.get(c) for c in key)
+        return k + (row.get("country"),) if "country" in row else k
+
+    best: dict = {}
+    overridden = 0
+    for row in rows:
+        k = key_of(row)
+        seen = best.get(k)
+        if seen is None:
+            best[k] = row
+            continue
+        if seen.get("org_id") == row.get("org_id"):
+            # Two rows, same org, same key: the database's unique constraint
+            # says this cannot happen. Keep the first and do not pretend to
+            # choose — a silent pick here would hide a broken constraint.
+            continue
+        if row.get("org_id") == client_org:
+            best[k] = row
+            overridden += 1
+        else:
+            overridden += 1
+    return list(best.values()), overridden
+
+
+def load_frames(client, org_id: str, library_org_id: str | None = None,
+                overrides: dict | None = None) -> dict[str, pd.DataFrame]:
     """Read the library from Postgres as the dict Repository expects.
 
     Keys are SHEET_MAP's repository keys ('jobs', 'profiles', 'salary', …) and
@@ -167,7 +220,10 @@ def load_frames(client, org_id: str) -> dict[str, pd.DataFrame]:
                 "and no panel can see it.", spec.table)
             continue
 
-        rows = _fetch_all(client, spec.table, org_id)
+        rows = _fetch_all(client, spec.table, (org_id, library_org_id))
+        rows, n_over = _merge_by_precedence(rows, spec.key, org_id, library_org_id or "")
+        if n_over and overrides is not None:
+            overrides[spec.sheet] = n_over
 
         records = []
         for row in rows:
@@ -285,12 +341,37 @@ def client_and_org(mode: str | None = None):
     return client, org.data["id"]
 
 
-def load_frames_from_config(*, client=None, org_id: str | None = None) -> dict[str, pd.DataFrame]:
+def library_org_id(client) -> str | None:
+    """The organisation that holds the shared reference library.
+
+    Asked of the database rather than configured, because the database is
+    already the authority: `orgs.is_library_source` is what app.can_read_org
+    consults to let every tenant read the library, and what app.can_write_org
+    consults to stop any of them editing it. A second answer in config would be
+    a second truth.
+    """
+    try:
+        resp = (client.table("orgs").select("id")
+                .eq("is_library_source", True).limit(1).execute())
+        rows = getattr(resp, "data", None) or []
+        return rows[0]["id"] if rows else None
+    except Exception as exc:
+        logger.warning("Could not determine the library organisation (%s: %s). "
+                       "Reading this organisation's rows only.", type(exc).__name__, exc)
+        return None
+
+
+def load_frames_from_config(*, client=None, org_id: str | None = None,
+                            overrides: dict | None = None) -> dict[str, pd.DataFrame]:
     """load_frames() with the client and org resolved from configuration.
 
     A caller that already holds a client — the app, once it reads the library as
     the signed-in user — passes it in rather than having a second one built.
+
+    The client's own organisation and the library organisation are read
+    together, with the client's rows taking precedence. Where they are the same
+    organisation, which is every deployment today, that union is a no-op.
     """
     if client is None or not org_id:
         client, org_id = client_and_org()
-    return load_frames(client, org_id)
+    return load_frames(client, org_id, library_org_id(client), overrides)

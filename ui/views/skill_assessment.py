@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from ui.shared import *  # noqa: F401,F403
 
+# Named rather than inherited from `import *`: a dependency the import
+# graph cannot see is a dependency nobody can find. The rest of what this
+# module uses is chrome (theme tokens, helpers) and stays with the star.
+from services.assessment_service import service_for_assessments
+
 
 # ── Short skill name → reference library SkillName mapping ────────────────
 # Covers abbreviated names from real HR systems and datasets

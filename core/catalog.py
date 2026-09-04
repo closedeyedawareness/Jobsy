@@ -76,6 +76,10 @@ class Catalog:
         # secret key until LIBRARY_CLIENT says otherwise.
         self._client = client
         self._org_id = org_id
+        #: sheet -> how many library rows this client's own rows replaced.
+        #: Empty on a single-organisation deployment. Surfaced rather than
+        #: silent: precedence nobody can see is precedence nobody can check.
+        self.overrides: dict = {}
         # What the library was ACTUALLY read from, which is not always what was
         # asked for — see the fallback in _load_from_db(). The sidebar shows
         # this, because "which source am I looking at" stops being obvious the
@@ -113,7 +117,9 @@ class Catalog:
         user_scoped = self._user_scoped()
         try:
             from core.db_loader import load_frames_from_config
-            frames = load_frames_from_config(client=self._client, org_id=self._org_id)
+            self.overrides = {}
+            frames = load_frames_from_config(client=self._client, org_id=self._org_id,
+                                             overrides=self.overrides)
         except Exception as exc:
             if user_scoped:
                 raise RuntimeError(

@@ -748,9 +748,29 @@ class VariablePayExposure:
         return bool(self.widening_pp is not None and self.widening_pp > 0)
 
 
+def _paymix_frame(pay_mix) -> pd.DataFrame:
+    """The typed PayMix entries as the frame this analysis works in.
+
+    PayMix used to arrive here as a raw DataFrame that the page fetched itself.
+    Since it joined the library it is typed on the Repository, and one fact
+    reachable two ways is how the two halves of a screen end up disagreeing —
+    so the typed record is now the only route and the frame is built
+    here, at the edge, where the pandas work actually happens.
+    """
+    if isinstance(pay_mix, pd.DataFrame):
+        return pay_mix
+    return pd.DataFrame([{
+        "Function": e.function,
+        "Level": e.level,
+        "TargetVariablePct": e.target_variable_pct,
+        "ThirteenthMonthPct": e.thirteenth_month_pct,
+        "LTIEligible": e.lti_eligible_text,
+    } for e in (pay_mix or {}).values()])
+
+
 def analyze_variable_pay_exposure(
     df: pd.DataFrame,
-    paymix: pd.DataFrame,
+    paymix,
     *,
     function_col: str,
     level_col: str,
@@ -764,8 +784,9 @@ def analyze_variable_pay_exposure(
     """
     Structural exposure to variable pay, from a leveled grid + the PayMix policy.
 
-    ``paymix`` is the reference library's PayMix sheet: Function, Level,
-    TargetVariablePct, ThirteenthMonthPct, LTIEligible.
+    ``paymix`` is the Repository's typed pay_mix — {(function, level): PayMixEntry}.
+    A DataFrame is still accepted so a caller holding raw sheets is not broken,
+    but the typed record is the route the product uses.
 
     Returns entitlement by gender and the gap the pay STRUCTURE produces on top
     of base pay. No bonus data is required, and none is inferred to exist.
@@ -791,7 +812,7 @@ def analyze_variable_pay_exposure(
     d = d[d["_sal"].notna() & (d["_sal"] > 0) & (d["_fun"] != "") & (d["_lvl"] != "")]
     n = len(d)
 
-    pm = paymix.copy()
+    pm = _paymix_frame(paymix).copy()
     pm.columns = [str(c).strip() for c in pm.columns]
     if not {"Function", "Level"}.issubset(pm.columns):
         raise ValueError("PayMix must carry Function and Level columns")

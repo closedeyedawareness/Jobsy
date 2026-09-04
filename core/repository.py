@@ -162,7 +162,10 @@ class Repository:
             grade = int(_num(row, "Grade", "grade") or 0)
             category = _val(row, "Category", "category") or ""
             job = Job(job_id=job_id, standard_title=title, function=function, level=level,
-                      grade=grade, category=category)
+                      grade=grade, category=category,
+                      isco_group=_val(row, "IscoGroup", "isco_group") or "",
+                      isco_title=_val(row, "IscoTitle", "isco_title") or "",
+                      esco_label=_val(row, "EscoLabel", "esco_label") or "")
             self.jobs[job_id] = job
             self.jobs_by_function.setdefault(function, []).append(job)
             self.jobs_by_level.setdefault(level, []).append(job)
@@ -437,6 +440,16 @@ class Repository:
                 pay_p50=_num(row, "PayP50", "pay_p50") or 0,
                 pay_p75=_num(row, "PayP75", "pay_p75") or 0,
                 pay_max=_num(row, "PayMax", "pay_max") or 0,
+                career_band=_val(row, "CareerBand", "career_band") or "",
+                hay_min=_num(row, "HayMin", "hay_min") or 0,
+                hay_max=_num(row, "HayMax", "hay_max") or 0,
+                scope=_val(row, "Scope", "scope") or "",
+                complexity=_val(row, "Complexity", "complexity") or "",
+                autonomy=_val(row, "Autonomy", "autonomy") or "",
+                impact=_val(row, "Impact", "impact") or "",
+                leadership=_val(row, "Leadership", "leadership") or "",
+                span_of_control=_val(row, "SpanOfControl", "span_of_control") or "",
+                decision_rights=_val(row, "DecisionRights", "decision_rights") or "",
                 responsibilities=_val(row, "Responsibilities", "responsibilities") or "",
                 authority=_val(row, "Authority", "authority") or "",
             )

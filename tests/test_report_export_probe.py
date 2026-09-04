@@ -97,6 +97,22 @@ def _load(data: bytes) -> "openpyxl.Workbook":
 # ─────────────────────────────────────────────────────────────────────────
 # 1. Currency conversion: symbol placement
 # ─────────────────────────────────────────────────────────────────────────
+def _sheet(wb, title):
+    """Find a sheet by its NAME, ignoring the leading number.
+
+    Sheets are titled "3. Org Snapshot" and the number shifts whenever one is
+    inserted -- adding the Overview sheet renumbered five of them at once and
+    broke every lookup here, which is a test-fragility problem rather than a
+    product defect. Matching on the part that carries the meaning means the next
+    insertion does not do it again.
+    """
+    want = title.strip().lower()
+    for name in wb.sheetnames:
+        if name.split(".", 1)[-1].strip().lower() == want:
+            return wb[name]
+    raise AssertionError(f"no sheet named {title!r}; have {wb.sheetnames}")
+
+
 def test_word_suffix_currencies_are_wrongly_prepended_in_job_architecture_sheet():
     """services/country_service.py's `money()` -- the convention this report
     is supposed to follow -- puts a word-shaped symbol (zl/kr/Kc) AFTER the
@@ -115,7 +131,7 @@ def test_word_suffix_currencies_are_wrongly_prepended_in_job_architecture_sheet(
     """
     svc = _one_job_service(currency="zł")  # PLN symbol, as symbol_for("PL") returns
     wb = _load(svc.generate())
-    ws = wb["2. Job Architecture"]
+    ws = _sheet(wb, "Job Architecture")
     min_cell = next(c for row in ws.iter_rows(min_row=2) for c in row
                      if isinstance(c.value, str) and c.value.startswith(("zł", "5")))
     assert min_cell.value is not None, "could not find the Min-salary cell to check"
@@ -135,7 +151,7 @@ def test_word_suffix_currencies_are_wrongly_prepended_in_org_snapshot_sheet():
     """
     svc = _one_job_service(currency="kr", salary=60000)  # SEK/DKK/NOK symbol
     wb = _load(svc.generate())
-    ws = wb["3. Org Snapshot"]
+    ws = _sheet(wb, "Org Snapshot")
     header = [c.value for c in ws[1]]
     salary_col = header.index("Salary") + 1
     salary_cell = ws.cell(2, salary_col)
@@ -172,7 +188,7 @@ def test_employee_name_starting_with_equals_becomes_a_live_excel_formula():
     svc = _one_job_service(first_name='=HYPERLINK("http://evil.example","click")',
                             input_title="=2+5")
     wb = _load(svc.generate())
-    ws = wb["3. Org Snapshot"]
+    ws = _sheet(wb, "Org Snapshot")
     name_cell = ws.cell(2, 1)
     title_cell = ws.cell(2, 2)
     assert name_cell.data_type != "f", (
@@ -208,7 +224,7 @@ def test_a_genuine_zero_salary_is_indistinguishable_from_a_missing_one():
     """
     svc = _one_job_service(salary=0)
     wb = _load(svc.generate())
-    ws = wb["3. Org Snapshot"]
+    ws = _sheet(wb, "Org Snapshot")
     header = [c.value for c in ws[1]]
     salary_col = header.index("Salary") + 1
     cell_value = ws.cell(2, salary_col).value
@@ -232,7 +248,11 @@ def test_completely_empty_dataset_does_not_crash():
                                      org_label="Empty Co", currency="€")
     data = svc.generate()
     wb = _load(data)
-    assert len(wb.sheetnames) == 11
+    # Count is asserted as "at least", not "exactly": the report gains sheets as
+    # the product grows -- the Overview sheet arrived and made this 12 -- and an
+    # exact count turns every legitimate addition into a failure here, which
+    # teaches people to edit the number rather than read the test.
+    assert len(wb.sheetnames) >= 11
 
 
 @pytest.mark.parametrize("bad_currency", [None, ""])
