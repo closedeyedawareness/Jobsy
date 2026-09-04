@@ -1,0 +1,101 @@
+EmployeeID,Name,CurrentTitle,Gender,FTE
+SYN-001,Iris Willems,Account Manager,M,0.9
+SYN-002,Pieter Dekker,Accountant,M,1.0
+SYN-003,Iris van Dijk,Associate Product Manager,F,1.0
+SYN-004,Quinn de Jong,Business Development Manager,M,1.0
+SYN-005,Bram van Dijk,Buyer,M,1.0
+SYN-006,Pieter Willems,Category Manager,M,0.8
+SYN-007,Niels Willems,Chief Commercial Officer,F,1.0
+SYN-008,Sander Mulder,Chief Data Officer,F,0.8
+SYN-009,Rosa de Vries,Chief Executive Officer,F,0.9
+SYN-010,Bram Meijer,Chief Financial Officer,M,0.8
+SYN-011,Eva Meijer,Chief Human Resources Officer,F,1.0
+SYN-012,Iris Willems,Chief Information Officer,M,1.0
+SYN-013,Rosa Kok,Chief Legal Officer,F,0.8
+SYN-014,Quinn Bakker,Chief Marketing Officer,F,1.0
+SYN-015,Gijs Meijer,Chief Operating Officer,F,1.0
+SYN-016,Gijs de Jong,Chief Product Officer,M,1.0
+SYN-017,Sander de Boer,Chief Technology Officer,M,1.0
+SYN-018,Maud Mulder,Compliance Officer,M,1.0
+SYN-019,Quinn Bos,Content Manager,M,1.0
+SYN-020,Femke Dekker,Customer Success Manager,F,1.0
+SYN-021,Bram van Dijk,Customer Support Specialist,F,1.0
+SYN-022,Rosa Kok,Data Analyst,M,1.0
+SYN-023,Chloe Mulder,Data Engineer,M,1.0
+SYN-024,Bram Meijer,Data Scientist,M,1.0
+SYN-025,Hanna Bos,DevOps Engineer,M,1.0
+SYN-026,Lars Willems,Digital Marketing Specialist,M,0.9
+SYN-027,Sander Dekker,Engineering Lead,F,1.0
+SYN-028,Lars Dekker,Facilities Coordinator,M,1.0
+SYN-029,Pieter Bakker,Facility Manager,F,1.0
+SYN-030,Gijs Bakker,Finance Assistant,F,1.0
+SYN-031,Tess Jansen,Finance Manager,F,1.0
+SYN-032,Bram van Dijk,Financial Analyst,F,1.0
+SYN-033,Anna Dekker,Financial Controller,F,1.0
+SYN-034,Karin Meijer,Frontend Engineer,F,1.0
+SYN-035,Anna Jansen,General Counsel,M,1.0
+SYN-036,Maud Bakker,HR Advisor,F,1.0
+SYN-037,Daan de Boer,HR Assistant,F,1.0
+SYN-038,Niels Visser,HR Business Partner,M,1.0
+SYN-039,Rosa Dekker,HR Manager,F,1.0
+SYN-040,Tess Meijer,Head of Customer Success,M,1.0
+SYN-041,Maud Smit,Head of Data,F,1.0
+SYN-042,Eva Bos,Head of Finance,F,0.9
+SYN-043,Sander de Boer,Head of HR,F,0.7
+SYN-044,Quinn Kok,Head of Marketing,M,0.8
+SYN-045,Bram de Vries,Head of Operations,M,1.0
+SYN-046,Karin van Dijk,Head of Procurement,F,1.0
+SYN-047,Bram Smit,Head of Product,F,1.0
+SYN-048,Chloe de Boer,Head of Sales,F,1.0
+SYN-049,Chloe Bakker,IT Manager,F,1.0
+SYN-050,Niels de Boer,IT Support Specialist,M,1.0
+SYN-051,Gijs Jansen,Junior Software Engineer,F,1.0
+SYN-052,Anna de Jong,Legal Counsel,M,1.0
+SYN-053,Hanna Jansen,Marketing Coordinator,F,1.0
+SYN-054,Lars Kok,Marketing Manager,F,1.0
+SYN-055,Lars de Jong,Network Engineer,M,1.0
+SYN-056,Chloe Willems,Office Manager,M,1.0
+SYN-057,Iris Peters,Operations Coordinator,F,1.0
+SYN-058,Iris Dekker,Operations Manager,M,1.0
+SYN-059,Olivia Meijer,Procurement Manager,F,1.0
+SYN-060,Femke Meijer,Procurement Specialist,F,1.0
+SYN-061,Gijs Bakker,Product Designer,F,1.0
+SYN-062,Jasper Mulder,Product Manager,F,1.0
+SYN-063,Eva Meijer,Program Manager,M,0.8
+SYN-064,Hanna Bakker,Project Manager,M,0.9
+SYN-065,Karin Meijer,QA Engineer,M,1.0
+SYN-066,Eva Peters,Receptionist,F,1.0
+SYN-067,Karin Willems,Recruiter,F,0.6
+SYN-068,Rosa Jansen,Sales Development Representative,M,1.0
+SYN-069,Karin de Vries,Security Engineer,M,1.0
+SYN-070,Pieter Willems,Senior Account Manager,F,1.0
+SYN-071,Bram Dekker,Senior Customer Success Manager,M,1.0
+SYN-072,Jasper Kok,Senior Data Analyst,F,1.0
+SYN-073,Anna Bos,Senior Product Designer,M,1.0
+SYN-074,Gijs Kok,Senior Product Manager,F,1.0
+SYN-075,Pieter de Vries,Senior Recruiter,M,1.0
+SYN-076,Jasper Bos,Senior Software Engineer,M,0.9
+SYN-077,Anna Dekker,Software Engineer,F,1.0
+SYN-078,Femke Peters,Supply Chain Manager,M,1.0
+SYN-079,Karin Willems,System Administrator,M,1.0
+SYN-080,Niels de Jong,UX Researcher,F,1.0
+SYN-081,Karin Willems,Warehouse Manager,M,0.7
+SYN-082,Olivia de Boer,Account Manager,F,0.8
+SYN-083,Gijs Smit,Accountant,M,1.0
+SYN-084,Rosa de Vries,Associate Product Manager,M,1.0
+SYN-085,Femke de Jong,Business Development Manager,M,1.0
+SYN-086,Iris Smit,Buyer,F,1.0
+SYN-087,Femke Jansen,Category Manager,M,1.0
+SYN-088,Hanna Peters,Chief Commercial Officer,F,1.0
+SYN-089,Femke de Vries,Chief Data Officer,F,0.7
+SYN-090,Olivia Jansen,Chief Executive Officer,F,1.0
+SYN-091,Daan Kok,Chief Financial Officer,M,0.7
+SYN-092,Olivia Willems,Chief Human Resources Officer,F,1.0
+SYN-093,Rosa Dekker,Chief Information Officer,M,1.0
+SYN-094,Pieter de Boer,Chief Legal Officer,F,1.0
+SYN-095,Anna Peters,Chief Marketing Officer,F,1.0
+SYN-096,Rosa Meijer,Chief Operating Officer,F,1.0
+SYN-097,Rosa Willems,Chief Product Officer,M,1.0
+SYN-098,Anna Dekker,Chief Technology Officer,M,1.0
+SYN-099,Karin Jansen,Compliance Officer,M,0.9
+SYN-100,Tess Smit,Content Manager,M,1.0
