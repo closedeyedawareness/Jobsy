@@ -153,7 +153,22 @@ SKILLS = SkillsFramework(
              "national taxonomy in these packs. ESCO is the EU's own layer over it, "
              "adding skills and competences. Marked UITLEG rather than WET because "
              "neither is legislation — they are statistical standards, which is a "
-             "different kind of authority and should not be dressed as law."),
+             "different kind of authority and should not be dressed as law. "
+             "WHAT IT CLASSIFIES ON, AND WHAT IT THEREFORE CANNOT TELL YOU. ISCO-08 "
+             "groups jobs by their MAIN TASKS and by the SKILL LEVEL AND SPECIALISATION "
+             "those tasks require. It carries no prescription of its own about pay, about "
+             "grading, or about automatic progression — none of that is in the standard, "
+             "and none of it can be derived from a match within it. "
+             "So a route through this spine says two jobs are comparable IN WHAT THEY DO "
+             "and in the level of skill they demand. It does NOT say they should be paid "
+             "alike, nor that they sit at the same rung of anybody's structure. "
+             "THE RISK THAT CREATES IS SPECIFIC TO THIS PRODUCT: an ISCO match is exactly "
+             "the kind of evidence somebody would reach for to argue that a pay "
+             "difference between two countries is unjustified. It is not that evidence. "
+             "Equal value under the directive turns on skills, effort, responsibility and "
+             "working conditions assessed against a job-evaluation instrument — ISCO "
+             "carries two of those at most, and carries them for statistical comparison "
+             "rather than for valuation. Source: Elmar van Dijk, 2026-09-06."),
 )
 
 PERFORMANCE = PerformanceModel(

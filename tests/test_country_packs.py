@@ -1252,3 +1252,38 @@ def test_both_views_actually_call_the_panel():
         text = (views / name).read_text(encoding="utf-8")
         assert f'_market_panel("{kind}")' in text, (
             f"{name} defines or imports the panel but never calls it for {kind}")
+
+
+def test_an_occupation_bridge_is_not_evidence_about_pay():
+    """ISCO classifies what a job DOES, not what it is worth.
+
+    ISCO-08 groups jobs by their main tasks and by the skill level and
+    specialisation those tasks require. It prescribes nothing about pay,
+    grading or progression. So a successful occupation bridge says two jobs are
+    comparable in what they do — not that they should be paid alike.
+
+    That distinction is a live risk in THIS product specifically, because an
+    ISCO match is exactly the evidence somebody would reach for to argue that a
+    cross-border pay difference is unjustified. It is not that evidence: equal
+    value under the directive turns on skills, effort, responsibility and
+    working conditions assessed against a job-evaluation instrument, and ISCO
+    carries at most two of those, for statistical comparison rather than
+    valuation.
+
+    The refusal of the pay and grade dimensions is what enforces it, so this
+    asserts the two cannot be reached even when the occupation hop succeeds.
+    """
+    occupation = cp.bridge("NL", "DE", cp.OCCUPATION)
+    assert occupation["ok"], "premise: the occupation hop works between these two"
+
+    for dimension in (cp.PAY, cp.GRADE):
+        blocked = cp.bridge("NL", "DE", dimension)
+        assert not blocked["ok"], (
+            f"{dimension} became bridgeable. A working occupation route must not open a "
+            "pay or grade one — ISCO carries neither.")
+
+    spine_note = (cp.load()["EU"].skills.occupation_taxonomy.note or "").lower()
+    assert "main tasks" in spine_note and "skill level" in spine_note, (
+        "the EU pack must say what ISCO classifies ON, or a reader cannot tell what a "
+        "match does and does not establish")
+    assert "pay" in spine_note

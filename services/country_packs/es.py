@@ -632,11 +632,20 @@ COMPENSATION = CompensationModel(
                    "fifteen years, and the general 500 for health cover has stood since "
                    "2006; any 2026 figure higher than these is unsupported. Meal vouchers "
                    "expressly cover teleworking days at the place the worker chooses. "
-                   "THE WARNING THAT MATTERS MOST: THESE ARE INCOME-TAX EXEMPTIONS AND "
-                   "SAY NOTHING ABOUT SOCIAL INSURANCE. Cotización is governed by a "
-                   "different statute that was not read, and exemption from one does not "
-                   "generally imply exemption from the other. Do not price an employer's "
-                   "cost off this table."),
+                   "THE WARNING THAT MATTERS MOST, AND IT IS NOW CONFIRMED RATHER THAN "
+                   "SUSPECTED: SOCIAL INSURANCE DOES NOT FOLLOW THE TAX EXEMPTIONS. "
+                   "Exemption from income tax and exclusion from the social-security base "
+                   "are SEPARATE TESTS and must each be assessed on their own terms. A "
+                   "benefit can be free of income tax and still carry employer "
+                   "contributions in full. "
+                   "So this table answers the employee's tax question and NOT the "
+                   "employer's cost question, and the two look interchangeable on a "
+                   "screen. Eleven euro a day in meal vouchers is roughly 2.400 a year: "
+                   "tax-exempt, and potentially still fully contributable. Any flexible-"
+                   "benefits feature that reads 'exempt' as 'costs nothing extra' is "
+                   "wrong by whatever the contribution rate turns out to be. Never price "
+                   "an employer's cost off this table. Confirmed by Elmar van Dijk, "
+                   "2026-09-06."),
         Claim("occupational pension is not universally mandatory", UITLEG,
               "https://www.boe.es/eli/es/l/2022/06/30/12/con", _VERIFIED,
               note="Ley 12/2022 creates publicly promoted employment pension funds and "

@@ -251,7 +251,18 @@ PAY = "pay"                      # what it costs
 #: DE" — with the hardness of both hops visible rather than one confident arrow.
 #:
 #: For occupation and qualification a real, official spine exists and every
-#: member state is already mapped to it. For grade and pay there is none, and
+#: member state is already mapped to it.
+#:
+#: BUT NOTE WHAT EVEN A VALID HOP DOES NOT CARRY. ISCO-08 classifies jobs by
+#: their main tasks and by the skill level and specialisation those tasks
+#: require. It prescribes nothing about pay, grading or progression. So a
+#: successful occupation bridge establishes that two jobs are comparable IN WHAT
+#: THEY DO — not that they are worth the same, and not that they belong at the
+#: same rung of any structure. A caller who reads an ISCO match as evidence that
+#: a cross-border pay difference is unjustified has misused a statistical
+#: standard as a valuation instrument, and the standard says so itself.
+#:
+#: For grade and pay there is no spine at all, and
 #: inventing one is exactly the failure this package was built to prevent:
 #: ISF, ERA, PC 200 and the Metallurgie groupes have NO legal equivalence to
 #: one another, and money has no neutral unit at all — a euro figure and a
