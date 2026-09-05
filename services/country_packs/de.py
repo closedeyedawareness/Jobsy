@@ -301,12 +301,19 @@ SKILLS = SkillsFramework(
                               "plainly that Umsteigeschlüssel sind oftmals nicht "
                               "eindeutig, and the data bears it out — KldB 11101 maps to "
                               "ISCO 9211 AND 9213. It is one-to-many, so it is a "
-                              "distribution and not a lookup. Second, and this is a "
-                              "commercial blocker rather than a technical one: the file's "
-                              "own terms require the BA's permission for gewerbliche "
-                              "Zwecke. Shipping it inside a paid product needs that "
-                              "permission first. This is a question for Elmar, not a "
-                              "detail for an engineer."),
+                              "distribution and not a lookup. Second, the file's own "
+                              "terms require the BA's permission for gewerbliche Zwecke — "
+                              "BUT NOTE WHAT THAT DOES AND DOES NOT REACH. It restricts "
+                              "redistributing THEIR FILE. This pack does not hold it: the "
+                              "mapping below records that the correspondence exists and "
+                              "cites where the official one is published, and its table is "
+                              "empty on purpose. So the permission question is not 'may we "
+                              "sell the product' but the far narrower 'may we ship this "
+                              "particular table', and it only arises if someone decides to "
+                              "ship it. The cost of staying on the reference side is that "
+                              "a reference does not convert — see the SpineMapping "
+                              "docstring for the routes that make the hop without "
+                              "redistributing anything."),
         ),
     ),
 )

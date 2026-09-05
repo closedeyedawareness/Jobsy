@@ -217,9 +217,48 @@ SPINE: dict[str, Optional[str]] = {
 class SpineMapping:
     """One country's scheme, and how it reaches the neutral reference.
 
-    `mapping` may legitimately be empty. A country whose national taxonomy is
-    ISCO-derived by construction needs no lookup table for the coarse levels,
-    and saying so is better than shipping a half-transcribed one.
+    ── A REFERENCE, NOT A CONVERSION TABLE ──────────────────────────────────
+
+    This is a deliberate posture and it decides a legal question, so it is
+    written here rather than left to be inferred.
+
+    A mapping in this package normally RECORDS THAT a correspondence exists and
+    WHERE THE OFFICIAL ONE IS PUBLISHED. It does not carry the correspondence.
+    Germany's KldB reaches ISCO-08 through a crosswalk the Bundesagentur
+    publishes; this pack says so and cites the file. It does not hold the file.
+
+    That distinction matters because several of those official files are free to
+    read and restricted to redistribute — the German one requires the agency's
+    permission for commercial use. A product that SHIPS the table is
+    redistributing it. A product that says "the official correspondence lives
+    here" is not. As long as `mapping` stays empty for those, the restriction
+    is not engaged, and the question shrinks from "may we sell this product" to
+    the far smaller "may we ship this particular file".
+
+    The honest cost of the posture: A REFERENCE DOES NOT CONVERT. If a German
+    roster carries a KldB key and a Polish one carries KZiS, something still has
+    to make the hop before they can be compared. Routes that do not redistribute
+    anyone's file: the data already carries ISCO; the client runs the official
+    free file themselves, which the restriction does not touch; or a job-title
+    route where one is published, as CBS publishes for Dutch titles. What has
+    NOT been checked is the ILO's own terms for ISCO-08 itself, which is a
+    separate question from any national crosswalk.
+
+    ── When `mapping` legitimately holds a table ────────────────────────────
+
+    Two cases, and only two.
+
+    First, an identity: a country whose taxonomy IS the spine, as Belgium's
+    occupation coding is ISCO-08 with no national adaptation. There is nothing
+    to hold.
+
+    Second, a correspondence STATED IN THE LAW ITSELF. Every qualification
+    mapping here is of that kind: the Dutch Besluit NLQF, the French décret, the
+    Spanish real decreto and the Polish ZSK act each set out level by level
+    which national level equals which EQF level. Reproducing what a statute says
+    is not reproducing somebody's dataset, and those relations are mostly 1:1
+    anyway — the interesting one is Dutch, where the extra 4+ level makes the
+    mapping a function in one direction only.
     """
     dimension: str
     local_scheme: str                       # "SBC 2018", "KldB 2010", "PRK"

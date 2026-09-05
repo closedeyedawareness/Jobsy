@@ -944,3 +944,86 @@ def test_the_spanish_floor_is_not_a_base_salary_and_the_pack_says_so():
             f"{cw.system}: the note must name what the figure actually measures")
         assert "not salario base" in note or "not comparable" in note, (
             f"{cw.system}: the note must warn that this is not a base-salary figure")
+
+
+# ── the reference posture, made enforceable ──────────────────────────────────
+
+
+def test_occupation_mappings_reference_a_crosswalk_rather_than_carrying_one():
+    """A legal position that only holds while the tables stay empty.
+
+    Several of the official occupation crosswalks are free to read and
+    restricted to redistribute — the German one requires the employment
+    agency's permission for commercial use. This package stays on the reference
+    side of that line: it records THAT a correspondence exists and cites where
+    the official one is published, and holds none of them.
+
+    While that is true, the permission question is not "may we sell this
+    product" but the far narrower "may we ship this particular file", and it
+    only arises if somebody decides to ship it. The moment an occupation
+    mapping starts carrying rows, that changes — quietly, in a diff that looks
+    like an improvement. So it is asserted rather than trusted.
+
+    If a table genuinely needs to be held one day, this test should be changed
+    deliberately, with the licence position for that specific file recorded
+    alongside it. Do not delete it to make a build pass.
+    """
+    carrying = []
+    for code, pack in cp.load().items():
+        for slot in (pack.job_architecture, pack.skills):
+            for m in getattr(slot, "mappings", ()) or ():
+                if m.dimension == cp.OCCUPATION and m.mapping:
+                    carrying.append(f"{code}/{m.local_scheme} ({len(m.mapping)} rows)")
+    assert not carrying, (
+        "these occupation mappings now carry a crosswalk table rather than citing one: "
+        + "; ".join(carrying)
+        + ". Check the licence for each file before this ships.")
+
+
+def test_qualification_mappings_carry_only_what_a_statute_states():
+    """The one place a table is legitimate, and why.
+
+    Every qualification mapping here does hold rows, and that is fine for a
+    different reason: the correspondence is set out level by level in the law
+    itself — the Dutch Besluit NLQF, the French décret, the Spanish real
+    decreto, the Polish ZSK act. Reproducing what a statute says is not
+    reproducing somebody's dataset.
+
+    So the test is not "no table" but "the table is small, and its source is
+    law". A qualification mapping that grew to hundreds of rows would no longer
+    be a statutory correspondence; it would be a dataset, and it would need the
+    same licence question as an occupation crosswalk.
+    """
+    found = 0
+    for code, pack in cp.load().items():
+        for slot in (pack.job_architecture, pack.skills):
+            for m in getattr(slot, "mappings", ()) or ():
+                if m.dimension != cp.QUALIFICATION or not m.mapping:
+                    continue
+                found += 1
+                assert len(m.mapping) <= 20, (
+                    f"{code}/{m.local_scheme} holds {len(m.mapping)} rows. A national "
+                    "qualification framework has single-digit levels; this is a dataset "
+                    "wearing a statute's clothes.")
+                assert m.source.hardness == cp.WET and m.source.source, (
+                    f"{code}/{m.local_scheme}: a qualification table is only defensible "
+                    "because a statute states it — so it must cite that statute.")
+    assert found >= 3, "at least three markets should map qualifications by now"
+
+
+def test_the_spine_hands_back_a_route_and_never_a_converted_code():
+    """`bridge()` answers "how would you get there", not "here is the answer".
+
+    That is the same posture one level up: it composes two documented hops and
+    reports the weaker hardness, so a caller can see what the conversion would
+    rest on before trusting it. It deliberately does not perform the
+    conversion, because performing it would mean holding the tables this
+    package does not hold.
+    """
+    result = cp.bridge("FR", "ES", cp.OCCUPATION)
+    assert result["ok"] is True, result.get("refusal")
+    assert set(result) == {"ok", "spine", "hardness", "route", "refusal"}
+    for hop in result["route"]:
+        assert "scheme" in hop and "hardness" in hop
+        assert "value" not in hop and "code" not in hop, (
+            "a hop describes a correspondence; it does not carry a translated code")
