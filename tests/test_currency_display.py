@@ -107,7 +107,7 @@ def test_the_app_has_no_hard_coded_currency_left():
 def _euros_in(path):
     """Euro signs in a file, excluding docstrings and the documented fallbacks."""
     import ast
-    source = path.read_text()
+    source = path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     docstrings = set()
@@ -148,7 +148,7 @@ def test_the_workbook_export_does_not_assume_euro_either():
     params = inspect.signature(ArchitectureReportService.__init__).parameters
     assert "currency" in params, "the report cannot be told which market it is for"
 
-    source = (ROOT / "services" / "architecture_report_service.py").read_text()
+    source = (ROOT / "services" / "architecture_report_service.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     # The constructor's DEFAULT is allowed to be euro -- a caller that says
     # nothing gets the deployment default. What must not exist is a euro sign
@@ -184,7 +184,7 @@ def test_no_local_variable_shadows_a_module_level_helper():
     function assigns.
     """
     import ast
-    tree = ast.parse((ROOT / "ui" / "app.py").read_text())
+    tree = ast.parse((ROOT / "ui" / "app.py").read_text(encoding="utf-8"))
 
     module_functions = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
 

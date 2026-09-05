@@ -334,7 +334,7 @@ def test_both_ui_crosswalk_sites_are_behind_the_market_gate():
     marker = "# ── CAO crosswalk (ISF / CATS®, indicative, public bands only) ──"
     sites = []
     for path in sorted((ROOT / "ui").rglob("*.py")):
-        lines = path.read_text().splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
         for i, l in enumerate(lines):
             if marker.rstrip("─") in l:
                 sites.append((path.name, i, lines))
