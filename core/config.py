@@ -56,4 +56,4 @@ LIBRARY_ORG_SLUG  = "default"
 #     membership (0008, plus 0014 for the two pay tables it missed), and
 #   - that policy depends on the ORG ONLY, never on the member's role — the
 #     catalog is cached per org and shared between that org's sessions.
-LIBRARY_CLIENT    = "secret"
+LIBRARY_CLIENT    = "user"

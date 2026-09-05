@@ -78,3 +78,17 @@ def catalog(repository) -> FakeCatalog:
 @pytest.fixture
 def service(catalog) -> MatchingService:
     return MatchingService(catalog, index=catalog.repository.index)
+
+
+# Tests read the library with the operator credential, on purpose.
+#
+# Since the cutover, config.LIBRARY_CLIENT is "user": the app reads the
+# reference library through the signed-in person's own client so that the row
+# policies decide what comes back, and it refuses rather than falling back when
+# nobody is signed in. A test process has nobody signed in, and a silent fall
+# back is exactly what the switch exists to remove -- so the tests say which
+# credential they mean, here, before any module-scoped fixture loads a catalog.
+# The user-mode behaviour itself is pinned in tests/test_db_loader.py, and the
+# signed-in walk lives in tools/walk_signed_in.py.
+import core.config as _cfg  # noqa: E402
+_cfg.LIBRARY_CLIENT = "secret"
