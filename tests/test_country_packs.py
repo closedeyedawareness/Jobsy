@@ -686,3 +686,88 @@ def test_capability_claims_count_toward_unverified(code, pack):
                     assert c in unverified, (
                         f"{code}.{slot_name}.{field_name} holds an unverified claim "
                         "that `unverified` does not report")
+
+
+# ── what putting six markets on one field revealed ───────────────────────────
+
+def test_bargaining_coverage_spans_a_real_range_and_every_figure_is_sourced():
+    """The reason coverage is a field and not a note.
+
+    Belgium is effectively universal, Poland is 11,6%, and the rest sit between.
+    That spread is not trivia: at 49% Germany makes "no collective agreement"
+    the MODAL case, so a model that assumes a pay scale exists is a Dutch model
+    being applied to a market where it fails half the time.
+
+    France is deliberately absent. DARES was unreachable and a coverage rate is
+    exactly the kind of number a client quotes back, so it stays None rather
+    than being filled with the figure that circulates.
+    """
+    known = {}
+    for code, pack in cp.load().items():
+        comp = pack.compensation
+        if not (comp and comp.bargaining_coverage):
+            continue
+        claim = comp.bargaining_coverage
+        if claim.value is None:
+            assert claim.note, f"{code}: an absent coverage figure must say why"
+            continue
+        assert 0.0 < claim.value <= 1.0, f"{code}: coverage {claim.value} is not a share"
+        assert claim.source, f"{code}: a coverage figure must cite where it came from"
+        known[code] = claim.value
+
+    assert len(known) >= 4, "at least four markets should have answered by now"
+    assert max(known.values()) - min(known.values()) > 0.5, (
+        "if every market clustered, this field would not be earning its place; "
+        f"got {known}")
+
+
+def test_every_market_answers_how_a_sector_agreement_reaches_a_non_member():
+    """Similar coverage, completely different machinery — and that is the point.
+
+    The Netherlands extends by ministerial declaration, France by arrêté,
+    Belgium by royal decree with a criminal sanction behind it, Germany has the
+    mechanism and barely uses it, Poland has none at all, and SPAIN NEEDS NO
+    EXTENSION STEP: a statutory convenio binds everyone in scope by force of the
+    statute itself. Two markets can reach the same coverage by opposite routes,
+    and the route is what decides whether a non-member employer is bound.
+    """
+    answered = {code: pack.compensation.extension_mechanism
+                for code, pack in cp.load().items()
+                if pack.compensation and pack.compensation.extension_mechanism}
+    assert len(answered) >= 5
+
+    # A None value is a real answer here — it means no mechanism exists — so it
+    # has to carry a note, exactly like an absent number.
+    for code, claim in answered.items():
+        assert claim.note, f"{code}: the mechanism claim must explain itself"
+        if claim.value is None:
+            assert "none" in claim.note.lower() or "no" in claim.note.lower()
+
+    described = {str(c.value).lower() for c in answered.values() if c.value}
+    assert len(described) >= 4, (
+        f"the mechanisms should differ market to market; got {described}")
+
+
+def test_seniority_progression_is_answered_or_explicitly_unknown():
+    """The field exists because it is a fairness question, not a compliance one.
+
+    Automatic seniority steps are gender-correlated through career breaks, so a
+    market whose scales advance by tenure produces a gap from the structure
+    rather than from any decision about a person. Spain measures it — 62,84% of
+    convenios — Germany's is in the statute, and France is honestly unknown
+    because answering would mean reading 200 conventions. Unknown is allowed;
+    silence is not.
+    """
+    for code, pack in cp.load().items():
+        comp = pack.compensation
+        if comp is None:
+            continue
+        claim = comp.seniority_progression
+        assert claim is not None, (
+            f"{code} has a compensation model but does not say whether pay advances "
+            "with tenure — that is the one pay-structure fact that is directly a "
+            "fairness question")
+        assert claim.note, f"{code}: seniority claim needs its reasoning"
+        if claim.value is None:
+            assert not claim.verified or "unknown" in claim.note.lower(), (
+                f"{code}: an unanswered seniority question must say so plainly")

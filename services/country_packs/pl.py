@@ -339,16 +339,241 @@ JOB_ARCHITECTURE = JobArchitecture(
              "vendor scheme. The public sector is the exception and does have statutory "
              "tables. Do not look for a Polish equivalent of a functiegroep; there isn't "
              "one to find."),
+    # The occupation mapping moved to the skills slot once the real crosswalk was
+    # found. What stood here was a guess marked ONBEVESTIGD, and it has been
+    # replaced rather than upgraded in place, because the scheme it named was
+    # also superseded: KZiS was wholly replaced on 27 November 2025.
+    mappings=(),
+)
+
+# ── skills ───────────────────────────────────────────────────────────────────
+
+_ZSK = f"{_ELI}/2024/1606"          # ustawa o Zintegrowanym Systemie Kwalifikacji
+_KZIS = f"{_ELI}/2025/1534"         # klasyfikacja zawodow i specjalnosci, 27 Nov 2025
+_KZIS_ISCO = ("https://psz.praca.gov.pl/documents/d/global/"
+              "klucz-powiazan-pomiedzy-kzis-z-2025-r-a-standardem-isco-08-"
+              "_-wg-stanu-na-dzien-27-listopada-2025-r-2-xls")
+_ZRK_API = "https://zrk-api.ibe.edu.pl/pl/v1"
+_PPK = f"{_ELI}/2026/192"
+_MINWAGE_ACT = f"{_ELI}/2024/1773"
+_GUS_Z12 = ("https://stat.gov.pl/obszary-tematyczne/rynek-pracy/"
+            "pracujacy-zatrudnieni-wynagrodzenia-koszty-pracy/"
+            "struktura-wynagrodzen-wedlug-zawodow-za-pazdziernik-2024-r-,4,12.html")
+
+SKILLS = SkillsFramework(
+    qualification_framework=Claim(
+        ("PRK", 8), WET, _ZSK, _VERIFIED,
+        note="Ustawa o Zintegrowanym Systemie Kwalifikacji of 22 December 2015, "
+             "consolidated at Dz.U. 2024 poz. 1606 and genuinely current — unlike the "
+             "Kodeks pracy, nothing has amended it since 1 January 2024. Eight levels, "
+             "stated twice in the statute, with universal first-degree descriptors in the "
+             "annex, second-degree descriptors per education type, and sectoral "
+             "frameworks on top. THE EQF REFERENCING DATE COULD NOT BE CONFIRMED: the "
+             "statute establishes the correspondence as a matter of law, but no primary "
+             "source for the date was reachable. The year 2013 circulates; it is not "
+             "asserted here."),
+    occupation_taxonomy=Claim(
+        ("KZiS", "2025"), WET, _KZIS, _VERIFIED,
+        note="THE CLASSIFICATION WAS WHOLLY REPLACED ON 27 NOVEMBER 2025 by Dz.U. 2025 "
+             "poz. 1534, which repealed the entire 2014 chain and sits under a new "
+             "statute. Anything citing Dz.U. 2014 poz. 1145 is now out of date, and "
+             "historic data needs the separately published KZiS-2014 to KZiS-2025 "
+             "migration key to cross the break. Five levels: 10 major groups, 43, 134, "
+             "445 elementary groups, and 2.583 six-digit occupations — the six-digit "
+             "level does not exist in ISCO and is Poland's own extension. Usefully, the "
+             "regulation itself maps each major group to an ISCO competence level, an "
+             "ISCED-F range AND a PRK range in one table, which is a ready-made levelling "
+             "anchor."),
     mappings=(
         SpineMapping(
-            dimension=OCCUPATION, local_scheme="KZiS", spine="ISCO-08",
-            source=Claim("the Klasyfikacja Zawodow i Specjalnosci is understood to be "
-                         "ISCO-derived", ONBEVESTIGD, "", _VERIFIED,
-                         note="Not verified in this round. Check the ministry regulation "
-                              "that establishes KZiS before routing through it."),
+            dimension=OCCUPATION, local_scheme="KZiS 2025", spine="ISCO-08",
+            source=Claim("official ministry crosswalk, 3.577 rows", WET,
+                         _KZIS_ISCO, _VERIFIED,
+                         note="THE LAST UNCONFIRMED HOP IN THE SET, NOW CLOSED. The "
+                              "regulation's own explanatory notes say the classification "
+                              "was built on ISCO-08, and the employment service publishes "
+                              "a crosswalk file dated 27 November 2025 which was "
+                              "downloaded and reconciled: 3.577 mapped rows, every "
+                              "six-digit KZiS code reaching a four-digit ISCO unit group, "
+                              "ZERO DUPLICATE KZiS CODES. That is a cleaner hop than "
+                              "France's probabilistic matrix or Germany's one-to-many "
+                              "key. ONE CAVEAT ON THE FILE ITSELF, printed on it: nie "
+                              "jest zrodlem obowiazujacego prawa i ma wylacznie charakter "
+                              "pomocniczy — it is an official auxiliary document, not "
+                              "law. Fine to map with, not citable as an obligation."),
+        ),
+        SpineMapping(
+            dimension=QUALIFICATION, local_scheme="PRK", spine="EQF",
+            mapping={str(n): str(n) for n in range(1, 9)},
+            source=Claim("art. 2 pkt 16 defines PRK levels as corresponding to EQF levels",
+                         WET, _ZSK, _VERIFIED,
+                         note="The correspondence is in the statute's own definition, "
+                              "which is stronger than most: in several other markets the "
+                              "framework is a declaration rather than law."),
         ),
     ),
 )
+
+#: The Zintegrowany Rejestr Kwalifikacji, and the best skills artefact found in
+#: any of the seven markets — with a caveat that has to travel with it.
+#:
+#: It is a statutory public register served by an OPEN, UNAUTHENTICATED JSON API
+#: with no key and no rate documentation, holding 20.817 qualifications, each
+#: carrying its PRK level, and decomposing three levels deep: learning outcome
+#: sets, then learning outcomes, then verification criteria. It also carries KZiS
+#: codes, ISCED codes and an internal skills vocabulary.
+#:
+#: THE CAVEAT IS THE COMPOSITION, WHICH WAS MEASURED RATHER THAN ASSUMED. About
+#: 85% of the register — 17.605 records — is individual university degree
+#: programmes carrying a level and nothing else. The genuinely skills-decomposed
+#: core is roughly 313 qualifications: 266 wolnorynkowe and 47 sektorowe, plus
+#: the craft and regulated ones. On those the density is high, averaging about
+#: three outcome sets, ten learning outcomes and forty-seven verification
+#: criteria each. So this is a rich seam, not a rich mine, and a plan that
+#: assumes twenty thousand decomposed qualifications would be wrong by two
+#: orders of magnitude.
+QUALIFICATION_REGISTER = Claim(
+    ("ZRK", 20817, 313), WET, _ZRK_API, _VERIFIED,
+    note="Note the terminology change: kwalifikacje RYNKOWE no longer exists as a "
+         "category. Since 1 January 2024 it is split into wolnorynkowe, awarded by "
+         "commercial bodies granted certifying rights, and sektorowe, awarded by bodies "
+         "operating statutorily in a sector. Any filter matching on 'rynkowe' returns "
+         "nothing. A private body genuinely can register a qualification, through "
+         "application to the minister, formal review, consultation and a PRK level "
+         "assignment. Two operational notes: rapid sequential requests get connection "
+         "resets and need throttling, and NO TERMS OF USE PAGE COULD BE FOUND — worth "
+         "resolving before a product depends on it.")
+
+# ── compensation ─────────────────────────────────────────────────────────────
+
+COMPENSATION = CompensationModel(
+    structure=Claim(
+        ("uklad zbiorowy", "regulamin wynagradzania", "umowa"), WET, _POZ1661, _VERIFIED,
+        note="With bargaining at 11,6% and no extension mechanism, the instrument that "
+             "actually sets pay for most Polish employers is the REGULAMIN WYNAGRADZANIA "
+             "under KP art. 77(2): mandatory at 50 employees or more, optional below 50, "
+             "and mandatory at 20 to 49 ONLY IF a workplace union asks for it. Note the "
+             "threshold moved from 20 to 50 on 1 January 2017. Where a union exists the "
+             "employer must AGREE it with them — uzgadnia, not consult — and with no "
+             "union the employer sets it unilaterally, which is the common case. It takes "
+             "effect two weeks after being made available to staff."),
+    bargaining_coverage=Claim(
+        0.116, UITLEG, _ICTWSS, _VERIFIED,
+        note="11,6% in 2023, at company level, with union density 9,4%. The lowest in the "
+             "set by a wide margin — compare Belgium at effectively 100%, Spain 92%, the "
+             "Netherlands 72,5%, Germany 49%."),
+    extension_mechanism=Claim(
+        None, WET, _POZ1661, _VERIFIED,
+        note="THERE IS NONE, and there is now not even a register to consult. The "
+             "collective-agreements title of the Kodeks pracy was repealed on 13 December "
+             "2025 and replaced by a standalone act whose new register, the KEUZP, is "
+             "CONSTITUTIVE rather than administrative: art. 16 says an agreement takes "
+             "effect no earlier than the day it is properly registered, and that the "
+             "provisions of an unregistered agreement ARE NOT APPLIED. The minister has "
+             "until 13 December 2027 to build it, with employers given a further year "
+             "after that, so the register does not exist yet and filing runs directly to "
+             "the ministry in the meantime. Note the driver: that act implements the "
+             "MINIMUM WAGE directive 2022/2041, not the pay transparency one."),
+    seniority_progression=Claim(
+        "public sector only", WET, _VERIFIED and _ELI, _VERIFIED,
+        note="The dodatek stazowy is statutory in the PUBLIC sector and absent from the "
+             "private one, where it exists only if someone put it in a regulamin or a "
+             "contract. The standard public formula is 5% of base pay after five years "
+             "rising 1% a year to a maximum of 20%, in local government, the civil "
+             "service, state offices and healthcare alike. TEACHERS ARE THE EXCEPTION and "
+             "the exception was miscarried in earlier notes: the Karta Nauczyciela gives "
+             "1% per year of service payable FROM THE FOURTH YEAR, not from the first. So "
+             "Poland is the one market in the set where the structurally "
+             "gender-correlated seniority component is a SECTOR fact rather than a market "
+             "fact, and a mixed public-private roster will show it in one half only."),
+    market_data=(
+        Claim("GUS Z-12 gives median, deciles and the gap by occupation AND sex", WET,
+              _GUS_Z12, _VERIFIED,
+              note="Table 13 of the annex publishes all nine decile cut-offs including "
+                   "the median, by major, large and medium occupation group AND by sex; "
+                   "table 17 publishes the pay gap the same way. GUS says outright that "
+                   "this is the ONLY survey producing pay data by occupation in Poland. "
+                   "THREE LIMITS THAT BIND. Depth stops at THREE DIGITS in every "
+                   "publication, so the six-digit KZiS mapping can go deeper than the "
+                   "official benchmark ever will. Detail lands about sixteen months after "
+                   "the reference month, because the signal release carries one-digit "
+                   "groups only. And the gap is computed on FIXED PAY ONLY — profit "
+                   "distributions, annual bonuses and discretionary awards are excluded — "
+                   "so it is not comparable to a total-cash gap."),
+        Claim(("gpg_2024", 0.041), WET, _GUS_Z12, _VERIFIED,
+              note="4,1% overall for October 2024, and the aggregate hides everything "
+                   "worth seeing: 1,1% in the public sector against 11,8% in the private "
+                   "one, 18,8% among managers, 24,7% in one management sub-group, and "
+                   "NEGATIVE for clerical staff. A headline this low invites the "
+                   "conclusion that Poland has solved something. It has not; the number "
+                   "is an average over a wide and structured spread."),
+        Claim("GUS microdata is closed to companies", WET,
+              "https://nauka.stat.gov.pl/Data", _VERIFIED,
+              note="Supplied for a fee to universities, higher education institutions and "
+                   "research institutes only, under contract with the institution, "
+                   "delivered through a controlled channel or on site. There is no "
+                   "public-use file and no self-service. Like the Netherlands and unlike "
+                   "Spain, this is not a route a product can take."),
+    ),
+    constraints=(
+        Claim("the minimum-wage exclusion list is closed and dated", WET,
+              _MINWAGE_ACT, _VERIFIED,
+              note="Six components are excluded from the minimum-wage calculation and "
+                   "nothing else is: the jubilee award, the retirement severance, "
+                   "overtime pay, the night-work supplement since 1 January 2017, the "
+                   "SENIORITY supplement since 1 January 2020, and the difficult-"
+                   "conditions supplement SINCE 1 JANUARY 2024 — not 2023, which is the "
+                   "common misdating because the amending act was announced in August "
+                   "2023. A rule dated 2023 is wrong by a year. Because the list is "
+                   "closed, a dodatek funkcyjny and both kinds of premia DO count toward "
+                   "the minimum. One subtlety: the difficult-conditions exclusion only "
+                   "applies where the supplement has a basis in law, a collective "
+                   "agreement, the regulamin or the contract — an ad-hoc payment is not "
+                   "excluded."),
+        Claim(("ppk_employer", 0.015), WET, _PPK, _VERIFIED,
+              note="The employer must set up a PPK FROM ONE EMPLOYEE, on penalty of a "
+                   "fine up to 1,5% of the previous year's payroll. Employer pays 1,5% "
+                   "basic and may add up to 2,5%; the employee pays 2% and may add up to "
+                   "2%, reduced to as little as 0,5% where pay FROM ALL SOURCES is under "
+                   "1,2 times the minimum wage — an all-source test the employer cannot "
+                   "verify, and one they must ignore in any month where pay at their own "
+                   "firm exceeds the threshold. Auto-enrolment with opt-out, and "
+                   "RE-ENROLMENT EVERY FOUR YEARS: the next cycle means informing staff "
+                   "by 28 February 2027 with contributions resuming 1 April 2027. "
+                   "Modelling detail: the employer contribution sits OUTSIDE the social "
+                   "insurance base but IS taxable income for the employee, and the "
+                   "employee's own share is deducted after tax."),
+        Claim(("zus_employer_typical", 0.2048), UITLEG, f"{_ELI}/2026/199", _VERIFIED,
+              note="Roughly 20,5% on top of gross for a small employer in 2026: pension "
+                   "9,76, disability 6,50, accident about 1,67 for employers with nine or "
+                   "fewer insured, labour and solidarity funds 2,45 remitted as one line, "
+                   "and the guaranteed benefits fund 0,10. THE STEP CHANGE TO MODEL: the "
+                   "2026 annual cap of 282.600 zloty applies ONLY to the pension and "
+                   "disability contributions. Everything else is uncapped, so crossing it "
+                   "mid-year changes both net pay and employer cost discontinuously — a "
+                   "high earner's marginal cost drops partway through the year."),
+        Claim("ulga dla mlodych", WET, "https://www.podatki.gov.pl/pit/", _VERIFIED,
+              note="THE SINGLE LARGEST GROSS-TO-NET DISTORTION IN POLAND. Employment "
+                   "income of people UNDER 26 is exempt from income tax up to 85.528 "
+                   "zloty a year. Two employees on identical gross pay take home "
+                   "materially different amounts purely by age. Any net-pay comparison, "
+                   "any total-reward statement, and any fairness narrative built on net "
+                   "figures has to carry age or it is measuring the tax code. It also "
+                   "interacts with sex through age structure, so it is not neutral noise."),
+        Claim("benefit loading depends on a document, not a benefit type", WET,
+              f"{_ELI}/2025/316", _VERIFIED,
+              note="Material benefits arising from a collective agreement, a regulamin "
+                   "wynagradzania or pay rules, consisting of the right to buy BELOW "
+                   "RETAIL PRICE, are excluded from the social insurance base. That is "
+                   "why Polish benefits — medical cover, sports cards, group life — are "
+                   "structured with a token employee co-payment plus a regulamin basis: "
+                   "taxable for income tax, free of social insurance. So whether a "
+                   "benefit carries employer cost turns on a DOCUMENT FACT rather than on "
+                   "what kind of benefit it is, and two employers offering the identical "
+                   "benefit can face different costs."),
+    ),
+)
+
 
 PACK = CountryPack(
     country="PL",
@@ -364,6 +589,8 @@ PACK = CountryPack(
     org_structure=ORG_STRUCTURE,
     performance=PERFORMANCE,
     job_architecture=JOB_ARCHITECTURE,
+    skills=SKILLS,
+    compensation=COMPENSATION,
     notes=(
         "CURRENCY: PLN, the first non-euro pack. Raw zloty beside raw euro is the most "
         "dangerous mistake available here and it fails SILENTLY, because 4806 is a "
