@@ -841,3 +841,52 @@ def test_a_partial_pay_table_says_it_is_partial(code, pack):
             f"{code}/{cw.system} holds {len(cw.scales)} scales for {len(cw.groups)} "
             "groups and its source note does not account for the shortfall — say either "
             "that the rest was not captured, or that it does not exist")
+
+
+# ── the transcribed tables, and an invariant that checks one of them ──────────
+
+def test_the_polish_pay_ladder_is_complete_and_monotonic():
+    """Twenty categories, twenty figures, each at least the one below it.
+
+    Transcribed from the annex to the 2026 amending regulation. Monotonicity is
+    not decoration: a pay ladder that dips would mean a higher category paying
+    less than a lower one, which is either a typo or a finding so unusual it
+    would need saying out loud. This asserts it is a typo.
+    """
+    pl = cp.load()["PL"]
+    ladder = next(c for c in pl.crosswalks if "zaszeregowania" in c.system)
+
+    assert len(ladder.groups) == 20
+    assert len(ladder.scales) == 20, "every category must carry its floor"
+
+    amounts = [ladder.scales[g][0] for g in ladder.groups]
+    for lower, higher in zip(amounts, amounts[1:]):
+        assert higher >= lower, (
+            f"the ladder dips: {lower} then {higher}. Check the transcription against "
+            "the annex before assuming it is real.")
+    assert amounts[0] < amounts[-1], "a twenty-step ladder should actually climb"
+
+
+def test_polish_category_one_equals_the_national_minimum_wage():
+    """An invariant the regulation itself creates, so it can check the pack.
+
+    The bottom rung of the local-government ladder is set to exactly the
+    statutory minimum wage — 4.806 złoty for 2026 — and both numbers were read
+    from separate regulations by separate routes. That makes them a free
+    cross-check on each other: if a future uplift is transcribed into one and
+    not the other, this fails, and it fails on the transcription rather than on
+    a client's payslip.
+
+    If Poland ever decouples the two, this test should be changed deliberately
+    with the source that shows it — not quietly relaxed.
+    """
+    pl = cp.load()["PL"]
+    ladder = next(c for c in pl.crosswalks if "zaszeregowania" in c.system)
+    bottom = ladder.scales[ladder.groups[0]][0]
+
+    minimum = next(c for c in pl.pay_components
+                   if isinstance(c.value, tuple) and c.value[0] == "minimum_wage_monthly_pln")
+    assert bottom == minimum.value[1], (
+        f"category I is {bottom} but the minimum wage is {minimum.value[1]}. One of the "
+        "two was updated without the other, or Poland has decoupled them — check which "
+        "before changing this test.")

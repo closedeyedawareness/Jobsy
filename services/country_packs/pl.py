@@ -276,25 +276,44 @@ EXCHANGE_RATE = Claim(
 # encodable — which is the opposite of every other pack, where the public sector
 # is the part nobody has data for.
 
+#: Roman numerals, because that is what the regulation uses and what a Polish
+#: local-government payroll file will actually carry. Do not normalise them to
+#: arabic on the way in: a column holding "XII" is unambiguous, and a column
+#: holding "12" could be a category, a month or a pay period.
+_SAMORZAD_CATEGORIES = (
+    "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+    "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
+)
+
+#: The complete table, in force for pay DUE FROM 1 January 2026. Each figure is
+#: a floor, not a range, so both bounds are the same number.
+_SAMORZAD_MINIMA = (
+    4806.0, 4830.0, 4850.0, 4870.0, 4890.0, 4910.0, 4940.0, 4970.0, 5000.0, 5030.0,
+    5060.0, 5090.0, 5200.0, 5310.0, 5410.0, 5630.0, 5850.0, 6070.0, 6400.0, 6750.0,
+)
+
 SAMORZAD = CrosswalkSpec(
     system="Samorządowe kategorie zaszeregowania (rozporządzenie RM)",
     publishes_point_table=False,
-    groups=tuple(str(i) for i in range(1, 21)),   # categories I-XX
+    groups=_SAMORZAD_CATEGORIES,
     point_bands=(),
-    scales={"1": (4806.0, 4806.0), "20": (6750.0, 6750.0)},
+    scales={cat: (amount, amount)
+            for cat, amount in zip(_SAMORZAD_CATEGORIES, _SAMORZAD_MINIMA)},
     sectors=("Administracja samorządowa",),
     source=Claim("20 categories I-XX with minimum monthly amounts, plus a named-position "
                  "to minimum-category table", WET,
                  "https://api.sejm.gov.pl/eli/acts/DU/2026/246", _VERIFIED,
-                 note="Local-government pay, annex updated from 1 January 2026. Category "
-                      "I is 4.806 zloty, which is exactly the national minimum wage, and "
-                      "category XX is 6.750. The regulation also maps named positions to "
-                      "a minimum category, required education and required years of "
-                      "service across roughly two dozen unit types, so this is a genuine "
-                      "encodable crosswalk. Only the two endpoint scales are held; the "
-                      "intermediate categories must be read from the annex before any "
-                      "per-category figure is shown. It is amended roughly annually, so "
-                      "version-date anything derived from it."),
+                 note="COMPLETE, from Dz.U. 2026 poz. 246 annex 3 table I, extracted twice "
+                      "by independent methods with identical results. Category I is 4.806 "
+                      "zloty, EXACTLY the national minimum wage — a useful invariant to "
+                      "assert rather than a coincidence. WATCH THE DATE: the regulation "
+                      "itself commences 16 March 2026, but its own paragraph 3 back-"
+                      "applies the amounts to pay DUE FROM 1 JANUARY 2026, so the "
+                      "effective date is January and not the commencement date. The "
+                      "previous version ran I=4.666 to XX=6.510 in the same twenty-step "
+                      "shape, so this was an across-the-board uplift and not a "
+                      "restructure; it is amended roughly annually and anything derived "
+                      "from it must be version-dated."),
 )
 
 # ── capability slots ─────────────────────────────────────────────────────────
@@ -368,12 +387,18 @@ SKILLS = SkillsFramework(
              "Kodeks pracy, nothing has amended it since 1 January 2024. Eight levels, "
              "stated twice in the statute, with universal first-degree descriptors in the "
              "annex, second-degree descriptors per education type, and sectoral "
-             "frameworks on top. THE EQF REFERENCING DATE COULD NOT BE CONFIRMED: the "
-             "statute establishes the correspondence as a matter of law, but no primary "
-             "source for the date was reachable. The year 2013 circulates; it is not "
-             "asserted here."),
+             "frameworks on top. REFERENCED TO THE EQF IN 2013 — the circulating year is "
+             "right and now has a source: the referencing report published by the "
+             "Instytut Badan Edukacyjnych, Warsaw 2013, approved on the government's "
+             "behalf by the Committee for European Affairs on 15 May 2013 and stating "
+             "that Poland meets the ten referencing criteria. Note the sequence, which is "
+             "unusual: Poland referenced its framework in 2013 and only gave it force of "
+             "law in 2016. One thing to check before this pack goes LIVE: Cedefop "
+             "reported an UPDATED referencing report as expected in 2022, then 2023 or "
+             "2024, following amendments to the ZSK act. It could not be found, so the "
+             "2013 report may no longer be the latest."),
     occupation_taxonomy=Claim(
-        ("KZiS", "2025"), WET, _KZIS, _VERIFIED,
+        ("KZiS", "2025", "mandatory on every ZUS registration"), WET, _KZIS, _VERIFIED,
         note="THE CLASSIFICATION WAS WHOLLY REPLACED ON 27 NOVEMBER 2025 by Dz.U. 2025 "
              "poz. 1534, which repealed the entire 2014 chain and sits under a new "
              "statute. Anything citing Dz.U. 2014 poz. 1145 is now out of date, and "
@@ -383,7 +408,27 @@ SKILLS = SkillsFramework(
              "level does not exist in ISCO and is Poland's own extension. Usefully, the "
              "regulation itself maps each major group to an ISCO competence level, an "
              "ISCED-F range AND a PRK range in one table, which is a ready-made levelling "
-             "anchor."),
+             "anchor. "
+             "AND EVERY POLISH EMPLOYEE ALREADY CARRIES ONE. Art. 36 ust. 10 of the "
+             "social insurance act makes WYKONYWANY ZAWOD a mandatory content element of "
+             "every registration, and the ZUS ZUA and ZZA forms implement it as a "
+             "six-character field whose own footnote defines it as the six-digit code "
+             "from the KZiS annex. Mandatory since 16 May 2021, and still worded "
+             "identically in the April 2026 forms regulation. That is the "
+             "highest-coverage occupation field in the country and it joins straight to "
+             "the ISCO crosswalk below. "
+             "TWO HONEST LIMITS. It is occupation AT REGISTRATION: nothing obliges an "
+             "employer to update it when someone's job changes without a change of "
+             "insurance title, so it DRIFTS and should be treated as a starting position "
+             "rather than a current one. And this establishes the reporting obligation "
+             "only — whether ZUS publishes or licenses anything derived from the field is "
+             "a separate question that was not tested. "
+             "Footnote for whoever searches next: the statute says wykonywany zawod and "
+             "never kod wykonywanego zawodu, which is why an earlier pass grepping for "
+             "the full phrase concluded it was not there. It was added by a COVID "
+             "omnibus act of 14 May 2020 with a year's deferred commencement, which is "
+             "why it is also missing from any amendment history keyed to social-insurance "
+             "legislation."),
     mappings=(
         SpineMapping(
             dimension=OCCUPATION, local_scheme="KZiS 2025", spine="ISCO-08",
@@ -442,7 +487,28 @@ QUALIFICATION_REGISTER = Claim(
          "application to the minister, formal review, consultation and a PRK level "
          "assignment. Two operational notes: rapid sequential requests get connection "
          "resets and need throttling, and NO TERMS OF USE PAGE COULD BE FOUND — worth "
-         "resolving before a product depends on it.")
+         "resolving before a product depends on it. "
+         "RESOLVED, AND BETTER THAN EXPECTED: the operator has declared CC0 1.0 on the "
+         "national open-data portal against this exact endpoint, with every conditions "
+         "field left empty. Three supports stack up. The CC0 permits commercial use, "
+         "redistribution and derivatives with no attribution duty. The open-data act "
+         "gives a general statutory reuse right that is unconditional and free by "
+         "default. And art. 11 ust. 5 of that act converts the ABSENCE of published terms "
+         "into reuse WITHOUT CONDITIONS — so the silence found earlier resolves in our "
+         "favour rather than leaving exposure, and the database-right worry is answered "
+         "the same way: the operator could have imposed conditions and demonstrably did "
+         "not. "
+         "FOUR RESIDUAL RISKS WORTH CARRYING. The licence lives on the portal and not on "
+         "the operator's own hosts, and that record is only months old — snapshot it as "
+         "dated evidence, because continued use counts as accepting whatever terms stand "
+         "at the time. There is still NO documented rate limit and no 429 contract, so we "
+         "run on unstated tolerance: the dataset updates daily, so backfill once and poll "
+         "deltas rather than crawling. The register is flagged as high-value data, which "
+         "pushes toward mandatory free open provision and strengthens the position. And "
+         "CC0 DOES NOT DISPOSE OF GDPR — the register exposes person endpoints, and the "
+         "open-data act expressly reserves conditions for information carrying personal "
+         "data, so anything beyond qualifications and the dictionaries needs its own "
+         "assessment.")
 
 # ── compensation ─────────────────────────────────────────────────────────────
 
@@ -574,6 +640,43 @@ COMPENSATION = CompensationModel(
     ),
 )
 
+
+#: The second half of the same annex, and the part that turns a pay ladder into
+#: a genuine job-to-grade crosswalk: it maps NAMED POSITIONS to a minimum
+#: category, a required education level and required years of service.
+#:
+#: It is not encoded here yet, because encoding it wrongly is worse than not
+#: having it, and the structure has three row grammars that a naive parser will
+#: flatten:
+#:
+#:   * a simple row — one position, one category, one education, one staż;
+#:   * a SIZE-BANDED row — one position, an inline list of unit-size bands, and
+#:     a PARALLEL list of categories positionally paired with them (a deputy
+#:     treasurer is XVI, XV or XIV depending on the population served);
+#:   * an ALTERNATIVE-QUALIFICATION row — one category but two education routes
+#:     with different service requirements, so column three is scalar while
+#:     columns four and five are vectors.
+#:
+#: And a fourth pattern that must not be coerced: many rows carry "według
+#: odrębnych przepisów" where the qualification would be. That is not an unknown
+#: education — it means the requirement is set by a different statute, and
+#: recording it as missing would lose the distinction.
+#:
+#: Two sections of the consolidated text are already stale and must be taken
+#: from their amending regulations instead: employment offices (D.III) was
+#: replaced in full in 2025 and several rows changed category, and one social-care
+#: row gained a second qualification route. Reading the 2024 consolidation alone
+#: would produce wrong grades in both.
+SAMORZAD_POSITIONS = Claim(
+    ("wykaz stanowisk", "A-D", "D.I-D.XXIV"), WET,
+    "https://api.sejm.gov.pl/eli/acts/DU/2024/1638", _VERIFIED,
+    note="Structured in three levels: lettered parts A to D by employer type (municipal, "
+         "county, regional, and other units), then within part D twenty-four numbered "
+         "subsections by kind of unit, then within each a band of stanowiska kierownicze "
+         "urzędnicze, stanowiska urzędnicze, and stanowiska pomocnicze i obsługi. That "
+         "band is itself worth encoding — it is a statutory supervisory / professional / "
+         "support split, which is exactly the kind of level a job architecture needs and "
+         "which most markets leave to the employer to invent.")
 
 PACK = CountryPack(
     country="PL",
