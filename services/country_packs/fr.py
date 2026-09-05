@@ -285,26 +285,50 @@ METALLURGIE = CrosswalkSpec(
                       "groupes; the text says nine."),
 )
 
-SYNTEC = CrosswalkSpec(
-    system="Bureaux d'études techniques / Syntec (IDCC 1486)",
+#: Syntec is held as TWO crosswalks rather than one, because the branch runs two
+#: separate grids and they COLLIDE ON THEIR POSITION LABELS. An ETAM 1.1 and a
+#: cadre 1.1 are different jobs on different scales — coefficient 240 against
+#: coefficient 95 — so a single table keyed on "1.1" would silently merge two
+#: populations. The collision is the reason for the split, not a tidiness
+#: preference.
+SYNTEC_CADRES = CrosswalkSpec(
+    system="Syntec / BETIC — Ingénieurs et Cadres (IDCC 1486, annexe II)",
     publishes_point_table=False,
     groups=("1.1", "1.2", "2.1", "2.2", "2.3", "3.1", "3.2", "3.3"),
     point_bands=(),
     sectors=("Bureaux d'études techniques",),
-    source=Claim("Ingénieurs et Cadres: 8 positions, coefficients 95-270", WET,
-                 _SYNTEC, _VERIFIED,
-                 note="The largest branch in France by covered headcount — about 1.4 "
-                      "million at the end of 2023, not the 820.200 figure that circulates "
-                      "widely and is roughly 40% low. Coefficients are NOT points: there "
-                      "is no cotation, no additive score and no scale common to ETAM and "
-                      "cadres, so publishes_point_table is False and the coefficient is a "
-                      "label. Cadre positions verified: 1.1=95, 1.2=100, 2.1=105 and 115 "
-                      "on an age split, 2.2=130, 2.3=150, 3.1=170, 3.2=210, 3.3=270. The "
-                      "ETAM grid is a separate structure of three fonctions subdivided "
-                      "into positions; its structure is verified but its coefficient "
-                      "range is NOT and is therefore not held here. Two branch texts "
-                      "signed 22 October 2025 may or may not reform the classification — "
-                      "check before shipping anything on IDCC 1486."),
+    source=Claim("8 positions, coefficients 95-270", WET, _SYNTEC, _VERIFIED,
+                 note="The largest branch in France by covered headcount — about 1,4 "
+                      "million at the end of 2023, not the 820.200 that circulates and is "
+                      "roughly 40% low. Coefficients are NOT points: no cotation, no "
+                      "additive score, and no scale shared with ETAM, so the coefficient "
+                      "is a label. Positions: 1.1=95, 1.2=100, 2.1=105 and 115 on an age "
+                      "split, 2.2=130, 2.3=150, 3.1=170, 3.2=210, 3.3=270."),
+)
+
+SYNTEC_ETAM = CrosswalkSpec(
+    system="Syntec / BETIC — Employés, Techniciens et Agents de Maîtrise (IDCC 1486)",
+    publishes_point_table=False,
+    groups=("1.1", "1.2", "2.1", "2.2", "2.3", "3.1", "3.2", "3.3"),
+    point_bands=(),
+    sectors=("Bureaux d'études techniques",),
+    source=Claim("8 positions, coefficients 240-500", WET,
+                 "https://www.legifrance.gouv.fr/conv_coll/id/KALITEXT000046744424/"
+                 "?idConteneur=KALICONT000005635173", _VERIFIED,
+                 note="CONFIRMED at 240 to 500, which is what the vendor sources said — "
+                      "but NOT where anyone looks for it. Legifrance's rendering of the "
+                      "ETAM classification annexe carries three articles and NO NUMERIC "
+                      "GRID AT ALL; the coefficients live in the salary avenants. "
+                      "Positions: 1.1=240, 1.2=250, 2.1=275, 2.2=310, 2.3=355, 3.1=400, "
+                      "3.2=450, 3.3=500. Group 1 now holds only 1.1 and 1.2 — older "
+                      "grids in circulation showing 1.3.1, 1.3.2, 1.4.1 and 1.4.2 are "
+                      "SUPERSEDED, so anything listing more than eight ETAM positions is "
+                      "stale. The euro minima attached to those coefficients in the same "
+                      "avenant (1.715 at the bottom, 2.415 at the top) are 2022 figures "
+                      "and are deliberately NOT held as scales here, because salary "
+                      "avenants are renegotiated and no confirmation was obtained that "
+                      "they are still current. The coefficient structure is stable; the "
+                      "money is not."),
 )
 
 # ── capability slots ─────────────────────────────────────────────────────────
@@ -445,15 +469,23 @@ COMPENSATION = CompensationModel(
              "choice. So a French employer has markedly less freedom over its own pay "
              "structure than a Dutch or German one."),
     bargaining_coverage=Claim(
-        None, ONBEVESTIGD, "", _VERIFIED,
-        note="NOT OBTAINED, and deliberately left blank rather than filled with the "
-             "figure of about 98% that circulates everywhere. The authoritative source is "
-             "DARES, which was CAPTCHA-blocked for the whole research session, and every "
-             "general search engine was blocked too. The number is almost certainly very "
-             "high — the extension machinery below explains why — but a coverage rate is "
-             "exactly the kind of claim that gets quoted back at a client, so it stays "
-             "empty until somebody reads it at source. A browser session that can clear "
-             "the DARES CAPTCHA would close this in minutes."),
+        0.98, UITLEG,
+        "OECD/AIAS ICTWSS via the OECD SDMX API, measure ERB (employees with the right "
+        "to bargain), % of employees, 2024",
+        _VERIFIED,
+        note="98%, and the PROVENANCE MATTERS MORE THAN THE NUMBER. The OECD series "
+             "carries France at a flat 98 for every year from 2009 to 2024, and its 2004 "
+             "value is 97,699997 — which is DARES' 97,7% measurement of that year to the "
+             "digit. DARES has published no national conventional-coverage rate since: "
+             "its last one is a 2006 publication reporting 2004 data, and the surviving "
+             "annual DARES products on collective bargaining publish no coverage rate at "
+             "all. So the '~98%' quoted everywhere is a single French survey measurement "
+             "from 2004, held constant for twenty years. It is almost certainly still "
+             "roughly right, given the extension machinery below, but anyone presenting "
+             "it as a current measurement is wrong about what it is. Marked UITLEG rather "
+             "than WET for that reason, and because the OECD metadata labels the measure "
+             "without ever using the word 'adjusted' — that it is the adjusted rate is "
+             "inferred from the ERB denominator, not quoted."),
     extension_mechanism=Claim(
         "arrêté d'extension", WET, _L2261_15, _VERIFIED,
         note="The minister may make a branch convention obligatory for ALL employers and "
@@ -530,6 +562,22 @@ COMPENSATION = CompensationModel(
                    "gender-correlated — but note what it patches: the INTERRUPTION, not "
                    "the accrual rate. Compare Germany, which took the opposite approach "
                    "and simply stopped the clock during Elternzeit."),
+        Claim("the Index counts employees the Code du travail way", WET,
+              "https://code.travail.gouv.fr/code-du-travail/d1142-8", _VERIFIED,
+              note="RESOLVED, and the secondary sources that said otherwise are wrong. "
+                   "D1142-8 ends with a sentence naming its own rule: les modalites de "
+                   "calcul des effectifs sont celles prevues aux articles L. 1111-2, "
+                   "L. 1111-3 et L. 1251-54 — the Code du travail's twelve-month average, "
+                   "NOT the social-security L130-1. The same article grants a company "
+                   "that reaches fifty THREE YEARS to comply. "
+                   "AND THE TWO-DEFINITIONS RISK IS NOW CONFIRMED RATHER THAN SUSPECTED: "
+                   "L6315-1 and L6323-13 both say expressly that their fifty-employee "
+                   "threshold is determined under L130-1 CSS, which counts a five-year "
+                   "average and RESETS when a single year falls below. Participation uses "
+                   "the same CSS rule. So one French client genuinely carries two "
+                   "different definitions of fifty employees, and can be inside one duty "
+                   "and outside another at the same headcount. Never compute a French "
+                   "threshold once and reuse it."),
         Claim("entretien de parcours professionnel, 4 years", WET, _L6315_1, _VERIFIED,
               note="THE CADENCE CHANGED AND MOST SOURCES ARE STALE. It is no longer the "
                    "entretien professionnel every 2 years with a 6-year review. It is now "
@@ -539,9 +587,17 @@ COMPENSATION = CompensationModel(
                    "December 2025. In companies of 50+, an employee who has had neither "
                    "the required interviews nor a training action over the eight "
                    "preceding years triggers a corrective payment into their training "
-                   "account, capped by statute at six times the annual credit — the euro "
-                   "figure under the new regime was NOT obtained. Any rule anywhere in "
-                   "this product encoded as 2 years, 6 years or 3.000 euro is wrong."),
+                   "account. THE AMOUNT IS 3.000 EURO and it survived the reform "
+                   "unchanged — art. R6323-3, in its current form set by décret 2026-39 "
+                   "of 28 January 2026. It did not need to change: the statute caps the "
+                   "payment at six times the annual CPF credit, that credit is still 500 "
+                   "euro a year up to a 5.000 ceiling, and 6 x 500 is exactly 3.000, so "
+                   "the décret sets the payment at precisely the statutory maximum. "
+                   "Workers without a level-3 qualification and disabled workers accrue "
+                   "800 a year to an 8.000 ceiling. So of the old 2-year / 6-year / "
+                   "3.000-euro rule, ONLY THE EURO FIGURE SURVIVES — the cadence is now "
+                   "4 and 8 years. Note also that this 50-employee threshold is the "
+                   "L130-1 CSS one, not the Index's."),
     ),
 )
 
@@ -556,7 +612,7 @@ PACK = CountryPack(
     gender_codes=GENDER_CODES,
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
-    crosswalks=(METALLURGIE, SYNTEC),
+    crosswalks=(METALLURGIE, SYNTEC_CADRES, SYNTEC_ETAM),
     org_structure=ORG_STRUCTURE,
     performance=PERFORMANCE,
     job_architecture=JOB_ARCHITECTURE,
@@ -639,8 +695,15 @@ PACK = CountryPack(
         "matters: participation definitively uses L130-1, so one client can have two "
         "different definitions of fifty employees.",
 
-        "NOT CONFIRMED: the Syntec ETAM coefficient range, and whether the two branch "
-        "texts of 22 October 2025 reform that classification. Nothing from URSSAF was "
+        "RESOLVED since the first pass: the Syntec ETAM range is 240-500, and the "
+        "22 October 2025 branch texts are THREE, not two — an equality accord, an "
+        "avenant on parenthood and family events, and one on health cover. NONE touches "
+        "classification, so nothing held on IDCC 1486 needed re-reading on that ground. "
+        "The earlier note that they were unextended is also stale: the equality accord "
+        "was extended in August 2026 and takes effect 1 September 2026, and the "
+        "parenthood avenant was extended in April 2026.",
+
+        "STILL NOT CONFIRMED: nothing from URSSAF was "
         "obtainable at all, so no 2026 contribution rates and no avantages en nature "
         "figures appear in this pack — note that France values benefits in kind by "
         "administrative forfait where the Netherlands uses actual value inside the "
