@@ -56,8 +56,11 @@ agent has.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
-               CrosswalkSpec, PayReporting, ReportingBand)
+from . import (CONVENTIE, Claim, CompensationModel, CountryPack,
+               CrosswalkSpec, DRAFT, JobArchitecture, OCCUPATION,
+               ONBEVESTIGD, OrgStructure, PayReporting, PerformanceModel,
+               QUALIFICATION, ReportingBand, SkillsFramework, SpineMapping,
+               UITLEG, WET)
 
 _ELI = "https://api.sejm.gov.pl/eli/acts/DU"
 _POZ807 = f"{_ELI}/2025/807"      # transparency amendment, in force 24 Dec 2025
@@ -294,6 +297,59 @@ SAMORZAD = CrosswalkSpec(
                       "version-date anything derived from it."),
 )
 
+# ── capability slots ─────────────────────────────────────────────────────────
+
+ORG_STRUCTURE = OrgStructure(
+    employer_unit=Claim(
+        "pracodawca (organisational unit)", WET, _POZ807, _VERIFIED,
+        note="KP art. 3 defines the employer as a jednostka organizacyjna, so a branch or "
+             "plant employing workers IS the employer. A 300-person company in four units "
+             "can sit below every 50-employee threshold. A third distinct answer after "
+             "Germany's Betrieb and Spain's empresa — and unlike those two, it is not "
+             "even a stable unit, because it follows how the employer organises itself."),
+    employee_representation=Claim(
+        "zwiazki zawodowe / rada pracownikow", ONBEVESTIGD, "", _VERIFIED,
+        note="Union density is 9,4% and bargaining coverage 11,6%, so most Polish "
+             "employers have no union counterparty at all — which makes the regulamin "
+             "wynagradzania, mandatory at 50+, the practical instrument instead. Where a "
+             "union does exist the employer must AGREE the regulamin with it, not merely "
+             "consult. The rada pracownikow threshold was not verified."),
+)
+
+PERFORMANCE = PerformanceModel(
+    codetermination=Claim(
+        False, ONBEVESTIGD, "", _VERIFIED,
+        note="No co-determination over performance systems is known, and with 11,6% "
+             "bargaining coverage there is usually no counterparty for one. The real "
+             "constraint arrives from a different direction: art. 18(3g) from 5 November "
+             "2026 requires the employer to DETECT unequal treatment systematically. A "
+             "9-box is one of the places unequal treatment becomes visible, so in Poland "
+             "the talent grid is closer to evidence than to exposure. Unverified whether "
+             "any Polish law reaches appraisal systems directly."),
+)
+
+JOB_ARCHITECTURE = JobArchitecture(
+    level_concept=Claim(
+        None, WET, _ICTWSS, _VERIFIED,
+        note="THERE IS NO PRIVATE-SECTOR GRADE CONCEPT IN POLAND, and that is a finding "
+             "rather than a gap. Bargaining covers 11,6% of employees, at company level, "
+             "with no extension mechanism, and the collective-agreements title of the "
+             "Kodeks pracy was repealed in December 2025 with its replacement register "
+             "not due until December 2027. Private employers grade internally or with a "
+             "vendor scheme. The public sector is the exception and does have statutory "
+             "tables. Do not look for a Polish equivalent of a functiegroep; there isn't "
+             "one to find."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="KZiS", spine="ISCO-08",
+            source=Claim("the Klasyfikacja Zawodow i Specjalnosci is understood to be "
+                         "ISCO-derived", ONBEVESTIGD, "", _VERIFIED,
+                         note="Not verified in this round. Check the ministry regulation "
+                              "that establishes KZiS before routing through it."),
+        ),
+    ),
+)
+
 PACK = CountryPack(
     country="PL",
     name="Poland",
@@ -305,6 +361,9 @@ PACK = CountryPack(
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
     crosswalks=(SAMORZAD,),
+    org_structure=ORG_STRUCTURE,
+    performance=PERFORMANCE,
+    job_architecture=JOB_ARCHITECTURE,
     notes=(
         "CURRENCY: PLN, the first non-euro pack. Raw zloty beside raw euro is the most "
         "dangerous mistake available here and it fails SILENTLY, because 4806 is a "

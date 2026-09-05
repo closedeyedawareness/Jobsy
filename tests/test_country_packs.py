@@ -557,3 +557,132 @@ def test_poland_says_no_reporting_duty_positively_rather_than_by_silence():
         other, other_source = cp.band_for(300, UNCOVERED)
         assert other is None and other_source == "", (
             "an uncovered market gives no band at all — that is the distinction")
+
+
+# ── the capability slots and the spine ───────────────────────────────────────
+#
+# The packs were first built around one question — what must this employer
+# report about pay — and that was too narrow. Jobsy also does job architecture,
+# skills, compensation, the 9-box and the org chart, and each lands differently
+# per market. These tests hold the seam that carries the rest.
+
+
+def test_the_spine_refuses_the_two_dimensions_that_have_no_reference():
+    """The refusals are the design, not a gap in it.
+
+    Grades and money have no neutral unit. ISF, ERA, PC 200 and the Metallurgie
+    groupes are separate institutions with no legal equivalence, and a euro
+    figure next to a zloty one means three different things depending on
+    whether you convert at an FX rate, at purchasing power parity, or against a
+    labour-cost index. `bridge()` must decline both and say why, because a
+    confident arrow between two grades is precisely the invention this whole
+    package exists to prevent.
+    """
+    for dimension in (cp.GRADE, cp.PAY):
+        assert cp.SPINE[dimension] is None
+        result = cp.bridge("NL", "DE", dimension)
+        assert result["ok"] is False
+        assert result["refusal"] and len(result["refusal"]) > 80, (
+            f"{dimension} must be refused WITH a reason a reader can act on")
+
+    grade = cp.bridge("NL", "DE", cp.GRADE)["refusal"].lower()
+    assert "no legal equivalence" in grade
+    pay = cp.bridge("NL", "PL", cp.PAY)["refusal"].lower()
+    assert "purchasing power" in pay and "rate" in pay
+
+
+def test_the_spine_exists_for_the_two_dimensions_that_have_one():
+    """Occupation and qualification route through real, official references."""
+    assert cp.SPINE[cp.OCCUPATION] == "ISCO-08"
+    assert cp.SPINE[cp.QUALIFICATION] == "EQF"
+
+
+def test_a_bridge_is_two_hops_and_reports_the_weaker_one():
+    """A chain is exactly as sound as its softest link.
+
+    Reporting the stronger hardness of the two hops would flatter the answer,
+    and a route whose second leg is ONBEVESTIGD is an unverified route however
+    solid the first leg was.
+    """
+    result = cp.bridge("FR", "ES", cp.OCCUPATION)
+    assert result["ok"] is True, result.get("refusal")
+    assert result["spine"] == "ISCO-08"
+    assert len(result["route"]) == 2
+    hardnesses = [h["hardness"] for h in result["route"]]
+    order = (cp.ONBEVESTIGD, cp.CONVENTIE, cp.UITLEG, cp.WET)
+    assert result["hardness"] == min(hardnesses, key=order.index)
+
+
+def test_bridging_an_uncovered_market_is_refused_not_guessed():
+    if UNCOVERED is None:
+        pytest.skip("every candidate market now has a pack")
+    result = cp.bridge("NL", UNCOVERED, cp.OCCUPATION)
+    assert result["ok"] is False and "No country pack" in result["refusal"]
+
+
+def test_the_employer_unit_differs_per_country_and_each_pack_says_which():
+    """The finding that recurred in every pack and was different every time.
+
+    Germany counts per Betrieb, Spain per empresa regardless of centros, Poland
+    per pracodawca which follows how the employer organises itself, France per
+    entreprise or UES but never per etablissement. "Headcount" has meant four
+    different things, and every threshold in the product depends on which one
+    applies — so it belongs on the org-structure slot rather than in an
+    assumption nobody wrote down.
+    """
+    expected = {"DE": "betrieb", "ES": "empresa", "PL": "pracodawca",
+                "FR": "entreprise"}
+    for code, word in expected.items():
+        org = cp.load()[code].org_structure
+        assert org is not None, f"{code} must answer the org-structure question"
+        assert word in str(org.employer_unit.value).lower(), (
+            f"{code} employer unit should mention {word!r}, got "
+            f"{org.employer_unit.value!r}")
+
+    units = {c: str(p.org_structure.employer_unit.value).lower()
+             for c, p in cp.load().items() if p.org_structure}
+    assert len(set(units.values())) > 1, (
+        "if every pack agreed on the employer unit, this slot would be pointless — "
+        "the whole point is that they do not")
+
+
+def test_an_unanswered_capability_is_visible_rather_than_silent():
+    """None means "we have not answered", which is not "there is nothing".
+
+    Coverage should be plannable from the code rather than discovered by a
+    client hitting an empty screen.
+    """
+    gaps = cp.capability_gaps("NL")
+    assert isinstance(gaps, dict)
+    assert all(v == "not answered" for v in gaps.values())
+    # Every pack answers the reporting question by now; that is the one slot
+    # the earlier work filled everywhere.
+    for code in cp.load():
+        assert "reporting" not in cp.capability_gaps(code), code
+
+
+@pytest.mark.parametrize("code,pack", ALL_PACKS, ids=PACK_IDS)
+def test_capability_claims_count_toward_unverified(code, pack):
+    """LIVE is a promise about the whole pack, not the pay half.
+
+    If the capability slots were skipped, a pack could be promoted while its
+    org-structure or skills claims were guesswork. The Dutch pack is the live
+    example: its employer-unit claim is ONBEVESTIGD because nobody checked the
+    home market, and that must be enough to keep NL out of LIVE.
+    """
+    unverified = pack.unverified
+    for slot_name in ("job_architecture", "skills", "compensation", "performance",
+                      "org_structure"):
+        slot = getattr(pack, slot_name)
+        if slot is None:
+            continue
+        for field_name in slot.__dataclass_fields__:
+            value = getattr(slot, field_name)
+            claims = ([value] if isinstance(value, cp.Claim)
+                      else [c for c in (value or ()) if isinstance(c, cp.Claim)]
+                      if isinstance(value, tuple) else [])
+            for c in claims:
+                if not c.verified:
+                    assert c in unverified, (
+                        f"{code}.{slot_name}.{field_name} holds an unverified claim "
+                        "that `unverified` does not report")

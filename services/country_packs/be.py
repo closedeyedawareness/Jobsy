@@ -39,8 +39,11 @@ agent has.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
-               CrosswalkSpec, PayReporting, ReportingBand)
+from . import (CONVENTIE, Claim, CompensationModel, CountryPack,
+               CrosswalkSpec, DRAFT, JobArchitecture, OCCUPATION,
+               ONBEVESTIGD, OrgStructure, PayReporting, PerformanceModel,
+               QUALIFICATION, ReportingBand, SkillsFramework, SpineMapping,
+               UITLEG, WET)
 
 _LOONKLOOFWET = ("Wet van 22 april 2012 ter bestrijding van de loonkloof tussen mannen "
                  "en vrouwen (Belgisch Staatsblad 28-08-2012)")
@@ -196,6 +199,40 @@ PC200 = CrosswalkSpec(
                       "a very large number of people at once."),
 )
 
+# ── capability slots ─────────────────────────────────────────────────────────
+
+ORG_STRUCTURE = OrgStructure(
+    employer_unit=Claim(
+        "onderneming / technische bedrijfseenheid", UITLEG, _RESEARCH, _VERIFIED,
+        note="The ondernemingsraad threshold is 100 employees, not 50 — the correction "
+             "the verification pass forced on this pack. Below 100 the analyseverslag "
+             "goes to the vakbondsafvaardiging instead. The unit is understood to be the "
+             "technische bedrijfseenheid, which is a Belgian construct that can be "
+             "narrower or wider than the legal entity, but that was not verified."),
+    employee_representation=Claim(
+        "ondernemingsraad, of vakbondsafvaardiging", WET, _MODEL_FORM_URL, _VERIFIED,
+        note="TWO different recipients depending on size, and two different official "
+             "report forms to match. The org chart decides which."),
+)
+
+JOB_ARCHITECTURE = JobArchitecture(
+    level_concept=Claim(
+        "functieklasse per paritair comite", UITLEG, _RESEARCH, _VERIFIED,
+        note="PC 200 alone uses four classes A-D for the largest employee population in "
+             "the country. The joint committee, not the employer, is the unit that sets "
+             "pay, and ONE CLIENT CAN SIT IN SEVERAL AT ONCE — so a Belgian org chart "
+             "must carry the paritair comite per population, not once per company."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="ISCO-08 (Statbel)", spine="ISCO-08",
+            source=Claim("Statbel is understood to use ISCO-08 directly", ONBEVESTIGD,
+                         "", _VERIFIED,
+                         note="Belgium may use ISCO-08 without a national adaptation, "
+                              "which would make this hop trivial. Unverified."),
+        ),
+    ),
+)
+
 PACK = CountryPack(
     country="BE",
     name="Belgium",
@@ -207,6 +244,8 @@ PACK = CountryPack(
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
     crosswalks=(PC200,),
+    org_structure=ORG_STRUCTURE,
+    job_architecture=JOB_ARCHITECTURE,
     notes=(
         "DRAFT since 2026-09-05: the biennial cycle, the 50/100 thresholds, the two "
         "model forms and the ondernemingsraad route were confirmed against IGVM/IEFH and "

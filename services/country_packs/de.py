@@ -47,8 +47,11 @@ agent has.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
-               CrosswalkSpec, PayReporting, ReportingBand)
+from . import (CONVENTIE, Claim, CompensationModel, CountryPack,
+               CrosswalkSpec, DRAFT, JobArchitecture, OCCUPATION,
+               ONBEVESTIGD, OrgStructure, PayReporting, PerformanceModel,
+               QUALIFICATION, ReportingBand, SkillsFramework, SpineMapping,
+               UITLEG, WET)
 
 _ENTGTRANSPG = "the Entgelttransparenzgesetz (EntgTranspG)"
 _ENTGTRANSPG_URL = "https://www.gesetze-im-internet.de/entgtranspg/"
@@ -192,6 +195,66 @@ ERA = CrosswalkSpec(
                       "counter-example. Build the region key before building the data."),
 )
 
+# ── capability slots ─────────────────────────────────────────────────────────
+
+ORG_STRUCTURE = OrgStructure(
+    employer_unit=Claim(
+        "Betrieb", WET, _ENTGTRANSPG_URL, _VERIFIED,
+        note="THE finding of this pack. Section 12 counts in Betrieben mit in der Regel "
+             "mehr als 200 Beschaeftigten — establishments, not legal entities. A company "
+             "of 900 across four sites may have no Betrieb over 200 and therefore no "
+             "information right anywhere in it, while a 600-person single-site employer "
+             "has both duties. Every headcount threshold in a German analysis has to ask "
+             "which Betrieb, and the org chart is where that question is answered."),
+    employee_representation=Claim(
+        "Betriebsrat", WET, _BETRVG_URL, _VERIFIED,
+        note="Constituted per Betrieb, which is why the org chart and the threshold "
+             "question are the same question here."),
+)
+
+PERFORMANCE = PerformanceModel(
+    codetermination=Claim(
+        True, WET, _BETRVG_URL, _VERIFIED,
+        note="BetrVG section 87(1) no. 10 gives the Betriebsrat co-determination over "
+             "betriebliche Lohngestaltung — the setting of pay principles and the "
+             "introduction, application and change of pay methods. A 9-box that feeds pay "
+             "progression is therefore not a neutral HR instrument in Germany; it is part "
+             "of a system the works council must agree to. Implemented without that "
+             "agreement it is not merely bad practice, it is unenforceable."),
+    constraints=(
+        Claim("technische Einrichtungen", ONBEVESTIGD, "", _VERIFIED,
+              note="Section 87(1) no. 6 is widely understood to give the Betriebsrat "
+                   "co-determination over technical systems capable of monitoring "
+                   "employee performance or behaviour, which in practice is the hook that "
+                   "catches HR software itself rather than only the policy it implements. "
+                   "NOT verified in this round, unlike no. 10. Read the provision before "
+                   "telling a client their Jobsy rollout needs a Betriebsvereinbarung — "
+                   "and note that if it is right, it applies to the tool and not just to "
+                   "the talent grid inside it."),
+        Claim("section 87(1) no. 11", ONBEVESTIGD, "", _VERIFIED,
+              note="Believed to cover performance-related pay rates (Akkord- und "
+                   "Praemiensaetze and comparable performance-based pay). Unverified."),
+    ),
+)
+
+JOB_ARCHITECTURE = JobArchitecture(
+    level_concept=Claim(
+        "Entgeltgruppe", CONVENTIE, _RESEARCH, _VERIFIED,
+        note="Set per Tarifvertrag and per Tarifgebiet, so an Entgeltgruppe 11 in "
+             "Baden-Wuerttemberg and in Nordrhein-Westfalen are not the same thing. "
+             "There is no national German grade."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="KldB 2010", spine="ISCO-08",
+            source=Claim("Klassifikation der Berufe 2010 carries an ISCO-08 "
+                         "correspondence", ONBEVESTIGD, "", _VERIFIED,
+                         note="The federal employment agency's KldB 2010 is understood to "
+                              "publish an official crosswalk to ISCO-08. Confirm at the "
+                              "Bundesagentur fuer Arbeit before routing through it."),
+        ),
+    ),
+)
+
 PACK = CountryPack(
     country="DE",
     name="Germany",
@@ -203,6 +266,9 @@ PACK = CountryPack(
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
     crosswalks=(ERA,),
+    org_structure=ORG_STRUCTURE,
+    performance=PERFORMANCE,
+    job_architecture=JOB_ARCHITECTURE,
     notes=(
         "STRUCTURAL: EntgTranspG thresholds count per Betrieb, not per company. The "
         "headcount-in, band-out API cannot express this and will mislead if handed a "

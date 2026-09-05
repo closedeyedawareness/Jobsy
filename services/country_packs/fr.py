@@ -46,8 +46,11 @@ agent has.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
-               CrosswalkSpec, PayReporting, ReportingBand)
+from . import (CONVENTIE, Claim, CompensationModel, CountryPack,
+               CrosswalkSpec, DRAFT, JobArchitecture, OCCUPATION,
+               ONBEVESTIGD, OrgStructure, PayReporting, PerformanceModel,
+               QUALIFICATION, ReportingBand, SkillsFramework, SpineMapping,
+               UITLEG, WET)
 
 _L1142_8 = "https://code.travail.gouv.fr/code-du-travail/l1142-8"
 _D1142_4 = "https://code.travail.gouv.fr/code-du-travail/d1142-4"
@@ -304,6 +307,68 @@ SYNTEC = CrosswalkSpec(
                       "check before shipping anything on IDCC 1486."),
 )
 
+# ── capability slots ─────────────────────────────────────────────────────────
+
+ORG_STRUCTURE = OrgStructure(
+    employer_unit=Claim(
+        "entreprise ou UES", WET, _D1142_4, _VERIFIED,
+        note="Never the etablissement. A multi-site company computes once at company "
+             "level; where a CSE exists at UES level across legally distinct companies it "
+             "computes at UES level, and a UES of 50+ is in scope whatever its members' "
+             "sizes — yet the publication duty still rests on each company. A model keyed "
+             "on the legal entity both under-scopes and mis-scopes, and the UES is a "
+             "structure that exists nowhere in the Dutch org chart."),
+    employee_representation=Claim(
+        "comité social et économique (CSE)", WET, _D1142_4, _VERIFIED,
+        note="The CSE receives the Index broken down by category with its methodology, "
+             "and is CONSULTED ON THE GROUPING CHOICE that changes the score. So the CSE "
+             "is not a downstream recipient of the analysis, it is an input to it."),
+)
+
+PERFORMANCE = PerformanceModel(
+    codetermination=Claim(
+        False, UITLEG, _D1142_4, _VERIFIED,
+        note="No German-style co-determination, but the CSE must be consulted and the "
+             "Index indicators must sit in the BDESE. More pointedly, TWO of the five "
+             "Index indicators are about progression rather than pay level — the rate of "
+             "individual increases and the rate of promotions — so a 9-box that drives "
+             "either is feeding a scored, published, penalty-bearing legal instrument. "
+             "In France a talent grid is closer to the compliance surface than anywhere "
+             "else in these packs."),
+    constraints=(
+        Claim("loi Rixain", WET,
+              "https://code.travail.gouv.fr/code-du-travail/l1142-11", _VERIFIED,
+              note="At 1000+ employees for a third consecutive year, at least 30% of each "
+                   "sex among cadres dirigeants and governing bodies, binding since 1 "
+                   "March 2026 and rising to 40% in 2029. This is a succession and "
+                   "talent-pipeline constraint, not a pay one, and it is the clearest "
+                   "case in any pack of a 9-box carrying a legal consequence."),
+    ),
+)
+
+JOB_ARCHITECTURE = JobArchitecture(
+    level_concept=Claim(
+        "coefficient / position / groupe", CONVENTIE, _METALLURGIE_PDF, _VERIFIED,
+        note="Branch-reserved: L2253-1 lists les classifications among the topics where "
+             "the branch prevails over a company accord, so there is no national French "
+             "grade. The shape differs by branch — Syntec uses positions and "
+             "coefficients with no additive score, while Metallurgie since 2024 uses six "
+             "criteria scored to a cotation and a groupe. The cadre/non-cadre split cuts "
+             "across all of it and is three different populations depending on which "
+             "definition is used."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="PCS-ESE", spine="ISCO-08",
+            source=Claim("the DSN carries a Code profession et categorie "
+                         "socioprofessionnelle (PCS-ESE) field", UITLEG, _DSN, _VERIFIED,
+                         note="PCS-ESE was read directly in the DSN cahier technique, so "
+                              "the field exists and is populated nationally. Its "
+                              "correspondence to ISCO-08 is published by INSEE but was "
+                              "not read at source, hence UITLEG."),
+        ),
+    ),
+)
+
 PACK = CountryPack(
     country="FR",
     name="France",
@@ -315,6 +380,9 @@ PACK = CountryPack(
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
     crosswalks=(METALLURGIE, SYNTEC),
+    org_structure=ORG_STRUCTURE,
+    performance=PERFORMANCE,
+    job_architecture=JOB_ARCHITECTURE,
     notes=(
         "THE INDEX IS NOT A PAY-GAP CALCULATION. It excludes prime d'anciennete, "
         "overtime, interessement, participation and severance from remuneration; it "

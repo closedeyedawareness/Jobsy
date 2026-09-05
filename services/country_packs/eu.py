@@ -36,8 +36,10 @@ whole reason a claim in this package carries its hardness and its date.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
-               PayReporting, ReportingBand)
+from . import (CONVENTIE, Claim, CompensationModel, CountryPack, DRAFT,
+               JobArchitecture, OCCUPATION, ONBEVESTIGD, OrgStructure,
+               PayReporting, PerformanceModel, QUALIFICATION, ReportingBand,
+               SkillsFramework, SpineMapping, UITLEG, WET)
 
 OJ = "https://eur-lex.europa.eu/eli/dir/2023/970/oj"
 _ASOF = "2026-09-05"
@@ -124,6 +126,47 @@ REPORTING = PayReporting(
     ),
 )
 
+# ── the spine itself ─────────────────────────────────────────────────────────
+#
+# EQF and ISCO-08 are the two neutral references country-to-country comparison
+# runs through, so the baseline pack is where they are described. Both are real
+# and official; neither is a Jobsy invention, which is the whole reason they can
+# carry weight a home-made equivalence table could not.
+
+SKILLS = SkillsFramework(
+    qualification_framework=Claim(
+        ("EQF", 8), WET,
+        "https://europa.eu/europass/en/european-qualifications-framework-eqf", _ASOF,
+        note="Eight levels, from basic general knowledge at 1 to the most advanced at 8. "
+             "Every member state has formally REFERENCED its national qualifications "
+             "framework to the EQF — referencing is the actual legal term, and it is a "
+             "declared correspondence rather than an equivalence anyone can appeal. That "
+             "is exactly the right strength for a spine: strong enough to route through, "
+             "weak enough that nobody should present it as a legal equality of two "
+             "diplomas."),
+    occupation_taxonomy=Claim(
+        ("ISCO-08", "ESCO"), UITLEG,
+        "https://ilostat.ilo.org/methods/concepts-definitions/classification-occupation/",
+        _ASOF,
+        note="ISCO-08 is the ILO's occupational classification and the parent of every "
+             "national taxonomy in these packs. ESCO is the EU's own layer over it, "
+             "adding skills and competences. Marked UITLEG rather than WET because "
+             "neither is legislation — they are statistical standards, which is a "
+             "different kind of authority and should not be dressed as law."),
+)
+
+PERFORMANCE = PerformanceModel(
+    codetermination=Claim(
+        None, ONBEVESTIGD, "", _ASOF,
+        note="The directive says nothing directly about performance management. What it "
+             "does say, in Art. 6, is that the criteria used for pay AND PAY PROGRESSION "
+             "must be objective, gender-neutral and accessible to workers — and a 9-box "
+             "that feeds pay progression is therefore in scope of that article even "
+             "though it is not named. Whether a given member state's transposition "
+             "reaches talent grids specifically is unknown and must be answered per "
+             "country, not here."),
+)
+
 PACK = CountryPack(
     country="EU",
     name="European Union (directive baseline)",
@@ -137,6 +180,8 @@ PACK = CountryPack(
               note="Art. 3(1)(a). Wider than base salary, which is why a gap computed "
                    "on base pay alone does not answer the directive's question."),
     ),
+    skills=SKILLS,
+    performance=PERFORMANCE,
     notes=(
         "Art. 5: pay or pay range must be given to applicants before interview, and "
         "asking about pay history is prohibited.",

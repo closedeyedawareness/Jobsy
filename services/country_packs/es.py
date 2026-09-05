@@ -49,8 +49,11 @@ agent has.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
-               CrosswalkSpec, PayReporting, ReportingBand)
+from . import (CONVENTIE, Claim, CompensationModel, CountryPack,
+               CrosswalkSpec, DRAFT, JobArchitecture, OCCUPATION,
+               ONBEVESTIGD, OrgStructure, PayReporting, PerformanceModel,
+               QUALIFICATION, ReportingBand, SkillsFramework, SpineMapping,
+               UITLEG, WET)
 
 _RD902 = "https://www.boe.es/buscar/act.php?id=BOE-A-2020-12215"   # igualdad retributiva
 _RD901 = "https://www.boe.es/buscar/act.php?id=BOE-A-2020-12214"   # planes de igualdad
@@ -278,6 +281,65 @@ QUIMICA = CrosswalkSpec(
                       "no point table is claimed."),
 )
 
+# ── capability slots ─────────────────────────────────────────────────────────
+
+ORG_STRUCTURE = OrgStructure(
+    employer_unit=Claim(
+        "empresa", WET, _RD901, _VERIFIED,
+        note="RD 901/2020 art. 3.1: the plantilla total de la empresa counts cualquiera "
+             "que sea el numero de centros de trabajo. The exact opposite of Germany. A "
+             "system that aggregates Spanish staff by site will under-count and "
+             "mis-scope every threshold."),
+    employee_representation=Claim(
+        "representacion legal de las personas trabajadoras (RLT)", WET, _RD902, _VERIFIED,
+        note="Whether an RLT exists changes what the employer must DISCLOSE, not just who "
+             "they consult: with an RLT workers reach the register's full amounts through "
+             "it, without one they get percentage differences only. So the org chart "
+             "determines the shape of the disclosure product, and the pack needs a flag "
+             "for it."),
+)
+
+PERFORMANCE = PerformanceModel(
+    codetermination=Claim(
+        False, WET, _RD902, _VERIFIED,
+        note="No general co-determination over performance systems as in Germany. But the "
+             "auditoria retributiva under RD 902/2020 art. 8 expressly covers the "
+             "PROMOTION system alongside the pay system, so a 9-box that drives promotion "
+             "falls inside the audit's diagnosis whether or not anyone intended it to. "
+             "That is a stronger hook than it looks: the audit is a legal document and, "
+             "once it feeds a plan de igualdad, a public one."),
+    constraints=(
+        Claim("publicity", WET, _RD901, _VERIFIED,
+              note="A plan de igualdad, audit included, must be registered in REGCON even "
+                   "when adopted voluntarily, and registration makes it publicly "
+                   "readable. Anything a talent or promotion analysis contributes to a "
+                   "plan should be written on the assumption it will be read by "
+                   "outsiders."),
+    ),
+)
+
+JOB_ARCHITECTURE = JobArchitecture(
+    level_concept=Claim(
+        "grupo profesional", WET, _ET, _VERIFIED,
+        note="ET art. 22.1 makes the grupo profesional the statutory classification unit, "
+             "and categorias were abolished as that unit in 2012 though the word "
+             "survives. Crucially a grupo IS NOT A PAY GRADE: hosteleria has three for "
+             "roughly 1,3 million workers and quimica has nine, so grupos cannot be "
+             "ranked or compared across convenios."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="CNO-11 (INE)", spine="ISCO-08",
+            source=Claim("the INE earnings survey carries a CNO1 field and CNO is the "
+                         "Spanish ISCO derivative", UITLEG,
+                         "https://www.ine.es/", _VERIFIED,
+                         note="CNO-11 appears as a field in the Encuesta de Estructura "
+                              "Salarial, which was read directly, and CNO is the national "
+                              "adaptation of ISCO-08. The correspondence itself was not "
+                              "read at source, hence UITLEG rather than WET."),
+        ),
+    ),
+)
+
 PACK = CountryPack(
     country="ES",
     name="Spain",
@@ -289,6 +351,9 @@ PACK = CountryPack(
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
     crosswalks=(QUIMICA,),
+    org_structure=ORG_STRUCTURE,
+    performance=PERFORMANCE,
+    job_architecture=JOB_ARCHITECTURE,
     notes=(
         "SCOPE: everything is counted per EMPRESA, never per centro de trabajo. RD "
         "901/2020 art. 3.1 says the plantilla total de la empresa counts cualquiera que "

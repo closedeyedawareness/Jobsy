@@ -166,6 +166,126 @@ class CrosswalkSpec:
     source: Claim = field(default_factory=lambda: Claim(None, ONBEVESTIGD))
 
 
+# ── the capability slots ─────────────────────────────────────────────────────
+#
+# The first six packs were built around one question — what must this employer
+# report about pay — and that was too narrow. Jobsy also does job architecture,
+# skills, compensation, the 9-box and the org chart, and every one of those
+# lands differently per market. A pack that only knows the reporting duty
+# answers a fraction of what the product asks.
+#
+# So each capability gets its own slot below. They are deliberately small and
+# mostly Claims: the point is not to model each discipline in full, it is to
+# give each one a place where a country-specific fact can be recorded WITH ITS
+# EVIDENCE instead of being hardcoded somewhere and forgotten.
+
+#: The dimensions along which one country's data can be compared to another's.
+OCCUPATION = "occupation"        # what the job IS
+QUALIFICATION = "qualification"  # what level of learning it requires
+GRADE = "grade"                  # where it sits in a pay structure
+PAY = "pay"                      # what it costs
+
+#: The neutral reference for each dimension, or None where none exists.
+#:
+#: This dict is the whole architecture of country-to-country comparison, and
+#: the two Nones in it are load-bearing.
+#:
+#: PAIRWISE MAPPING IS N-SQUARED. Seven countries are already 42 directed
+#: pairs; twenty-seven member states are 702, and each one goes stale whenever
+#: either side changes its law. A spine is N: each country maps once to a
+#: neutral reference, and country-to-country becomes two hops through it. It is
+#: also auditable, because the route can be shown — "NL schaal 9 to EQF 6 to
+#: DE" — with the hardness of both hops visible rather than one confident arrow.
+#:
+#: For occupation and qualification a real, official spine exists and every
+#: member state is already mapped to it. For grade and pay there is none, and
+#: inventing one is exactly the failure this package was built to prevent:
+#: ISF, ERA, PC 200 and the Metallurgie groupes have NO legal equivalence to
+#: one another, and money has no neutral unit at all — a euro figure and a
+#: zloty figure answer different questions depending on whether you convert at
+#: an FX rate, at purchasing power parity, or against a labour-cost index.
+#: `bridge()` therefore refuses those two dimensions and says why.
+SPINE: dict[str, Optional[str]] = {
+    OCCUPATION: "ISCO-08",
+    QUALIFICATION: "EQF",
+    GRADE: None,
+    PAY: None,
+}
+
+
+@dataclass(frozen=True)
+class SpineMapping:
+    """One country's scheme, and how it reaches the neutral reference.
+
+    `mapping` may legitimately be empty. A country whose national taxonomy is
+    ISCO-derived by construction needs no lookup table for the coarse levels,
+    and saying so is better than shipping a half-transcribed one.
+    """
+    dimension: str
+    local_scheme: str                       # "SBC 2018", "KldB 2010", "PRK"
+    spine: Optional[str] = None             # "ISCO-08", "EQF", or None
+    mapping: dict = field(default_factory=dict)   # local code -> spine code
+    source: Claim = field(default_factory=lambda: Claim(None, ONBEVESTIGD))
+
+
+@dataclass(frozen=True)
+class JobArchitecture:
+    """What a "level" means in this market before Jobsy imposes its own."""
+    level_concept: Claim                    # what the local unit of grading IS
+    families: tuple[Claim, ...] = ()
+    mappings: tuple[SpineMapping, ...] = ()
+
+
+@dataclass(frozen=True)
+class SkillsFramework:
+    """Qualification and occupation taxonomies, which DO have a spine."""
+    qualification_framework: Claim          # the national framework, EQF-referenced
+    occupation_taxonomy: Claim              # the national ISCO derivative
+    mappings: tuple[SpineMapping, ...] = ()
+
+
+@dataclass(frozen=True)
+class CompensationModel:
+    """Structure, not amounts — the amounts live in pay_components.
+
+    `market_data` is where a benchmarking source belongs, and it is separate
+    from everything else because a vendor survey is a commercial artefact, not
+    law, and must never carry a WET marker however authoritative it looks.
+    """
+    structure: Claim                        # how pay is set in this market
+    market_data: tuple[Claim, ...] = ()
+    constraints: tuple[Claim, ...] = ()     # what an employer may NOT do
+
+
+@dataclass(frozen=True)
+class PerformanceModel:
+    """The 9-box slot, which is mostly about who has to agree to it.
+
+    A talent grid is a neutral instrument in one country and a co-determined
+    one in the next. Germany's works council has rights over performance-based
+    pay and over any system capable of monitoring people; a 9-box implemented
+    without that agreement is not a bad practice there, it is unenforceable.
+    """
+    codetermination: Claim
+    constraints: tuple[Claim, ...] = ()
+
+
+@dataclass(frozen=True)
+class OrgStructure:
+    """The org-chart slot, and the one already proved to matter most.
+
+    `employer_unit` is the finding that recurred in every single pack and was
+    different every time: Germany counts per Betrieb, Spain per empresa
+    regardless of centros, Poland per pracodawca which is an organisational
+    unit, France per entreprise or UES but never per etablissement. The word
+    "headcount" has meant four different things across six packs, and every
+    threshold in the product depends on which one applies.
+    """
+    employer_unit: Claim
+    employee_representation: Claim
+    constraints: tuple[Claim, ...] = ()
+
+
 @dataclass(frozen=True)
 class CountryPack:
     """Everything Jobsy knows about one market."""
@@ -183,6 +303,14 @@ class CountryPack:
     reporting: Optional[PayReporting] = None
     crosswalks: tuple[CrosswalkSpec, ...] = ()
     gender_codes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: The capability slots. All optional: a pack that has not answered for a
+    #: capability yet holds None, which reads as "we do not know" — distinct
+    #: from an empty structure, which would read as "we know there is nothing".
+    job_architecture: Optional[JobArchitecture] = None
+    skills: Optional[SkillsFramework] = None
+    compensation: Optional[CompensationModel] = None
+    performance: Optional[PerformanceModel] = None
+    org_structure: Optional[OrgStructure] = None
     notes: tuple[str, ...] = ()
 
     @property
@@ -198,6 +326,32 @@ class CountryPack:
             for b in r.bands:
                 out += [c for c in (b.first_report, b.frequency) if not c.verified]
         out += [x.source for x in self.crosswalks if not x.source.verified]
+
+        # The capability slots count too. If they did not, a pack could be
+        # promoted to LIVE while its org-structure or skills claims were pure
+        # guesswork — and LIVE is a promise about the whole pack, not about the
+        # part that happens to be about pay.
+        def _walk(obj, names) -> None:
+            if obj is None:
+                return
+            for n in names:
+                v = getattr(obj, n, None)
+                if isinstance(v, Claim):
+                    if not v.verified:
+                        out.append(v)
+                elif isinstance(v, tuple):
+                    for item in v:
+                        if isinstance(item, Claim) and not item.verified:
+                            out.append(item)
+                        elif isinstance(item, SpineMapping) and not item.source.verified:
+                            out.append(item.source)
+
+        _walk(self.job_architecture, ("level_concept", "families", "mappings"))
+        _walk(self.skills, ("qualification_framework", "occupation_taxonomy", "mappings"))
+        _walk(self.compensation, ("structure", "market_data", "constraints"))
+        _walk(self.performance, ("codetermination", "constraints"))
+        _walk(self.org_structure,
+              ("employer_unit", "employee_representation", "constraints"))
         return tuple(out)
 
 
@@ -406,3 +560,132 @@ def band_for(headcount: int, country: Optional[str] = None):
     if not reporting:
         return None, ""
     return reporting.band_for(headcount), source
+
+
+# ── country to country ───────────────────────────────────────────────────────
+
+
+def _mappings_for(pack: Optional[CountryPack], dimension: str) -> tuple:
+    """Every spine mapping this pack holds for one dimension."""
+    if pack is None:
+        return ()
+    out = []
+    for slot in (pack.job_architecture, pack.skills):
+        for m in getattr(slot, "mappings", ()) or ():
+            if m.dimension == dimension:
+                out.append(m)
+    return tuple(out)
+
+
+def bridge(source_country: str, target_country: str, dimension: str) -> dict:
+    """Route data from one market to another along a dimension.
+
+    Returns a dict rather than raising, because "no" is the most common correct
+    answer here and callers need to render it, not catch it.
+
+        {"ok": bool, "route": [...], "spine": str|None, "refusal": str|None,
+         "hardness": str|None}
+
+    THE REFUSALS ARE THE POINT. Two of the four dimensions have no neutral
+    reference and cannot be bridged at all:
+
+      * GRADE. ISF, CATS, ERA, PC 200 and the Metallurgie groupes have no legal
+        equivalence to one another. They are separate institutions negotiated by
+        different parties under different law, and a table claiming a Dutch
+        schaal 9 "is" an Entgeltgruppe 11 would be an invention with a product's
+        authority behind it. An employer may of course decide an internal
+        equivalence — that is a legitimate business judgement — but it belongs
+        to them, marked CONVENTIE, and never presented as a fact about the two
+        countries.
+
+      * PAY. Money has no neutral unit. A Polish salary and a Dutch one can be
+        compared at an FX rate on a stated day, at purchasing power parity, or
+        against a labour-cost index, and those three answer three different
+        questions and give three different numbers. The comparison is only
+        meaningful once somebody says which question they are asking, so this
+        function will not choose for them.
+
+    Where a spine DOES exist the route is returned as two hops with the weaker
+    of the two hardnesses attached, because a chain is exactly as sound as its
+    softest link and reporting the stronger one would flatter the answer.
+    """
+    dimension = (dimension or "").strip().lower()
+    if dimension not in SPINE:
+        return {"ok": False, "route": [], "spine": None, "hardness": None,
+                "refusal": f"Unknown dimension {dimension!r}. Known: "
+                           + ", ".join(sorted(SPINE))}
+
+    spine = SPINE[dimension]
+    if spine is None:
+        if dimension == GRADE:
+            why = ("Grades cannot be bridged between countries. ISF, CATS, ERA, PC 200 "
+                   "and the Metallurgie groupes are separate institutions negotiated by "
+                   "different parties under different law, with no legal equivalence "
+                   "between them. An employer may adopt an internal equivalence as a "
+                   "business judgement — that belongs to them, marked CONVENTIE, and is "
+                   "not a fact about the two markets.")
+        else:
+            why = ("Pay cannot be bridged without an explicit basis. An FX rate on a "
+                   "stated day, purchasing power parity and a labour-cost index answer "
+                   "three different questions and produce three different numbers. State "
+                   "which one is being asked, and the rate and date it uses, then convert "
+                   "deliberately — this function will not choose for you.")
+        return {"ok": False, "route": [], "spine": None, "hardness": None,
+                "refusal": why}
+
+    a, b = for_country(source_country), for_country(target_country)
+    missing = [c for c, p in ((source_country, a), (target_country, b)) if p is None]
+    if missing:
+        return {"ok": False, "route": [], "spine": spine, "hardness": None,
+                "refusal": f"No country pack for {', '.join(missing)}. An uncovered "
+                           "market is answered with silence rather than a guess."}
+
+    src = _mappings_for(a, dimension)
+    dst = _mappings_for(b, dimension)
+    if not src or not dst:
+        blank = [p.country for p, m in ((a, src), (b, dst)) if not m]
+        return {"ok": False, "route": [], "spine": spine, "hardness": None,
+                "refusal": f"No {dimension} mapping to {spine} held for "
+                           f"{', '.join(blank)}. The spine exists; this pack has not "
+                           "been mapped to it yet."}
+
+    hop_out, hop_in = src[0], dst[0]
+    order = (ONBEVESTIGD, CONVENTIE, UITLEG, WET)
+    weakest = min(hop_out.source.hardness, hop_in.source.hardness,
+                  key=lambda h: order.index(h) if h in order else 0)
+    return {
+        "ok": True,
+        "spine": spine,
+        "hardness": weakest,
+        "route": [
+            {"from": a.country, "scheme": hop_out.local_scheme, "to": spine,
+             "hardness": hop_out.source.hardness, "source": hop_out.source.source,
+             "note": hop_out.source.note},
+            {"from": spine, "to": b.country, "scheme": hop_in.local_scheme,
+             "hardness": hop_in.source.hardness, "source": hop_in.source.source,
+             "note": hop_in.source.note},
+        ],
+        "refusal": None,
+    }
+
+
+def capability_gaps(country: Optional[str] = None) -> dict[str, str]:
+    """Which capability slots this pack has not answered for yet.
+
+    An unanswered slot is None and reads as "we do not know", which is a
+    different statement from an empty structure meaning "we know there is
+    nothing". This makes the first kind visible so coverage can be planned
+    rather than discovered by a client.
+    """
+    pack = for_country(country)
+    if pack is None:
+        return {"pack": "no pack for this market"}
+    slots = {
+        "job_architecture": pack.job_architecture,
+        "skills": pack.skills,
+        "compensation": pack.compensation,
+        "performance": pack.performance,
+        "org_structure": pack.org_structure,
+        "reporting": pack.reporting,
+    }
+    return {name: "not answered" for name, value in slots.items() if value is None}

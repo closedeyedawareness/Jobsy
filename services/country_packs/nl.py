@@ -37,8 +37,11 @@ agent has.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
-               CrosswalkSpec, PayReporting, ReportingBand)
+from . import (CONVENTIE, Claim, CompensationModel, CountryPack,
+               CrosswalkSpec, DRAFT, JobArchitecture, OCCUPATION,
+               ONBEVESTIGD, OrgStructure, PayReporting, PerformanceModel,
+               QUALIFICATION, ReportingBand, SkillsFramework, SpineMapping,
+               UITLEG, WET)
 
 _EU_DIRECTIVE = "https://eur-lex.europa.eu/eli/dir/2023/970/oj"
 _ISF_DOC = "docs/cao-metalektro-isf-reference.md (page citations to the primary FNV CAO texts)"
@@ -173,6 +176,45 @@ CATS = CrosswalkSpec(
                       "are added only once sourced the same way."),
 )
 
+# ── capability slots ─────────────────────────────────────────────────────────
+
+ORG_STRUCTURE = OrgStructure(
+    employer_unit=Claim(
+        "onderneming", ONBEVESTIGD, "", "2026-09-05",
+        note="Dutch thresholds are believed to attach to the onderneming, and the "
+             "ondernemingsraad becomes mandatory at 50 people under the Wet op de "
+             "ondernemingsraden. NEITHER WAS CHECKED against the statute in this round, "
+             "which is why this is the weakest claim in the Dutch pack while the German, "
+             "Spanish, Polish and French equivalents are all sourced. Read WOR art. 2 "
+             "before relying on the 50. The irony is deliberate and worth keeping: the "
+             "home market is the one nobody thought to verify."),
+    employee_representation=Claim(
+        "ondernemingsraad", ONBEVESTIGD, "", "2026-09-05",
+        note="Consultation and consent rights over pay and appraisal systems are believed "
+             "to sit in WOR art. 27. Unverified. Do not tell a Dutch client what their OR "
+             "must agree to on the strength of this line."),
+)
+
+JOB_ARCHITECTURE = JobArchitecture(
+    level_concept=Claim(
+        "functiegroep / salarisschaal", CONVENTIE, _ISF_DOC, "2026-07-21",
+        note="The Dutch unit of grading is the functiegroep, set per CAO and paired with "
+             "a salarisschaal. It is a collective-agreement construct, not a statutory "
+             "one, so CONVENTIE is the correct marker."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="BRC / SBC (CBS)", spine="ISCO-08",
+            source=Claim("CBS occupational classifications derive from ISCO", ONBEVESTIGD,
+                         "", "2026-09-05",
+                         note="The Beroepenindeling ROA-CBS and the older SBC are "
+                              "understood to be ISCO-derived, which would make the hop to "
+                              "the spine structural rather than a lookup. Confirm against "
+                              "the CBS classification documentation before routing "
+                              "anything through it."),
+        ),
+    ),
+)
+
 PACK = CountryPack(
     country="NL",
     name="Netherlands",
@@ -184,6 +226,8 @@ PACK = CountryPack(
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
     crosswalks=(ISF, CATS),
+    org_structure=ORG_STRUCTURE,
+    job_architecture=JOB_ARCHITECTURE,
     notes=(
         "DRAFT rather than LIVE only because the transposition claim is stale, not "
         "because the crosswalk data is in doubt: that was verified against primary "
