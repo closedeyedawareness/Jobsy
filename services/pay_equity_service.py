@@ -488,6 +488,57 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
     return out
 
 
+
+def _currency_notes(countries: tuple) -> list[str]:
+    """Whether the salary column is even in one unit.
+
+    The multi-country note below was written from a measured artefact: a roster
+    built gender-blind inside each country produced a 27% adjusted gap when the
+    Netherlands and Poland were pooled. That was a PAY-LEVEL artefact, and both
+    columns were euros.
+
+    Poland is not in euros. Once a pack exists for a non-euro market the same
+    roster can arrive with two different UNITS in one salary column, and that is
+    a worse failure than the pay-level one, because it is invisible: 8000 PLN
+    beside 5000 EUR looks like a well-paid Pole. A country control absorbs a
+    constant multiplicative factor, so the adjusted gap may survive it, but
+    every absolute figure in the report — medians, quartile bands, the
+    distribution the directive's Art. 9(1) actually asks for — is meaningless,
+    and nothing on the screen would say so.
+
+    This cannot detect the mistake; a number has no unit attached. It can only
+    say that the conditions for it are present, which is the honest limit and
+    still worth saying out loud.
+    """
+    try:
+        from services import country_packs as cp
+    except Exception:
+        return []
+
+    known = [(c, cp.for_country(c)) for c in (countries or ())]
+    currencies = {p.currency for _, p in known if p is not None}
+    if len(currencies) < 2:
+        return []
+
+    by_cur: dict[str, list[str]] = {}
+    for c, pack in known:
+        if pack is not None:
+            by_cur.setdefault(pack.currency, []).append(c)
+    shown = "; ".join(f"{cur}: {', '.join(sorted(cs))}"
+                      for cur, cs in sorted(by_cur.items()))
+    return [
+        f"CURRENCY: this workforce spans more than one currency ({shown}). Jobsy "
+        "deliberately does not convert — a Polish salary shown in euro is a different "
+        "claim from the same figure in its own market, and it needs a rate as of a "
+        "date, shown rather than hidden. That policy is right for DISPLAY and it "
+        "means the responsibility sits on the input here: pooling amounts in "
+        "different units into one gap produces a number that is not a small error "
+        "but a different quantity. Every absolute figure above — medians, quartile "
+        "bands, the pay distribution Art. 9(1) asks for — assumes one unit, and a "
+        "salary column carries no unit to check. Analyse each currency separately, "
+        "or supply the roster already converted at a rate and date you can state."]
+
+
 def analyze_gender_pay_gap(
     df: pd.DataFrame,
     *,
@@ -729,6 +780,7 @@ def analyze_gender_pay_gap(
     # is 5%, so that number could start a formal remediation process over an
     # artefact of who happens to work where.
     if multi_country:
+        notes.extend(_currency_notes(countries_present))
         notes.append(
             f"This workforce spans {len(countries_present)} countries "
             f"({', '.join(countries_present)}). Pay is set per market, so the "
