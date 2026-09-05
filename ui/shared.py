@@ -470,17 +470,105 @@ def _stat_card(value, label, color=C["ink"]):
             f'</div>')
 
 
-def _smart_detect(cols, exacts, contains):
+#: The concepts a country pack's VOCABULARY is keyed by. Each call site already
+#: spells its concept in English inside `exacts` ({"gender", "geslacht", ...}),
+#: so the concept can be inferred from the call rather than threaded through
+#: twenty signatures in files this change does not own.
+_PACK_CONCEPTS = ("salary", "gender", "function", "level", "fte", "tenure",
+                  "country", "variable", "holiday", "employee", "non_pay")
+
+
+def _pack_vocabulary(concept):
+    """The active market's column words for one concept, or ()."""
+    if not concept:
+        return ()
+    try:
+        try:
+            from services import country_packs
+        except ImportError:
+            from jobsy.services import country_packs
+        pack = country_packs.for_country(None)
+    except Exception:
+        return ()
+    if pack is None or not pack.vocabulary:
+        return ()
+    return tuple(str(t).strip().lower() for t in pack.vocabulary.get(concept, ()) if t)
+
+
+#: Working time stored as a FRACTION across two integer columns, per market.
+#:
+#: Poland's dominant payroll systems export no FTE number at all. They export
+#: `Licznik_wymiaru_etatu` (numerator) and `Mianownik_wymiaru_etatu`
+#: (denominator): a half-timer is 1 and 2, a three-quarter timer 3 and 4. A
+#: detector that grabs one of them reads a half-timer's FTE as **1**, raises
+#: nothing, and leaves their raw part-time pay standing beside everybody else's
+#: full-time figure -- which inflates the gap, and lands that inflation on
+#: part-time staff, who skew female. It is the FTE-blank failure this codebase
+#: already documents, except silent, because the cell is not blank.
+#:
+#: Computing the ratio needs a two-column consumer this change does not own, so
+#: what is implemented here is the refusal: when the pair is present, neither
+#: half is offered as "the FTE column", and the caller falls through to its
+#: no-FTE path, which says so on screen. `_detect_fte_pair` is the seam for the
+#: real fix. This table belongs in the country pack (pl.py holds both names in
+#: VOCABULARY["fte"] but does not mark them as a pair); the pack is another
+#: decision path's to change.
+_FTE_RATIO_PAIRS = (
+    ("licznik", "mianownik"),   # PL
+)
+
+
+def _detect_fte_pair(cols):
+    """The (numerator, denominator) columns of a fractional FTE, or None."""
+    low = [(c, str(c).strip().lower()) for c in cols]
+    for num_kw, den_kw in _FTE_RATIO_PAIRS:
+        n = next((c for c, l in low if num_kw in l), None)
+        d = next((c for c, l in low if den_kw in l), None)
+        if n is not None and d is not None:
+            return (n, d)
+    return None
+
+
+def _smart_detect(cols, exacts, contains, concept=None):
     """Pick a column by case-insensitive exact match first, then substring.
+
+    The word lists the callers pass are English + Dutch, which is what a header
+    detector written in the Netherlands looks like: a Polish "Wynagrodzenie" or
+    a Spanish "Jornada" column is simply not found, and the page then reports
+    "no salary column" against a file that has one. So the ACTIVE MARKET's pack
+    vocabulary is consulted too.
+
+    It is consulted *in addition to* the caller's lists, not instead of them.
+    Deleting the inline lists in the same change would swap one untested
+    detector for another; the pack path has to be proved first, and until it is,
+    an English or Dutch header must keep resolving exactly as it does today.
+    Exact matches are order-independent (the loop walks columns, not keywords),
+    and the pack's substrings are appended after the caller's, so nothing that
+    resolves today can start resolving elsewhere.
 
     Robust to non-string / numeric headers (uses str(c)). Returns None if
     nothing matches so callers can supply their own fallback.
     """
+    if concept is None:
+        for _c in _PACK_CONCEPTS:
+            if _c in exacts:
+                concept = _c
+                break
+    vocab = _pack_vocabulary(concept)
+
+    if concept == "fte":
+        # A fraction split over two integer columns is not an FTE column. See
+        # _FTE_RATIO_PAIRS: returning either half reads a half-timer as
+        # full-time, silently, in the direction that overstates the gap.
+        _pair = _detect_fte_pair(cols)
+        if _pair:
+            cols = [c for c in cols if c not in _pair]
+
     low = [(c, str(c).strip().lower()) for c in cols]
     for c, l in low:
-        if l in exacts:
+        if l in exacts or l in vocab:
             return c
-    for kw in contains:
+    for kw in tuple(contains) + vocab:
         for c, l in low:
             if kw in l:
                 return c

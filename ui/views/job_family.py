@@ -5,6 +5,29 @@ from __future__ import annotations
 from ui.shared import *  # noqa: F401,F403
 
 
+def _market_panel(kind: str) -> None:
+    """Render what this market changes about the page the reader is on.
+
+    A copy of the panel in organigram.py and nine_box.py for the same reason
+    the one in benefits.py is: ui/shared.py, where this belongs, is being
+    edited elsewhere. Fold them together when it is quiet.
+    """
+    try:
+        from services import market_notes
+    except ImportError:
+        from jobsy.services import market_notes  # type: ignore
+
+    notes = market_notes.job_architecture_notes() if kind == "job_architecture" else []
+    if not notes:
+        return
+
+    with st.expander(notes[0], expanded=False):
+        for note in notes[1:]:
+            st.markdown(f"- {note}")
+        st.caption(market_notes.market_caveat())
+
+
+
 def _family_frames(catalog):
     """The Job Family sheets, from the library the app has actually loaded.
 
@@ -42,6 +65,18 @@ def job_family_page(catalog):
         f'salary band and what changes as you move up the ladder.</p>',
         unsafe_allow_html=True,
     )
+
+    # Above the grid, not below it, because the grid is read top to bottom as a
+    # ladder and this is what says whether the market has one. Jobsy's Grade is
+    # a construct of the loaded library; the local unit is something else. A
+    # Spanish grupo profesional is the statutory classification unit and
+    # explicitly NOT a pay grade — hostelería has three for ~1,3 million
+    # workers and química has nine, so grupos cannot be ranked against each
+    # other or compared across convenios. A German Entgeltgruppe 11 is not the
+    # same thing in Baden-Württemberg and Nordrhein-Westfalen. Poland has no
+    # private-sector grade concept at all, which is a finding and not a gap.
+    _market_panel("job_architecture")
+
     try:
         fr = _family_frames(catalog)
     except Exception as exc:

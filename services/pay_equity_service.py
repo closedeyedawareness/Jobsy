@@ -662,6 +662,197 @@ def _currency_notes(countries: tuple) -> list[str]:
         "or supply the roster already converted at a rate and date you can state."]
 
 
+# -- gender codes: read the market, do not assume the Netherlands ------------
+#
+# The rule this replaces was `F`/`V` -> female, `M` -> male, first letter only.
+# That is a Dutch M/V file described in code, and measured against the codes the
+# other markets actually ship it fails in three different ways:
+#
+#   PL  K/M   -- `K` (kobieta) unrecognised: every woman lands in "unknown"
+#   DE  W/M   -- `W` (weiblich) unrecognised: every woman lands in "unknown"
+#   FR  H/F   -- `H` (homme) unrecognised: every man lands in "unknown"
+#   ES  H/M   -- INVERTED. `M` is *mujer*, so every Spanish woman is counted as
+#               a man and the men vanish. Not a gap with the wrong sign: an
+#               analysis of women against nobody.
+#
+# The country packs already hold each market's own codes, with their evidence.
+# So the codes are read from the pack rather than restated here, and this module
+# keeps only the fallback for a market we hold no pack for -- an uncovered market
+# must not get WORSE than it is today.
+_LEGACY_FEMALE = ("f", "v")
+_LEGACY_MALE = ("m",)
+
+FEMALE, MALE, UNKNOWN = "female", "male", ""
+
+
+class AmbiguousGenderCodes(ValueError):
+    """The gender column cannot be read in this market without guessing.
+
+    Raised, not worked around, because the alternative is a pay gap of the
+    right magnitude and the wrong sign handed to a regulator. Losing an import
+    is recoverable; that is not. `codes` holds the offending values so a caller
+    can prompt for an explicit mapping.
+    """
+
+    def __init__(self, message: str, *, country: str | None = None,
+                 codes: tuple[str, ...] = ()):
+        super().__init__(message)
+        self.country = country
+        self.codes = codes
+
+
+def _pack_for(country: str | None):
+    """The country pack for a market, or None. Never raises."""
+    try:
+        from services import country_packs
+    except Exception:  # pragma: no cover - import shape differs under jobsy.*
+        try:
+            from jobsy.services import country_packs
+        except Exception:
+            return None
+    try:
+        pack = country_packs.for_country(country)
+    except Exception:
+        return None
+    return pack if (pack is not None and pack.gender_codes) else None
+
+
+def _classify_code(code: str, pack) -> str:
+    """One raw cell -> FEMALE / MALE / UNKNOWN, in this market's vocabulary.
+
+    Full token first, initial letter second. "Kobieta" and "K" must both read
+    female in Poland; "Mujer" must read female in Spain even though the bare
+    letter `M` there is undecidable (see `_ambiguous_codes`).
+    """
+    if not code:
+        return UNKNOWN
+    if pack is None:
+        if code in _LEGACY_FEMALE or code[:1] in _LEGACY_FEMALE:
+            return FEMALE
+        if code in _LEGACY_MALE or code[:1] in _LEGACY_MALE:
+            return MALE
+        return UNKNOWN
+    codes = pack.gender_codes
+    for cls in (FEMALE, MALE):
+        if code in codes.get(cls, ()):
+            return cls
+    # Anything the pack files under a third class (Germany's `divers`) is a real
+    # answer meaning "neither", and must not fall through to the initial-letter
+    # pass and be read as a truncated "Frau".
+    for cls, terms in codes.items():
+        if cls not in (FEMALE, MALE) and code in terms:
+            return UNKNOWN
+    first = code[:1]
+    for cls in (FEMALE, MALE):
+        other = MALE if cls == FEMALE else FEMALE
+        if any(t.startswith(first) for t in codes.get(cls, ())):
+            # Only when exactly one side claims the letter. The other case is
+            # the ambiguity below, and it is not resolved by picking.
+            if not any(t.startswith(first) for t in codes.get(other, ())):
+                return cls
+    return UNKNOWN
+
+
+def _ambiguous_codes(present, pack) -> tuple[str, ...]:
+    """Codes this market cannot decide, which therefore must be refused.
+
+    Spain is the case that forced this. `es.py` deliberately maps `m` to
+    NEITHER sex: in an H/M file it is *Mujer* (a3nom, the dominant payroll
+    engine, accepts only H or M), and in a Masculino/Femenino file the same
+    letter is male -- both vocabularies appear inside one official ministry
+    workbook. The pack's own note says such a column "must be REJECTED to a
+    prompt, not guessed".
+
+    The signal is structural rather than a hardcoded `if country == "ES"`: a
+    single-letter code the pack does not classify, while that letter begins
+    terms on BOTH sides of the pack's own vocabulary, is a letter the market
+    itself uses two ways. Across the six live packs this fires on exactly one
+    value -- Spanish `m` (mujer / masculino) -- and on nothing else, so `X`,
+    blanks and Germany's `divers` keep behaving as the unknowns they are.
+    """
+    if pack is None:
+        return ()
+    codes = pack.gender_codes
+    declared = {c.strip().lower() for c in codes.get("ambiguous", ())}
+    out = []
+    for code in present:
+        if len(code) != 1 or _classify_code(code, pack) != UNKNOWN:
+            continue
+        # A pack may now SAY which codes it cannot decide, and Spain does. The
+        # structural test below is kept as a net rather than replaced by the
+        # declaration: it is what found this case in the first place, and a pack
+        # written next year by somebody who has not read this comment will not
+        # think to declare anything. Declared first, inferred second, and either
+        # one is enough to refuse.
+        if code in declared:
+            out.append(code)
+            continue
+        if (any(t.startswith(code) for t in codes.get(FEMALE, ()))
+                and any(t.startswith(code) for t in codes.get(MALE, ()))):
+            out.append(code)
+    return tuple(sorted(out))
+
+
+def _gender_classes(raw: pd.Series, country_values=None):
+    """Normalise a gender column to FEMALE / MALE / UNKNOWN, per market.
+
+    The seam is `country_packs.for_country(None)`, which resolves the active
+    market through `country_service.active_country()` -- so no caller grows a
+    `country=` argument. When the roster carries its own country column, each
+    market's rows are read with THAT market's pack, because a pooled NL+ES
+    roster read under one pack reproduces the Spanish inversion for half of it.
+
+    Raises `AmbiguousGenderCodes` rather than returning a guess.
+    """
+    norm = raw.astype(str).str.strip().str.lower()
+    notes = []
+    active = _pack_for(None)
+
+    groups = []
+    if country_values is not None:
+        keys = (country_values.where(country_values.notna(), "")
+                .astype(str).str.strip().str.upper())
+        if any(_pack_for(k) is not None for k in keys.unique() if k):
+            groups = [(k, norm[keys == k]) for k in keys.unique()]
+    if not groups:
+        groups = [(None, norm)]
+
+    out = pd.Series(UNKNOWN, index=norm.index, dtype=object)
+    used = {}
+    for key, chunk in groups:
+        pack = _pack_for(key) if key else None
+        if pack is None:
+            pack = active
+        present = {c for c in chunk.unique()
+                   if c and c not in ("nan", "none", "<na>", "nat")}
+        bad = _ambiguous_codes(present, pack)
+        if bad:
+            raise AmbiguousGenderCodes(
+                "The gender column cannot be read for {}: {} is used for both sexes "
+                "in this market's payroll exports and this file gives no way to tell "
+                "which. In Spain 'M' is *Mujer* in an H/M file and male in a "
+                "Masculino/Femenino file, so reading it either way inverts the gap "
+                "for half the country. Supply the mapping explicitly, or export the "
+                "column spelled out (Mujer / Hombre).".format(
+                    pack.country, ", ".join(repr(b.upper()) for b in bad)),
+                country=pack.country, codes=bad)
+        mapped = chunk.map(lambda c: _classify_code(c, pack))
+        if len(mapped):
+            out.loc[mapped.index] = mapped
+        if pack is not None:
+            used[pack.country] = pack.name
+
+    if used:
+        notes.append("Gender codes read from the "
+                     + ", ".join("{} ({})".format(n, c) for c, n in sorted(used.items()))
+                     + " country pack rather than a fixed M/V rule.")
+    else:
+        notes.append("No country pack held for the active market - gender codes read "
+                     "with the built-in M / F / V fallback. Codes such as K (PL), "
+                     "W (DE) or H (FR) will read as unknown.")
+    return out, notes
+
+
 def analyze_gender_pay_gap(
     df: pd.DataFrame,
     *,
@@ -742,16 +933,23 @@ def analyze_gender_pay_gap(
 
     d["_fun"] = d[function_col].astype(str).str.strip()
     d["_lvl"] = d[level_col].astype(str).str.strip()
-    d["_g"] = d[gender_col].astype(str).str.strip().str.upper().str[:1]
-    # Dutch HR exports use M/V (Man/Vrouw). Fold the female aliases into the
-    # effective female label so a Dutch file analyses natively instead of all
-    # its women landing in "excluded (unknown gender)" -- which silently
-    # produced an all-male "analysis" before this. "Female"/"Vrouw"/"F"/"V"
-    # all normalise to the same bucket; anything else (X, blank, other) still
-    # counts as non-binary/unknown, exactly as before.
+    # Gender codes come from the active market's country pack, not from a rule
+    # written against Dutch M/V files -- see `_gender_classes` above for what
+    # that rule did to Poland, Germany, France and Spain. A column this market
+    # cannot decide raises instead of resolving to a guess.
     _f_lab = female_label.strip().upper()[:1]
     _m_lab = male_label.strip().upper()[:1]
-    d["_g"] = d["_g"].apply(lambda g: _f_lab if g in ("F", "V") else (_m_lab if g == "M" else g))
+    _cls, _gnotes = _gender_classes(
+        d[gender_col],
+        d[country_col] if (country_col and country_col in d.columns) else None)
+    notes.extend(_gnotes)
+    # An unknown keeps its own first letter, so it stays outside both labels and
+    # is counted as non-binary/unknown exactly as before.
+    _fallback = d[gender_col].astype(str).str.strip().str.upper().str[:1]
+    d["_g"] = [
+        _f_lab if c == FEMALE else (_m_lab if c == MALE else f)
+        for c, f in zip(_cls, _fallback)
+    ]
     if tenure_col:
         d["_ten"] = _years_from_col(d[tenure_col])
     if age_col:

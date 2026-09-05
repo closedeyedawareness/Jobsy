@@ -152,6 +152,18 @@ VOCABULARY: dict[str, tuple[str, ...]] = {
 GENDER_CODES: dict[str, tuple[str, ...]] = {
     "female": ("mujer", "femenino", "f", "2", "6"),
     "male":   ("hombre", "masculino", "h", "1"),
+    #: DECLARED, not inferred. The detection layer used to work `m` out for
+    #: itself — a single letter this pack classifies as neither sex, while
+    #: beginning terms on both sides of its own vocabulary. That reproduced the
+    #: right answer and rested on a silence, which is a fragile thing to rest a
+    #: refusal on: somebody adding "m" to either list above, for entirely
+    #: sensible-looking reasons, would have switched the refusal off and
+    #: reopened the inversion without a test failing.
+    #:
+    #: Saying it out loud makes that edit impossible to make by accident. A code
+    #: in this tuple is one the market genuinely uses two ways, and a file
+    #: containing it must be REFUSED to a prompt rather than resolved.
+    "ambiguous": ("m",),
 }
 
 # ── the reporting duty ───────────────────────────────────────────────────────
