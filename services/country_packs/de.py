@@ -30,20 +30,33 @@ Two more things that a Dutch-shaped reading gets wrong:
 
 ── On the hardness markers ──────────────────────────────────────────────────
 
-As in the Belgian pack: assembled from web research on 2026-09-05, with no
-primary text read. WET is used only where the statute itself is cited and its
-existence is not in doubt; the thresholds and frequencies are UITLEG or
-ONBEVESTIGD until somebody opens gesetze-im-internet.de. STUB.
+Written from web research on 2026-09-05, then checked the same day against
+gesetze-im-internet.de, which is the primary text. That check earned the WET
+markers on sections 12, 21 and 22, and caught a real error on the way.
+
+The reporting cycle had been written here as "every 3 years if bound by a
+collective agreement, otherwise every 5", from secondary sources. Section 22
+says the opposite: para 22(1) gives tarifgebunden and tarifanwendend employers
+alle fuenf Jahre, and para 22(2) gives everybody else alle drei Jahre.
+Tarifbindung earns the LONGER cycle. That claim was marked ONBEVESTIGD, which
+is why it never reached a client, and it is the clearest argument this package
+makes for itself: the marker did the work the prose could not.
+
+DRAFT rather than LIVE, because LIVE means a person checked, and so far only an
+agent has.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, ONBEVESTIGD, STUB, UITLEG, WET, Claim, CountryPack,
+from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
                CrosswalkSpec, PayReporting, ReportingBand)
 
-_ENTGTRANSPG = "Entgelttransparenzgesetz (EntgTranspG), in force since 6 July 2017"
+_ENTGTRANSPG = "the Entgelttransparenzgesetz (EntgTranspG)"
 _ENTGTRANSPG_URL = "https://www.gesetze-im-internet.de/entgtranspg/"
 _BETRVG_URL = "https://www.gesetze-im-internet.de/betrvg/__87.html"
+_PARA21_URL = "https://www.gesetze-im-internet.de/entgtranspg/__21.html"
+_PARA22_URL = "https://www.gesetze-im-internet.de/entgtranspg/__22.html"
 _ASOF = "2026-09-05"
+_VERIFIED = "2026-09-05"   # read against gesetze-im-internet.de, the primary text
 _RESEARCH = "web research 2026-09-05; NOT yet checked against the primary text"
 
 # ── vocabulary ───────────────────────────────────────────────────────────────
@@ -87,41 +100,48 @@ GENDER_CODES: dict[str, tuple[str, ...]] = {
 _TRANSPOSED = Claim(
     value=False, hardness=ONBEVESTIGD, as_of=_ASOF,
     note="Research indicates Germany had not transposed Directive (EU) 2023/970 by the "
-         "7 June 2026 deadline and that a Referentenentwurf amending the EntgTranspG was "
-         "the expected route. Verify on gesetze-im-internet.de and in the BMAS "
-         "publications before stating a client's directive position. The 2017 Act "
-         "applies regardless of the directive's status.")
+         "7 June 2026 deadline, that amending the EntgTranspG is the expected route, and "
+         "that an Expertenkommission delivered its final report on 7 November 2025 with "
+         "no Referentenentwurf public since. The lead ministry is the BMBFSFJ, not the "
+         "BMAS. Re-check on gesetze-im-internet.de before stating a client position; the "
+         "2017 Act applies regardless of the directive status.")
 
 REPORTING = PayReporting(
     transposed=_TRANSPOSED,
     national_law=Claim(_ENTGTRANSPG, WET, _ENTGTRANSPG_URL, _ASOF,
-                       note="Germany legislated on pay transparency in 2017. This is the "
-                            "live duty, and its thresholds are nothing like the EU's."),
+                       note="In force since 6 July 2017. Germany legislated on pay "
+                            "transparency long before the directive, and this is the live "
+                            "duty; its thresholds are nothing like the EU's."),
     pre_existing_duty=Claim(
         True, WET, _ENTGTRANSPG_URL, _ASOF,
         note="The Act creates several separate duties, not one duty with size bands. "
-             "The individual RIGHT TO INFORMATION (Auskunftsanspruch) is understood to "
-             "apply in establishments with more than 200 employees; the voluntary "
-             "internal AUDIT (betriebliches Pruefverfahren) and the mandatory REPORT "
-             "(Bericht zur Gleichstellung und Entgeltgleichheit) attach above 500. The "
-             "bands below describe the REPORT only. Do not present the 200 threshold as "
-             "a reporting threshold: they are different obligations with different "
-             "consequences."),
+             "Section 12 gives the individual RIGHT TO INFORMATION (Auskunftsanspruch) "
+             "in Betrieben mit in der Regel mehr als 200 Beschaeftigten bei demselben "
+             "Arbeitgeber. Section 21 attaches the mandatory REPORT (Bericht zur "
+             "Gleichstellung und Entgeltgleichheit) to employers with more than 500 "
+             "employees who are ALSO required to produce a Lagebericht under HGB "
+             "sections 264 and 289 - both conditions, not either. The bands below "
+             "describe the report only. Do not present the 200 threshold as a reporting "
+             "threshold: they are different obligations with different consequences."),
     joint_assessment_trigger_pct=None,   # no percentage trigger in the 2017 Act
     bands=(
         ReportingBand(
             min_employees=501, max_employees=None,
-            first_report=Claim("in force since 2017", UITLEG, _RESEARCH, _ASOF,
-                               note="Report duty understood to attach to employers with "
-                                    "more than 500 employees who are required to produce "
-                                    "a Lagebericht under the HGB. Counted per Betrieb, "
-                                    "which the headcount argument cannot express."),
-            frequency=Claim("every 3 years if bound by a collective agreement, otherwise "
-                            "every 5", ONBEVESTIGD, _RESEARCH, _ASOF,
-                            note="The tarifgebunden / non-tarifgebunden split in the "
-                                 "reporting cycle is reported by secondary sources and "
-                                 "must be read in the Act before it is shown. A client "
-                                 "told the wrong cycle files in the wrong year."),
+            first_report=Claim("in force since 2017", WET, _PARA21_URL, _VERIFIED,
+                               note="Section 21: more than 500 employees AND subject to "
+                                    "the HGB Lagebericht duty. Counted per Betrieb, which "
+                                    "the headcount argument cannot express."),
+            frequency=Claim("every 5 years if tarifgebunden or tarifanwendend, "
+                            "otherwise every 3 years", WET, _PARA22_URL, _VERIFIED,
+                            note="EntgTranspG section 22. Tarifbindung earns the LONGER "
+                                 "cycle, not the shorter one: para 22(1) gives employers "
+                                 "who are tarifgebunden under section 5(4) or "
+                                 "tarifanwendend under section 5(5) alle fuenf Jahre, and "
+                                 "para 22(2) gives all others alle drei Jahre. This file "
+                                 "first stated it the other way round, from secondary "
+                                 "sources; the ONBEVESTIGD marker it carried is what kept "
+                                 "it away from a client. A wrong cycle means filing in "
+                                 "the wrong year."),
         ),
         ReportingBand(
             min_employees=0, max_employees=500,
@@ -159,10 +179,11 @@ ERA = CrosswalkSpec(
     groups=(),           # deliberately empty: see the source note
     point_bands=(),
     sectors=("Metall- und Elektroindustrie",),
-    source=Claim("no single national ERA table exists", ONBEVESTIGD, _RESEARCH, _ASOF,
-                 note="ERA is not one agreement. Research reports roughly eleven regional "
-                      "Tarifgebiete (Baden-Wuerttemberg, Bayern, NRW and so on) with "
-                      "DIFFERENT NUMBERS OF ENTGELTGRUPPEN and different money in them. "
+    source=Claim("no single national ERA table exists", UITLEG, _RESEARCH, _VERIFIED,
+                 note="ERA is not one agreement. There are currently FIFTEEN regional "
+                      "Tarifgebiete, with DIFFERENT NUMBERS OF ENTGELTGRUPPEN and "
+                      "different money in them: Baden-Wuerttemberg runs to EG 17, "
+                      "Nordrhein-Westfalen to EG 14, others to EG 11 or 13. "
                       "There is therefore no honest national group list to publish, and "
                       "the empty tuple above is the correct value rather than a gap "
                       "waiting to be filled. A German crosswalk has to be keyed on the "
@@ -176,7 +197,7 @@ PACK = CountryPack(
     name="Germany",
     currency="EUR",
     languages=("de",),
-    status=STUB,
+    status=DRAFT,
     vocabulary=VOCABULARY,
     gender_codes=GENDER_CODES,
     pay_components=PAY_COMPONENTS,
@@ -193,7 +214,9 @@ PACK = CountryPack(
         "negotiation, not an instruction to an employer. Source: " + _BETRVG_URL,
         "STRUCTURAL: ERA is regional. One national group table would be a fiction, so the "
         "crosswalk holds no groups at all until CrosswalkSpec can key on a Tarifgebiet.",
-        "STUB: the four structural findings above are the usable output of this pack "
-        "today. The thresholds and cycles are research, not verified law.",
+        "DRAFT since 2026-09-05: sections 12, 21 and 22 were read against "
+        "gesetze-im-internet.de, so the thresholds and the reporting cycle now carry WET. "
+        "Not LIVE, because that marker means a person checked the sources and so far only "
+        "an agent has.",
     ),
 )

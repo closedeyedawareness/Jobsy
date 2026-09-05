@@ -17,13 +17,23 @@ Where each part came from:
     call sites in `ui/app.py`, `ui/views/pay_equity.py`, `ui/views/connect.py`,
     `services/architecture_report_service.py` and `services/afas_connector.py`.
 
-One thing the move surfaced immediately, which is the point of the exercise.
-The Dutch transposition status has been stated to every client since May and
-nobody has re-checked it since; four months is a long time in this file. It is
-marked ONBEVESTIGD below with what to look for, and that is why this pack is
-DRAFT and not LIVE. It should go live the moment somebody confirms where the
-bill actually stands — not before, because a stale date about a client's legal
-duty is worse than no date.
+Two things the move surfaced, which is the point of the exercise.
+
+The transposition status had been stated to every client since May and nobody
+had re-checked it in four months. Checked on 2026-09-05: bill 36 949 is still
+before the Tweede Kamer, so the substance held — but the "1 January 2027" that
+came with it is a ministerial target, not the bill's commencement clause, which
+leaves the date to koninklijk besluit. Stating it as a commencement date was
+always more certainty than the source supports.
+
+And the ISF and CATS crosswalks were marked WET. They are not. A CAO is a
+collective agreement, which this package calls CONVENTIE, and the CATS entry is
+a label alignment somebody reasoned out, which is UITLEG. The sourcing behind
+them is the most careful in the package and that is exactly what made the
+over-marking easy: careful is not the same as hard law.
+
+DRAFT rather than LIVE, because LIVE means a person checked, and so far only an
+agent has.
 """
 from __future__ import annotations
 
@@ -67,14 +77,17 @@ GENDER_CODES: dict[str, tuple[str, ...]] = {
 
 _TRANSPOSED = Claim(
     value=False,
-    hardness=ONBEVESTIGD,
-    as_of="2026-05",
-    note=("As written in pay_equity_service in May 2026: implementing legislation not "
-          "yet in force, bill before the Tweede Kamer, targeted 1 January 2027. Nobody "
-          "has re-checked since. Look for: the wetsvoorstel implementatie Richtlijn "
-          "(EU) 2023/970 on wetten.overheid.nl and its status on tweedekamer.nl. Until "
-          "someone does, this pack stays DRAFT and the screen should not state a Dutch "
-          "commencement date as settled."),
+    hardness=UITLEG,
+    source="https://www.eerstekamer.nl/wetsvoorstel/36949_wet_implementatie_richtlijn",
+    as_of="2026-09-05",
+    note=("Wetsvoorstel 36 949, Wet implementatie Richtlijn loontransparantie mannen en "
+          "vrouwen, submitted 20 May 2026 and still 'in behandeling bij de Tweede Kamer' "
+          "as of 2 September 2026 (nota naar aanleiding van het verslag). NOT in force. "
+          "The 1 January 2027 date that has been repeated in this codebase is a "
+          "MINISTERIAL TARGET, not a statutory one: the bill's own commencement clause is "
+          "'op een bij koninklijk besluit te bepalen tijdstip', which can differ per "
+          "article. Nothing client-facing may present 1 January 2027 as a commencement "
+          "date."),
 )
 
 REPORTING = PayReporting(
@@ -137,7 +150,7 @@ ISF = CrosswalkSpec(
         "G": (3318.71, 3922.71), "H": (3487.83, 4255.92), "J": (3702.73, 4655.03),
         "K": (3950.20, 5121.58),
     },
-    source=Claim("ISF point boundaries A-Q and 2026 monthly scales A-K", WET,
+    source=Claim("ISF point boundaries A-Q and 2026 monthly scales A-K", CONVENTIE,
                  _ISF_DOC, "2026-07-21",
                  note="Point BOUNDARIES are published; the scoring method that produces a "
                       "job's point total is protected IP and is not reproduced. Groups L-Q "
@@ -151,7 +164,7 @@ CATS = CrosswalkSpec(
     groups=("A", "B", "C", "D", "E", "F", "G", "H", "I", "J"),
     point_bands=(),          # deliberately empty: see source note
     sectors=("Metaal en Techniek",),
-    source=Claim("functiegroep to salarisgroep label alignment, Metaal en Techniek", WET,
+    source=Claim("functiegroep to salarisgroep label alignment, Metaal en Techniek", UITLEG,
                  _ISF_DOC, "2026-07-21",
                  note="No public point-boundary table exists for CATS. Classification is a "
                       "qualitative comparison against roughly 95 functiefamilies. Label "

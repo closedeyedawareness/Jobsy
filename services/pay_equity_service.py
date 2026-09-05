@@ -470,9 +470,21 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
                        "the law rather than as a live deadline, unless a national duty "
                        "already applies.")
         if pack.status != cp.LIVE:
-            out.append(f"{where}this country pack is {pack.status.upper()} — its legal "
-                       "claims have not all been verified against primary sources. Confirm "
-                       "before relying on a date.")
+            # Two different warnings, because they call for two different
+            # actions. A pack still holding unverified claims needs somebody to
+            # go and look; a pack whose claims are all sourced but which is not
+            # LIVE needs a person to countersign what an agent checked. Saying
+            # "not all verified" over the second is simply untrue, and a warning
+            # that is untrue is the fastest way to teach a reader to skip them.
+            n = len(pack.unverified)
+            if n:
+                out.append(f"{where}this country pack is {pack.status.upper()}: {n} claim"
+                           f"{'s' if n > 1 else ''} in it {'are' if n > 1 else 'is'} still "
+                           "unverified. Confirm at source before relying on a date.")
+            else:
+                out.append(f"{where}this country pack is {pack.status.upper()}: every claim "
+                           "carries a source, but the check was made by an agent and not "
+                           "yet countersigned by a person.")
     return out
 
 

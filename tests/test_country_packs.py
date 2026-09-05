@@ -227,3 +227,94 @@ def test_the_gate_is_actually_narrowed_at_the_call_site():
     text = src.read_text(encoding="utf-8")
     assert 'has_crosswalk(system="ISF")' in text, (
         "the Dutch crosswalk gate must name the system it renders")
+
+
+# ── what the independent verification pass corrected ─────────────────────────
+#
+# An agent checked every legal claim in these packs against primary sources on
+# 2026-09-05 and found four factual errors and five over-strong hardness
+# markers. The tests below hold down the corrections that could plausibly be
+# re-broken, because each one was wrong in a way that looked entirely
+# reasonable on the page.
+
+
+def test_german_tarifbindung_earns_the_longer_reporting_cycle():
+    """EntgTranspG section 22, which this pack first had backwards.
+
+    Written from secondary sources as "every 3 years if bound by a collective
+    agreement, otherwise every 5". Para 22(1) gives tarifgebunden and
+    tarifanwendend employers *alle fuenf Jahre*; para 22(2) gives everybody else
+    *alle drei Jahre*. Tarifbindung earns the LONGER cycle.
+
+    The intuition that being covered by a collective agreement means more
+    obligation, not less, is what made the inversion easy to write and easy to
+    read past. So it is asserted rather than trusted.
+    """
+    band, source = cp.band_for(600, "DE")
+    assert source == "DE"
+    freq = band.frequency.value.lower()
+    five = freq.index("5") if "5" in freq else -1
+    three = freq.index("3") if "3" in freq else -1
+    assert five >= 0 and three >= 0, f"expected both cycles named: {freq!r}"
+    assert "tarif" in freq, f"the cycle depends on Tarifbindung and must say so: {freq!r}"
+    assert five < three, (
+        "the five-year cycle must be the one attached to Tarifbindung. "
+        f"got {freq!r} — check EntgTranspG section 22 before changing this test.")
+
+
+def test_article_4_criteria_are_a_floor_not_a_closed_set():
+    """Art. 4(4) is an open list, and the constant must not read as closed.
+
+    The article says the criteria "shall include skills, effort, responsibility
+    and working conditions, and, if appropriate, any other factors which are
+    relevant to the specific job or position". A four-item tuple presented as
+    "the four criteria" invites an evaluation that scores those and stops,
+    which under-implements the article while looking complete.
+    """
+    from services.country_packs import eu
+
+    assert eu.EQUAL_VALUE_CRITERIA_MINIMUM == (
+        "skills", "effort", "responsibility", "working conditions")
+    claim = eu.EQUAL_VALUE_CRITERIA
+    assert isinstance(claim, cp.Claim), (
+        "the criteria must carry a hardness and a source like every other legal claim, "
+        "not sit outside the package's own discipline as a bare tuple")
+    assert claim.hardness == cp.WET and claim.source
+    assert "open" in claim.note.lower() or "any other factor" in claim.note.lower(), (
+        "the note must say the list is open, or the constant reads as exhaustive")
+
+
+@pytest.mark.parametrize("code,pack", ALL_PACKS, ids=PACK_IDS)
+def test_hard_law_claims_cite_something_a_reader_can_open(code, pack):
+    """A WET marker whose source cannot be reached is unfalsifiable.
+
+    Belgium failed this in substance: the 2012 law was cited by an ELI
+    permalink that resolves to the ELI help page rather than to the statute,
+    and the neighbouring numac reaches an unrelated traffic law. The claim was
+    correct and the citation was not, which is the worst combination — it reads
+    as checked and cannot be checked. This asserts the shape of a citation, not
+    that the URL resolves, which no offline test can know.
+    """
+    def claims(obj):
+        rep = obj.reporting
+        if rep:
+            yield rep.transposed
+            for c in (rep.national_law, rep.joint_assessment_trigger_pct,
+                      rep.pre_existing_duty):
+                if c is not None:
+                    yield c
+            for b in rep.bands:
+                yield b.first_report
+                yield b.frequency
+        for cw in obj.crosswalks:
+            yield cw.source
+        for c in obj.pay_components:
+            yield c
+
+    for c in claims(pack):
+        if c.hardness != cp.WET:
+            continue
+        src = (c.source or "").strip()
+        assert src, f"{code}: a WET claim with no source: {c.value!r}"
+        assert src.startswith("http") or "/" in src or ".md" in src, (
+            f"{code}: WET claim cites {src!r}, which is not a document anybody can open")

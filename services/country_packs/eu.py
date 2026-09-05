@@ -42,11 +42,24 @@ from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
 OJ = "https://eur-lex.europa.eu/eli/dir/2023/970/oj"
 _ASOF = "2026-09-05"
 
-#: Article 4: the four criteria a pay-setting system must be able to be
-#: assessed on. Jobsy's art4_evaluation service implements these, and it is
-#: correct that it does so country-neutrally: the criteria are the directive's,
-#: identical in every member state that transposes it.
-EQUAL_VALUE_CRITERIA = ("skills", "effort", "responsibility", "working conditions")
+#: Article 4(4) names four criteria a pay-setting system must be assessable on,
+#: and Jobsy's art4_evaluation service is right to implement them country-
+#: neutrally: they are the directive's, identical wherever it is transposed.
+#:
+#: But they are a FLOOR, not a closed set. Art. 4(4) reads that the criteria
+#: "shall include skills, effort, responsibility and working conditions, and, if
+#: appropriate, any other factors which are relevant to the specific job or
+#: position". An evaluation that scores these four and stops has satisfied the
+#: minimum and may still have missed a factor that is relevant to the job in
+#: front of it. The tuple is named for what it is so that nothing downstream can
+#: read it as the whole of Art. 4.
+EQUAL_VALUE_CRITERIA_MINIMUM = ("skills", "effort", "responsibility", "working conditions")
+
+EQUAL_VALUE_CRITERIA = Claim(
+    EQUAL_VALUE_CRITERIA_MINIMUM, WET, OJ, _ASOF,
+    note="Art. 4(4): an open list. The four named criteria are mandatory, and any other "
+         "factor relevant to the specific job or position must be included where "
+         "appropriate. Treating the four as exhaustive under-implements the article.")
 
 #: Article 9(1): what a report must actually contain. Held here because the
 #: measures are defined once in the directive; a country pack adds to this
@@ -98,10 +111,14 @@ REPORTING = PayReporting(
         ReportingBand(
             min_employees=0, max_employees=99,
             first_report=Claim(None, WET, OJ, _ASOF,
-                               note="Art. 9(5): no mandatory reporting. Member states "
-                                    "may not prevent voluntary reporting and may impose "
-                                    "a national duty, so a country pack can override "
-                                    "this band upward — several already do."),
+                               note="No mandatory reporting. Note the pinpoint: the "
+                                    "absence of a duty is what Arts. 9(2)-(4) do NOT "
+                                    "impose, not something Art. 9(5) says. 9(5) says only "
+                                    "that member states shall not PREVENT employers with "
+                                    "fewer than 100 workers from reporting voluntarily. "
+                                    "A member state may still impose its own duty, and "
+                                    "several have — Belgium from 50 — so a country pack "
+                                    "can and does override this band upward."),
             frequency=Claim("none", WET, OJ, _ASOF),
         ),
     ),

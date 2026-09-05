@@ -22,26 +22,38 @@ quietly treated a Belgian client as Dutch:
 
 ── On the hardness markers in this file ─────────────────────────────────────
 
-Most claims here are UITLEG or ONBEVESTIGD, and that is not modesty. It is the
-honest state of the evidence: this pack was assembled from web research on
-2026-09-05, not from reading the Belgisch Staatsblad or the PC 200 convention.
-The Dutch pack's crosswalk carries WET because somebody sat with the primary
-FNV texts on 2026-07-21 and cited page numbers. Nobody has done that for
-Belgium yet, and writing WET here would make the two look equally sound on a
-screen where they are not. Each unverified claim carries the document to open.
+Assembled from web research on 2026-09-05 and checked the same day against
+IGVM/IEFH, the FOD WASO model forms and the PC 200 sector fund. That check
+confirmed the biennial cycle, the 50 and 100 thresholds and the two model
+forms, and it corrected something this file had wrong: the 0-49 band said "below
+the ondernemingsraad threshold", but that threshold is 100, not 50. The outcome
+was right and the reason was not, which is its own kind of error — a reader who
+trusts the reason will misapply it at 60 employees.
 
-STUB, therefore. The vocabulary and the structural warnings are usable today;
-the numbers are not client-facing until somebody reads the source.
+Two things stay unverified and say so: the exclusion list behind the 92% double
+holiday pay, and the often-quoted "69 ORBA-evaluated reference functions" for
+PC 200, which no primary source would confirm.
+
+DRAFT rather than LIVE, because LIVE means a person checked, and so far only an
+agent has.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, ONBEVESTIGD, STUB, UITLEG, WET, Claim, CountryPack,
+from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
                CrosswalkSpec, PayReporting, ReportingBand)
 
 _LOONKLOOFWET = ("Wet van 22 april 2012 ter bestrijding van de loonkloof tussen mannen "
                  "en vrouwen (Belgisch Staatsblad 28-08-2012)")
-_LOONKLOOFWET_URL = "https://www.ejustice.just.fgov.be/eli/wet/2012/04/22/2012203263"
+_LOONKLOOFWET_URL = "https://igvm-iefh.belgium.be/nl/themas/werk/loonkloof/wetgeving"
+# The ELI permalink for the 2012 law does not resolve to the statute (it lands on
+# the ELI help page, and the neighbouring numac reaches an unrelated 2012 traffic
+# law), so a WET marker pointed at it would be unfalsifiable by the next reader.
+# The Institute for the Equality of Women and Men is the official source for this
+# law and its model forms, and it resolves.
+_MODEL_FORM_URL = ("https://werk.belgie.be/sites/default/files/content/documents/"
+                   "analysebezoldigingsstructuur_volledig.pdf")
 _ASOF = "2026-09-05"
+_VERIFIED = "2026-09-05"   # checked against IGVM/IEFH, FOD WASO and the sector fund
 _RESEARCH = "web research 2026-09-05; NOT yet checked against the primary text"
 
 # ── vocabulary ───────────────────────────────────────────────────────────────
@@ -84,13 +96,13 @@ GENDER_CODES: dict[str, tuple[str, ...]] = {
 # ── the reporting duty ───────────────────────────────────────────────────────
 
 _TRANSPOSED = Claim(
-    value=False, hardness=ONBEVESTIGD, as_of=_ASOF,
-    note="Research indicates Belgium had not transposed Directive (EU) 2023/970 at "
-         "federal level by the 7 June 2026 deadline, and that only regional decrees "
-         "covering their own public sectors (Flemish, and Fedederation Wallonie-"
-         "Bruxelles) were in force. Verify against the Kamer/Chambre dossier and the "
-         "Staatsblad before telling a client they have no directive duty. Note that "
-         "this changes nothing about the 2012 law, which applies either way.")
+    value=False, hardness=UITLEG, source=_LOONKLOOFWET_URL, as_of=_VERIFIED,
+    note="Belgium had not transposed Directive (EU) 2023/970 at federal level by the "
+         "7 June 2026 deadline. There is no federal draft law for the private sector, "
+         "and Belgium asked the Commission for six months forbearance on infringement. "
+         "Only regional decrees covering their own public sectors (Flemish, and "
+         "Federation Wallonie-Bruxelles) are in force. None of this touches the 2012 "
+         "law, which applies either way and is the duty a private-sector client has.")
 
 REPORTING = PayReporting(
     transposed=_TRANSPOSED,
@@ -108,22 +120,30 @@ REPORTING = PayReporting(
     bands=(
         ReportingBand(
             min_employees=100, max_employees=None,
-            first_report=Claim("in force since 2012", UITLEG, _RESEARCH, _ASOF,
-                               note="Full analyseverslag, per financial year, biennial."),
-            frequency=Claim("every 2 years", UITLEG, _RESEARCH, _ASOF),
+            first_report=Claim("in force since 2012", WET, _MODEL_FORM_URL, _VERIFIED,
+                               note="Full (volledig) analyseverslag. Covers the two "
+                                    "preceding boekjaren and is due within three months "
+                                    "of the close of the financial year."),
+            frequency=Claim("every 2 years", WET, _LOONKLOOFWET_URL, _VERIFIED),
         ),
         ReportingBand(
             min_employees=50, max_employees=99,
-            first_report=Claim("in force since 2012", UITLEG, _RESEARCH, _ASOF,
-                               note="Abbreviated (verkort / simplifie) form of the report. "
-                                    "Lighter, but a real legal duty. This is the band a "
-                                    "Dutch-shaped rule would wrongly report as exempt."),
-            frequency=Claim("every 2 years", UITLEG, _RESEARCH, _ASOF),
+            first_report=Claim("in force since 2012", WET, _MODEL_FORM_URL, _VERIFIED,
+                               note="Abbreviated (verkort / simplifie) form; a separate "
+                                    "official model form exists for it. Lighter, but a "
+                                    "real legal duty, and this is the band a Dutch-shaped "
+                                    "rule would wrongly report as exempt."),
+            frequency=Claim("every 2 years", WET, _LOONKLOOFWET_URL, _VERIFIED),
         ),
         ReportingBand(
             min_employees=0, max_employees=49,
-            first_report=Claim(None, UITLEG, _RESEARCH, _ASOF,
-                               note="Below the ondernemingsraad threshold; no analyseverslag."),
+            first_report=Claim(None, UITLEG, _MODEL_FORM_URL, _VERIFIED,
+                               note="No analyseverslag below 50 employees. NOT because of "
+                                    "the ondernemingsraad threshold, which is 100, not 50 "
+                                    "— the 50-99 band has no works council and reports to "
+                                    "the vakbondsafvaardiging instead. The outcome and "
+                                    "the reason are separate facts and this file had the "
+                                    "reason wrong."),
             frequency=Claim("none", UITLEG, _RESEARCH, _ASOF),
         ),
     ),
@@ -132,12 +152,16 @@ REPORTING = PayReporting(
 # ── pay components ───────────────────────────────────────────────────────────
 
 PAY_COMPONENTS = (
-    Claim(("double_holiday_pay", 0.92), ONBEVESTIGD, "", _ASOF,
-          note="Understood to be 92% of one month's gross for employees, on its own base "
-               "and with its own exclusion list. This is NOT the Dutch 8% of annual pay. "
-               "Do not compute a Belgian total-reward figure with the Dutch formula. "
-               "Verify the rate and the exclusions against the RJV/ONVA rules and the "
-               "applicable CAO before any client sees a number."),
+    Claim(("double_holiday_pay", 0.92), UITLEG, "Securex / Acerta / Liantis payroll "
+          "guidance, 2026-09-05; primary is KB 30 March 1967, not opened", _VERIFIED,
+          note="92% of the gross MONTHLY salary of the month in which it is paid, "
+               "including fixed premiums, pro-rated by months worked in the "
+               "vakantiedienstjaar. BEDIENDEN ONLY: for arbeiders the RJV pays single and "
+               "double together as a percentage of the reference-year gross, which is a "
+               "different mechanism and not this number. Either way it is NOT the Dutch "
+               "8% of annual pay, so a Belgian total-reward figure must never be computed "
+               "with the Dutch formula. The rate is corroborated; the EXCLUSION LIST is "
+               "still unverified, so check it before a client sees a total."),
     Claim(("thirteenth_month", None), CONVENTIE, "", _ASOF,
           note="Eindejaarspremie / prime de fin d'annee is set per joint committee, not by "
                "statute. Take it from the client's own PayMix rows, never assume it."),
@@ -156,14 +180,18 @@ PC200 = CrosswalkSpec(
     groups=("A", "B", "C", "D"),
     point_bands=(),      # deliberately empty; see the source note
     sectors=("Aanvullend Paritair Comite voor de Bedienden",),
-    source=Claim("four function classes A-D over ORBA-evaluated reference functions",
-                 ONBEVESTIGD, _RESEARCH, _ASOF,
-                 note="Research reports roughly 69 reference functions classified into four "
-                      "classes using ORBA. As with CATS in the Dutch pack, the scoring "
-                      "method is proprietary and no public point-boundary table is "
-                      "available, so class alignment is the only honest output. The class "
-                      "list and the barema scales must be read from the current PC 200 "
-                      "convention before this is shown to anyone: PC 200 is the largest "
+    source=Claim("four function classes A-D", UITLEG,
+                 "https://www.sfonds200.be/sociaal-fonds/sectorinformatie/beroepsindeling",
+                 _VERIFIED,
+                 note="The sector fund publishes the four-class structure: A executing, "
+                      "B supporting, C managing, D advisory. The often-quoted figure of "
+                      "69 reference functions and the attribution to ORBA appear "
+                      "consistently in secondary sources but could NOT be confirmed "
+                      "against the PC 200 convention itself, so they are not stated here "
+                      "as fact. No point-boundary table is published anywhere that could "
+                      "be found, so class alignment is the only honest output — the same "
+                      "boundary as CATS in the Dutch pack. Read the barema scales from "
+                      "the current convention before showing them: PC 200 is the largest "
                       "joint committee in the country, so a wrong class here is wrong for "
                       "a very large number of people at once."),
 )
@@ -173,17 +201,17 @@ PACK = CountryPack(
     name="Belgium",
     currency="EUR",
     languages=("nl", "fr", "de"),
-    status=STUB,
+    status=DRAFT,
     vocabulary=VOCABULARY,
     gender_codes=GENDER_CODES,
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
     crosswalks=(PC200,),
     notes=(
-        "STUB rather than DRAFT: the structure is right and the vocabulary is usable, but "
-        "the legal and pay figures came from one round of web research on 2026-09-05 and "
-        "no primary text has been read. Promote to DRAFT once the 2012 law's thresholds "
-        "and the double holiday pay rate are confirmed at source.",
+        "DRAFT since 2026-09-05: the biennial cycle, the 50/100 thresholds, the two "
+        "model forms and the ondernemingsraad route were confirmed against IGVM/IEFH and "
+        "the FOD WASO forms. Not LIVE: the double holiday pay exclusion list is still "
+        "unverified, and LIVE means a person checked rather than an agent.",
         "A Belgian export may mix Dutch and French column headers in one file, because "
         "language follows the establishment rather than the company.",
         "The joint committee (paritair comite / commission paritaire) is the unit that "
