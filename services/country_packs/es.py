@@ -649,7 +649,7 @@ COMPENSATION = CompensationModel(
         Claim(("cotizacion_base_2026", {
                   "tope_maximo_month": 5101.20,
                   "tope_maximo_day": 170.04,
-                  "tope_minimo_month": 1381.20,
+                  "tope_minimo_month": 1424.40,
                   "mei_total": 0.0090,
                   "mei_employer": 0.0075,
                   "mei_employee": 0.0015,
@@ -677,20 +677,15 @@ COMPENSATION = CompensationModel(
                    "rising with how far above the ceiling the pay sits. On top of "
                    "everything sits the MEI at 0,90% in 2026, split 0,75 employer and "
                    "0,15 employee. "
-                   "FLAG ON THE FLOOR, AND IT SHOULD BE SETTLED BEFORE USE. The two "
-                   "ceilings here do not look like they come from the same year. The "
-                   "minimum base is built as the monthly minimum wage plus a sixth — the "
-                   "same thing as spreading fourteen payments over twelve months. Against "
-                   "the 2025 wage of 1.184 that gives 1.381,33, which is the figure held "
-                   "above to within thirteen cents. Against the 2026 wage of 1.221, which "
-                   "this pack holds from RD 126/2026, it would be 1.424,50. So the floor "
-                   "reads like a 2025 number while the 5.101,20 ceiling is above the 2025 "
-                   "maximum and therefore reads like a 2026 one. "
-                   "That is arithmetic on figures in this pack, not a reading of the "
-                   "Orden, so it is a question rather than a correction — but it is the "
-                   "kind of mismatch that survives review because both numbers look "
-                   "right on their own. The BOE text of Orden PJC/297/2026 settles it in "
-                   "one look. "
+                   "THE FLOOR WAS WRONG BY A YEAR AND IS NOW CORRECTED. It was first "
+                   "recorded as 1.381,20, which is the 2025 figure: the minimum base is "
+                   "the monthly minimum wage plus a sixth, and against the 2025 wage of "
+                   "1.184 that gives 1.381,33. Against the 2026 wage of 1.221 it is "
+                   "1.424,50 — and the per-group table below independently puts the floor "
+                   "for groups 4 to 7 at 1.424,40, ten cents away. So the figure here is "
+                   "1.424,40, and the mismatch was real: a 2025 floor had been sitting "
+                   "beside a 2026 ceiling, which is the kind of pairing that survives "
+                   "review because each number looks right on its own. "
                    "WHY THAT MATTERS FOR A PAY-EQUITY READING SPECIFICALLY: the "
                    "discontinuity falls at the TOP of the distribution, which is exactly "
                    "where a gender gap is usually widest. A model that treats employer "
@@ -708,6 +703,50 @@ COMPENSATION = CompensationModel(
                    "amounts come from secondary summaries rather than the BOE text of the "
                    "Orden, which nobody has opened. Read it before any figure here reaches "
                    "a client."),
+        Claim(("bases_por_grupo_2026", {
+                  # monthly, groups 1-7
+                  "1": (1989.30, 5101.20),
+                  "2": (1649.70, 5101.20),
+                  "3": (1435.20, 5101.20),
+                  "4": (1424.40, 5101.20),
+                  "5": (1424.40, 5101.20),
+                  "6": (1424.40, 5101.20),
+                  "7": (1424.40, 5101.20),
+                  # daily, groups 8-11
+                  "8": (47.48, 170.04),
+                  "9": (47.48, 170.04),
+                  "10": (47.48, 170.04),
+                  "11": (47.48, 170.04),
+              }), UITLEG,
+              "Orden PJC/297/2026 de 30 de marzo, BOE núm. 79 of 31 March 2026 "
+              "(BOE-A-2026-7296). Figures supplied by Elmar van Dijk 2026-09-06 from "
+              "summaries of that Orden; the BOE text itself was NOT opened",
+              _VERIFIED,
+              note="ELEVEN CONTRIBUTION GROUPS, AND THE FIRST SEVEN ARE MONTHLY WHILE THE "
+                   "LAST FOUR ARE DAILY — a unit change inside one table, which is exactly "
+                   "the kind of thing a loader flattens without noticing. Groups 1 to 3 "
+                   "are graded (engineers and senior management at 1.989,30, technical and "
+                   "graduate staff at 1.649,70, supervisors at 1.435,20); groups 4 to 7 "
+                   "all sit on the same floor of 1.424,40; groups 8 to 11 are skilled and "
+                   "unskilled manual work plus under-18s, at 47,48 a day. The ceiling is "
+                   "uniform across every group. "
+                   "TWO FIGURES IN CIRCULATION WERE REJECTED, and the arithmetic is why "
+                   "rather than a preference. A daily minimum of 61,93 and a daily maximum "
+                   "of 221,79 appear in some summaries of the same Orden. Thirty times "
+                   "170,04 is 5.101,20 exactly, which is the monthly ceiling; thirty times "
+                   "221,79 is 6.653,70, which matches nothing here. Thirty times 47,48 is "
+                   "1.424,40 exactly, which is the group 4-7 monthly floor; thirty times "
+                   "61,93 is 1.857,90, which matches nothing. The daily and monthly halves "
+                   "of this table have to reconcile, and only one pair does. "
+                   "RETROACTIVITY MATTERS FOR ANY 2026 PAYROLL THIS TOOL READS: the Orden "
+                   "was published 31 March 2026 and took effect 1 April, but applies from "
+                   "1 JANUARY 2026. So January to March payrolls were run on provisional "
+                   "figures and regularised afterwards. A client's own export for those "
+                   "months may hold either version, and the difference is not an error in "
+                   "their data. "
+                   "Marked UITLEG because the BOE text was not opened. Everything here "
+                   "reconciles internally, which is a good sign and not the same as "
+                   "having read the source."),
         Claim("occupational pension is not universally mandatory", UITLEG,
               "https://www.boe.es/eli/es/l/2022/06/30/12/con", _VERIFIED,
               note="Ley 12/2022 creates publicly promoted employment pension funds and "

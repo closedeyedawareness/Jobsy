@@ -1287,3 +1287,44 @@ def test_an_occupation_bridge_is_not_evidence_about_pay():
         "the EU pack must say what ISCO classifies ON, or a reader cannot tell what a "
         "match does and does not establish")
     assert "pay" in spine_note
+
+
+def test_the_spanish_contribution_bases_reconcile_between_daily_and_monthly():
+    """A table with a unit change inside it, checked against itself.
+
+    Spain's eleven contribution groups run monthly for the first seven and
+    DAILY for the last four. That unit change is the kind of thing a loader
+    flattens without noticing, and it is also what makes the table
+    self-checking: the daily figures must be the monthly ones over thirty.
+
+    That check earned its place immediately. Two other figures circulate for
+    the same Orden — a daily floor of 61,93 and a daily ceiling of 221,79 —
+    and neither reconciles with anything, while 47,48 and 170,04 land exactly
+    on the monthly floor and ceiling. The arithmetic decided it, not a
+    preference between sources.
+    """
+    es = cp.load()["ES"]
+    bases = next(c.value[1] for c in es.compensation.constraints
+                 if isinstance(c.value, tuple) and c.value[0] == "bases_por_grupo_2026")
+
+    monthly = {g: bases[g] for g in ("1", "2", "3", "4", "5", "6", "7")}
+    daily = {g: bases[g] for g in ("8", "9", "10", "11")}
+
+    ceiling = {hi for _lo, hi in monthly.values()}
+    assert ceiling == {5101.20}, "the ceiling is uniform across every group"
+
+    floor_47 = min(lo for lo, _hi in monthly.values())
+    for lo, hi in daily.values():
+        assert round(lo * 30, 2) == floor_47, (
+            f"daily floor {lo} x 30 does not land on the monthly floor {floor_47}")
+        assert round(hi * 30, 2) == 5101.20, (
+            f"daily ceiling {hi} x 30 does not land on the monthly ceiling")
+
+    # And the floor tracks the minimum wage plus a sixth, which is how it is built.
+    smi_year = next(c.value[1] for c in es.pay_components
+                    if isinstance(c.value, tuple) and c.value[0] == "smi_annual_floor")
+    smi_month = smi_year / 14
+    assert abs(smi_month * 7 / 6 - floor_47) < 0.25, (
+        f"the floor {floor_47} is not the monthly minimum wage plus a sixth "
+        f"({smi_month * 7 / 6:.2f}) — one of the two is from a different year, which is "
+        "exactly the error this check was written after")
