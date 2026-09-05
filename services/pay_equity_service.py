@@ -445,8 +445,14 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
         where = (f"{pack.name}: " if len(resolved) > 1 else "")
 
         if band is None or band.first_report.value is None:
-            out.append(f"{where}no mandatory pay-gap reporting duty applies at this size "
-                       f"under {origin}.")
+            # Cite the source of the ABSENCE, which is the band's own claim, not
+            # the pack's headline statute. Poland made this visible: its
+            # headline law is the applicant-information article, and attributing
+            # "no reporting duty" to that article invites a reader to go and
+            # look for something the article never says.
+            src = (band.first_report.source if band else "") or origin
+            out.append(f"{where}no mandatory pay-gap reporting duty applies at this size. "
+                       f"Source: {src}.")
         else:
             # A first_report that is a date reads as a deadline; one that is a
             # phrase ("in force since 2012") reads as a duty already running.
@@ -465,10 +471,24 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
         if rep and rep.pre_existing_duty and rep.pre_existing_duty.value:
             out.append(f"{where}{rep.pre_existing_duty.note}")
         if rep and not rep.transposed.value:
-            out.append(f"{where}the directive is recorded as not yet transposed "
-                       f"({rep.transposed.as_of}). Frame this analysis as getting ahead of "
-                       "the law rather than as a live deadline, unless a national duty "
-                       "already applies.")
+            # "Getting ahead of the law" is the right framing for a market with
+            # no national duty and a directive still in a drafting folder. It is
+            # the WRONG framing for Belgium, France, Spain and Poland, each of
+            # which binds employers today under law that predates or bypasses
+            # the directive entirely. Telling those clients they are ahead of
+            # the curve, when they are in fact behind an existing obligation, is
+            # the most expensive sentence this function could produce.
+            live = bool(rep.pre_existing_duty and rep.pre_existing_duty.value)
+            if live:
+                out.append(f"{where}Directive (EU) 2023/970 is not yet transposed here "
+                           f"({rep.transposed.as_of}), but that changes nothing about the "
+                           "national duty above, which applies now. Do NOT read this as "
+                           "getting ahead of the law.")
+            else:
+                out.append(f"{where}the directive is recorded as not yet transposed "
+                           f"({rep.transposed.as_of}) and no national pay duty was found, "
+                           "so treat this analysis as getting ahead of the law rather "
+                           "than as a live deadline.")
         if pack.status != cp.LIVE:
             # Two different warnings, because they call for two different
             # actions. A pack still holding unverified claims needs somebody to

@@ -83,6 +83,7 @@ DELIBERATE_ORPHANS = {
     "services/country_packs/de.py": "country pack, loaded by pkgutil discovery in country_packs/__init__",
     "services/country_packs/es.py": "country pack, loaded by pkgutil discovery in country_packs/__init__",
     "services/country_packs/fr.py": "country pack, loaded by pkgutil discovery in country_packs/__init__",
+    "services/country_packs/pl.py": "country pack, loaded by pkgutil discovery in country_packs/__init__",
 }
 
 

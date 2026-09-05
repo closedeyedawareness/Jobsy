@@ -472,3 +472,88 @@ def test_metallurgie_point_table_matches_the_published_grid():
     assert len(metal.point_bands) == 9, "nine groupes, not the widely repeated eight"
     assert metal.point_bands[0][1] == 6, "the scale starts at 6, not 0 or 1"
     assert metal.point_bands[-1][2] == 60, "and ends at 60"
+
+
+# ── Poland: the first non-euro pack ──────────────────────────────────────────
+
+def test_the_letter_m_means_opposite_things_in_two_packs_and_both_are_right():
+    """The clearest argument for holding gender codes per country.
+
+    In Poland `M` is mężczyzna — male. In Spain the same letter is undecidable:
+    *mujer* in an H/M file, *masculino* in a Masculino/Femenino file, with both
+    vocabularies appearing inside one official ministry workbook. So the Spanish
+    pack maps `m` to NEITHER sex on purpose while the Polish pack maps it to
+    male, and a single global lookup table could not be right about both.
+
+    This asserts the divergence deliberately, so that a later tidy-up that
+    "harmonises" the tables has to argue with a test instead of silently
+    inverting one country's results.
+    """
+    pl = cp.load()["PL"].gender_codes
+    es = cp.load()["ES"].gender_codes
+
+    assert "m" in pl["male"], "Polish M is mężczyzna"
+    assert "k" in pl["female"], "Polish K is kobieta, and nothing else recognises it"
+
+    assert "m" not in es["male"] and "m" not in es["female"], (
+        "Spanish M is undecidable and must stay unmapped — see es.py. If this ever "
+        "fails, a file with an unresolved M is being guessed at rather than refused.")
+    assert "h" in es["male"], "Spanish H is hombre, which is how H/M files resolve"
+
+
+def test_poland_makes_the_currency_warning_real():
+    """The guard was written for this and shipped silent. Now it fires.
+
+    Until Poland landed, every pack was EUR and the only exercise of this code
+    path was a stand-in. This is the same assertion against a real pack, which
+    is what the earlier test was standing in for.
+    """
+    from services.pay_equity_service import _currency_notes
+
+    assert cp.load()["PL"].currency == "PLN"
+    notes = _currency_notes(("NL", "PL"))
+    assert len(notes) == 1
+    assert "EUR: NL" in notes[0] and "PLN: PL" in notes[0]
+
+
+def test_a_market_with_a_live_duty_is_never_told_it_is_ahead_of_the_law():
+    """The most expensive sentence this product could produce.
+
+    Belgium, France, Spain and Poland all bind employers today under law that
+    predates or bypasses Directive 2023/970. Telling those clients to treat the
+    analysis as "getting ahead of the law" would say they are early when they
+    are in fact behind an existing obligation.
+    """
+    from services.pay_equity_service import _reporting_duty_notes
+
+    for code in ("BE", "FR", "ES", "PL"):
+        pack = cp.load()[code]
+        assert pack.reporting.pre_existing_duty, f"premise: {code} has a national duty"
+        text = " ".join(_reporting_duty_notes((code,), 300))
+        assert "getting ahead of the law" not in text or "Do NOT read this" in text, (
+            f"{code} has a live national duty and must not be framed as early")
+
+    # And the inverse still works: a market with no national duty of its own
+    # keeps the framing that is correct for it.
+    nl = " ".join(_reporting_duty_notes(("NL",), 300))
+    assert "getting ahead of the law" in nl
+
+
+def test_poland_says_no_reporting_duty_positively_rather_than_by_silence():
+    """Absence and non-coverage must not look identical on screen.
+
+    Poland genuinely has no pay-gap reporting duty at any size — verified by
+    searching the Kodeks pracy for the words that would create one. An uncovered
+    market also produces no duty. Those are completely different answers for a
+    client, so Poland carries an explicit 0-and-up band that says "none" instead
+    of simply having no bands and falling silent.
+    """
+    band, source = cp.band_for(300, "PL")
+    assert source == "PL", "Poland must answer for itself, not inherit the directive"
+    assert band is not None, "the answer is 'none', which is not the same as no answer"
+    assert band.first_report.value is None and band.frequency.value == "none"
+
+    if UNCOVERED is not None:
+        other, other_source = cp.band_for(300, UNCOVERED)
+        assert other is None and other_source == "", (
+            "an uncovered market gives no band at all — that is the distinction")
