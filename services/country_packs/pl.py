@@ -356,14 +356,24 @@ ORG_STRUCTURE = OrgStructure(
 
 PERFORMANCE = PerformanceModel(
     codetermination=Claim(
-        False, ONBEVESTIGD, "", _VERIFIED,
-        note="No co-determination over performance systems is known, and with 11,6% "
-             "bargaining coverage there is usually no counterparty for one. The real "
-             "constraint arrives from a different direction: art. 18(3g) from 5 November "
-             "2026 requires the employer to DETECT unequal treatment systematically. A "
-             "9-box is one of the places unequal treatment becomes visible, so in Poland "
-             "the talent grid is closer to evidence than to exposure. Unverified whether "
-             "any Polish law reaches appraisal systems directly."),
+        False, UITLEG, "Elmar van Dijk, domain knowledge, 2026-09-06", _VERIFIED,
+        note="NO GENERAL STATUTORY RIGHT OF CONSENT over appraisal systems. A works "
+             "council CAN hold information and consultation rights where such a system "
+             "has significant consequences for work organisation or the employment "
+             "relationship — so it is not nothing, it is a weaker instrument than consent. "
+             "NOTE THE ORDER OF THE TWO REASONS, because this pack had them the wrong way "
+             "round. The absence of co-decision follows PRIMARILY from the limited "
+             "statutory competence: the law simply does not grant it. That most employers "
+             "have no works council at all is a SECOND and separate fact, which narrows "
+             "the practical say further. Leading with the coverage figure made a legal "
+             "limit look like a market accident, and they are different things — one "
+             "would not change if union density doubled tomorrow. "
+             "The real constraint in Poland arrives from another direction entirely: art. "
+             "18(3g) from 5 November 2026 requires the employer to DETECT unequal "
+             "treatment systematically. A 9-box is one of the places unequal treatment "
+             "becomes visible, so here the talent grid sits closer to evidence than to "
+             "exposure — the opposite of Germany, where the grid is the thing that needs "
+             "agreeing before it may exist."),
 )
 
 JOB_ARCHITECTURE = JobArchitecture(

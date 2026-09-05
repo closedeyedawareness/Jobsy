@@ -1195,11 +1195,28 @@ def test_a_note_carries_its_own_weight():
     """
     from services import market_notes
 
+    from services.market_notes import _line
+
+    # Test the mechanism, not today's contents. The first version of this test
+    # asserted that Germany HAD an unverified performance claim — and then broke
+    # the moment somebody answered it, which is the wrong thing to defend. What
+    # must hold is that each weight is marked, whichever pack happens to carry it.
+    for hardness, expected in (
+        (cp.ONBEVESTIGD, "UNVERIFIED — "),
+        (cp.UITLEG, "Reading of the law rather than its words — "),
+        (cp.CONVENTIE, "Collective-agreement practice, not statute — "),
+    ):
+        claim = cp.Claim("v", hardness, "src" if hardness != cp.ONBEVESTIGD else "",
+                         "2026-09-06", note="a claim")
+        assert _line(claim) == expected + "a claim", hardness
+
+    # Statute gets no prefix, which is the only reason the others mean anything.
+    assert _line(cp.Claim("v", cp.WET, "src", "2026-09-06", note="a claim")) == "a claim"
+
+    # And the real German reading is still labelled as a reading.
     de = market_notes.performance_notes("DE")
-    assert any(n.startswith("UNVERIFIED — ") for n in de), (
-        "Germany still holds an unverified performance claim; it must be labelled")
     assert any(n.startswith("Reading of the law rather than its words — ") for n in de), (
-        "the §87(1) no. 6 reading is UITLEG and must not be dressed as statute")
+        "the §87 readings are UITLEG and must not be dressed as statute")
 
 
 def test_a_stale_claim_says_so_on_the_screen():

@@ -266,9 +266,37 @@ PERFORMANCE = PerformanceModel(
                    "application is settled case law and practice rather than something the "
                    "sentence itself says — which is exactly the kind of thing a German "
                    "employment lawyer should confirm before it is put to a client."),
-        Claim("section 87(1) no. 11", ONBEVESTIGD, "", _VERIFIED,
-              note="Believed to cover performance-related pay rates (Akkord- und "
-                   "Praemiensaetze and comparable performance-based pay). Unverified."),
+        Claim("BetrVG §87(1) Nr. 11 — leistungsbezogene Entgelte", UITLEG, _BETRVG_URL,
+              _VERIFIED,
+              note="YES, co-determination applies to performance-related pay — and the "
+                   "nuance is where it bites. It reaches the SYSTEM: the method, the rates "
+                   "and the factors by which variable or performance-dependent pay is "
+                   "determined. It does NOT automatically reach every individual salary "
+                   "amount. So a German works council co-decides how a bonus formula is "
+                   "built and what drives it; it does not thereby co-decide what one named "
+                   "person earns. For this product that line matters — a pay-structure "
+                   "recommendation is squarely inside it, an individual pay finding is "
+                   "not. See also no. 10 for pay structuring generally and no. 6 for the "
+                   "tooling itself. Source: Elmar van Dijk, domain knowledge, 2026-09-06."),
+        Claim("§87 is subject to a statutory and collective-agreement reservation", UITLEG,
+              _BETRVG_URL, _VERIFIED,
+              note="THE GATE ON ALL THREE OF THE ABOVE, and it was missing from this pack "
+                   "entirely. Section 87 applies only INSOFAR AS the matter is not already "
+                   "regulated by statute or by collective agreement. Where a Tarifvertrag "
+                   "already settles the pay method, the works council's right over that "
+                   "method does not arise on top of it. "
+                   "That is not a footnote in Germany, it is half the market: this pack "
+                   "already records that 49% of German employees are covered by a "
+                   "collective agreement, and holds Tarifbindung as a three-valued field "
+                   "for the reporting cycle. The same field decides how much of §87 is "
+                   "live at a given employer, so it should be read twice. "
+                   "Note the symmetry with the Netherlands, which the packs can now show "
+                   "side by side: WOR art. 27 lid 3 removes the Dutch works council's "
+                   "consent right wherever a CAO already regulates the matter "
+                   "substantively. Two markets, two different councils, the same gate — "
+                   "and in both the instinct to say 'the works council must agree' is "
+                   "right about the shape and wrong about the reach. "
+                   "Source: Elmar van Dijk, domain knowledge, 2026-09-06."),
     ),
 )
 
