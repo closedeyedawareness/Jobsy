@@ -356,18 +356,195 @@ JOB_ARCHITECTURE = JobArchitecture(
              "criteria scored to a cotation and a groupe. The cadre/non-cadre split cuts "
              "across all of it and is three different populations depending on which "
              "definition is used."),
+    # No occupation mapping here: it lives on the skills slot, because the route
+    # turned out to need two French hops before the spine (PCS-ESE 2017 to PCS
+    # 2020, then a probabilistic matrix to ISCO-08). The earlier version of this
+    # mapping said PCS-ESE straight to ISCO-08, which was wrong in both respects.
+    mappings=(),
+)
+
+# ── skills ───────────────────────────────────────────────────────────────────
+
+_DECRET_CNCP = "https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000037964754"
+_D6113_19 = "https://code.travail.gouv.fr/code-du-travail/d6113-19"
+_RNCP_DATA = ("https://www.data.gouv.fr/datasets/repertoire-national-des-certifications-"
+              "professionnelles-et-repertoire-specifique/")
+_PCS_ISCO = "https://www.insee.fr/fr/information/8292892"
+_PCS_ESE = "https://www.insee.fr/fr/information/2497958"
+_L6315_1 = "https://code.travail.gouv.fr/code-du-travail/l6315-1"
+_L2261_15 = "https://code.travail.gouv.fr/code-du-travail/l2261-15"
+_L2241_10 = "https://code.travail.gouv.fr/code-du-travail/l2241-10"
+_L1225_26 = "https://code.travail.gouv.fr/code-du-travail/l1225-26"
+
+SKILLS = SkillsFramework(
+    qualification_framework=Claim(
+        ("cadre national des certifications professionnelles", 8), WET,
+        _DECRET_CNCP, _VERIFIED,
+        note="Décret 2019-14 of 8 January 2019, in force the day after publication — 10 "
+             "January 2019, not 1 January as is often assumed. Eight levels with 8 at the "
+             "top: level 4 is the baccalauréat, 6 the licence, 7 the master, 8 the "
+             "doctorate. Since 2019 the French level and the EQF level are the SAME "
+             "NUMBER, which was not true before: the 2010 referencing compressed five old "
+             "levels onto EQF 3 to 8 with nothing at 1 and 2. France re-referenced in "
+             "February 2021."),
+    occupation_taxonomy=Claim(
+        ("PCS-ESE 2017", "PCS 2020"), WET, _PCS_ESE, _VERIFIED,
+        note="TWO CLASSIFICATIONS, TWO VERSIONS, AND THEY ARE NOT THE SAME ONE. Employer "
+             "data arrives coded as PCS-ESE 2017 through the DSN, because that is still "
+             "the current employer-facing version. INSEE's published statistics and its "
+             "ISCO crosswalk are on PCS 2020. So joining a client's payroll to a national "
+             "benchmark needs a PCS-ESE 2017 to PCS 2020 step FIRST, and skipping it "
+             "silently mixes two vintages."),
     mappings=(
         SpineMapping(
-            dimension=OCCUPATION, local_scheme="PCS-ESE", spine="ISCO-08",
-            source=Claim("the DSN carries a Code profession et categorie "
-                         "socioprofessionnelle (PCS-ESE) field", UITLEG, _DSN, _VERIFIED,
-                         note="PCS-ESE was read directly in the DSN cahier technique, so "
-                              "the field exists and is populated nationally. Its "
-                              "correspondence to ISCO-08 is published by INSEE but was "
-                              "not read at source, hence UITLEG."),
+            dimension=OCCUPATION, local_scheme="PCS 2020 (after PCS-ESE 2017 → PCS 2020)",
+            spine="ISCO-08",
+            source=Claim("INSEE publishes a probabilistic PCS 2020 to ISCO-08 matrix",
+                         WET, _PCS_ISCO, _VERIFIED,
+                         note="Published 16 December 2024 as XLSX and CSV, and INSEE calls "
+                              "it what it is: a MATRICE DE PASSAGE PROBABILISTE. One PCS "
+                              "code distributes across several ISCO codes with weights "
+                              "derived from the 2021-2023 labour force survey, and thin "
+                              "cells are marked ns. So this hop is a distribution, not a "
+                              "lookup, and it is DIRECTIONAL — PCS to ISCO only, with no "
+                              "published inverse. INSEE also notes the two are built on "
+                              "different principles, ISCO principally on the skill level "
+                              "an occupation requires. Two hops on the French side before "
+                              "the spine is even reached."),
+        ),
+        SpineMapping(
+            dimension=QUALIFICATION, local_scheme="cadre national (2019)", spine="EQF",
+            mapping={str(n): str(n) for n in range(1, 9)},
+            source=Claim("since 2019 the French level IS the EQF level", WET,
+                         _D6113_19, _VERIFIED,
+                         note="A clean 1:1 mapping, which makes France the easiest "
+                              "qualification hop in the set — but ONLY for post-2019 "
+                              "data. The old five-level system ran the OTHER WAY, level I "
+                              "highest and level V lowest, and the conversion is not a "
+                              "bijection: V, IV, III and II map automatically to 3, 4, 5 "
+                              "and 6, while OLD LEVEL I SPLITS INTO 7 OR 8 and was "
+                              "resolved certification by certification with a 1 January "
+                              "2020 deadline. So historical French level data must be "
+                              "mapped rather than cast, a naive linear map is still wrong "
+                              "at the top, and a record carrying only 'niveau I' cannot "
+                              "be resolved without looking up the specific certification."),
         ),
     ),
 )
+
+# ── compensation ─────────────────────────────────────────────────────────────
+
+COMPENSATION = CompensationModel(
+    structure=Claim(
+        ("SMIC", "convention de branche", "accord d'entreprise"), WET,
+        "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000036761771", _VERIFIED,
+        note="L2253-1 puts les salaires minima hiérarchiques and les classifications "
+             "first among the domains where the BRANCH PREVAILS over a company agreement "
+             "unless the company offers at least equivalent guarantees. Which branch "
+             "applies is set by the employer's principal activity under L2261-2, not by "
+             "choice. So a French employer has markedly less freedom over its own pay "
+             "structure than a Dutch or German one."),
+    bargaining_coverage=Claim(
+        None, ONBEVESTIGD, "", _VERIFIED,
+        note="NOT OBTAINED, and deliberately left blank rather than filled with the "
+             "figure of about 98% that circulates everywhere. The authoritative source is "
+             "DARES, which was CAPTCHA-blocked for the whole research session, and every "
+             "general search engine was blocked too. The number is almost certainly very "
+             "high — the extension machinery below explains why — but a coverage rate is "
+             "exactly the kind of claim that gets quoted back at a client, so it stays "
+             "empty until somebody reads it at source. A browser session that can clear "
+             "the DARES CAPTCHA would close this in minutes."),
+    extension_mechanism=Claim(
+        "arrêté d'extension", WET, _L2261_15, _VERIFIED,
+        note="The minister may make a branch convention obligatory for ALL employers and "
+             "employees in its scope. Three things make it bite harder than the Dutch "
+             "AVV. Branch coverage follows the employer's principal activity by law "
+             "rather than an agreement's own scope. L2261-22 requires every extendable "
+             "convention to CONTAIN classifications, a minimum for unqualified workers, "
+             "and equal-pay provisions including the removal of pay gaps — so extension "
+             "always propagates a pay grid rather than only a wage floor. And the "
+             "opposition test is a veto needing employers of more than half the covered "
+             "employees, which is hard to trigger."),
+    seniority_progression=Claim(
+        None, ONBEVESTIGD, "", _VERIFIED,
+        note="HONESTLY UNKNOWN, and it should stay that way rather than be generalised. "
+             "The prime d'ancienneté is confirmed not statutory. Whether automatic "
+             "progression through coefficients is COMMON would require reading a "
+             "representative sample of roughly 200 conventions collectives, which was not "
+             "possible. What is established is the structure that decides it: every "
+             "extendable branch convention must carry a classification grid, and the "
+             "branch beats the company on that grid, so the progression rule is written "
+             "PER BRANCH with no national default. Treat it as a per-IDCC attribute to be "
+             "looked up. The join key already exists — the IDCC is in every DSN record — "
+             "but the rule behind it has to be read from the convention."),
+    market_data=(
+        Claim("INSEE publishes pay by PCS and sex", WET,
+              "https://www.insee.fr/fr/statistiques/8743657", _VERIFIED,
+              note="And it publishes the whole raw-to-adjusted ladder, which is unusual "
+                   "and directly useful: for 2024 the annual revenu salarial gap is "
+                   "-21,8%, the full-time-equivalent gap -14,0%, and the gap at "
+                   "comparable post with the same employer -3,6%. Those three numbers are "
+                   "the same phenomenon measured three ways, and a client shown one "
+                   "without the others will draw the wrong conclusion. CARRY THE SCOPE "
+                   "WITH THE FIGURE: 13,0% is private-sector FTE, 14,0% is all employees "
+                   "including public, and they are not interchangeable."),
+        Claim("Base Tous Salariés via CASD", UITLEG,
+              "https://www.casd.eu/en/source/base-tous-salaries-fichier-postes/", _VERIFIED,
+              note="Individual-level administrative data from 1993 to 2024, carrying PCS, "
+                   "sex, pay, hours and establishment — everything a PCS-by-sex analysis "
+                   "needs. Access runs through the Comité du secret statistique, INSEE's "
+                   "agreement as producer, and an in-person enrolment with fingerprinting "
+                   "for a four-year card, at roughly 253 euro a month on the research "
+                   "tariff with a one-year minimum. Restrictive, but note the contrast "
+                   "with the Netherlands: this route does NOT require publishing your "
+                   "results, so unlike CBS microdata it is not incompatible with a "
+                   "commercial product."),
+    ),
+    constraints=(
+        Claim("the binding floor is max(SMIC, minimum conventionnel)", WET,
+              _L2241_10, _VERIFIED,
+              note="When a branch's minimum for unqualified workers falls below the SMIC, "
+                   "the parties must meet to negotiate on pay; if the employer side does "
+                   "not move within 45 days, a representative union can force the "
+                   "negotiation open within 15 days of demanding it. THE ANALYTICAL "
+                   "CONSEQUENCE: because the SMIC is revalued at least annually and grids "
+                   "lag, the bottom rungs of many branch grids sit below it at any given "
+                   "moment and are overridden. A grid's nominal floor is therefore not "
+                   "the actual floor, and the compression this creates concentrates in "
+                   "low-wage, female-dominated branches — where it will look like a "
+                   "narrow gap that is really a floor effect."),
+        Claim("L3221-4 makes experience a legitimate differentiator", WET,
+              _L3221_4, _VERIFIED,
+              note="Equal value is defined on comparable professional knowledge attested "
+                   "by a qualification or by practice, CAPACITIES ARISING FROM ACQUIRED "
+                   "EXPERIENCE, responsibilities, and physical or nervous load. So French "
+                   "law expressly legitimises experience as a basis for paying "
+                   "differently — which is precisely why a gender-correlated seniority "
+                   "mechanism is hard to challenge here, and why it is worth surfacing "
+                   "rather than controlling away."),
+        Claim("L1225-26 maternity catch-up", WET, _L1225_26, _VERIFIED,
+              note="On return from maternity leave, pay must be raised by the general "
+                   "increases plus the average of the individual increases received "
+                   "during the leave by employees in the same category. This is the "
+                   "legislator conceding that time-based progression is "
+                   "gender-correlated — but note what it patches: the INTERRUPTION, not "
+                   "the accrual rate. Compare Germany, which took the opposite approach "
+                   "and simply stopped the clock during Elternzeit."),
+        Claim("entretien de parcours professionnel, 4 years", WET, _L6315_1, _VERIFIED,
+              note="THE CADENCE CHANGED AND MOST SOURCES ARE STALE. It is no longer the "
+                   "entretien professionnel every 2 years with a 6-year review. It is now "
+                   "the entretien de parcours professionnel EVERY FOUR YEARS with an "
+                   "EIGHT-YEAR récapitulatif, under the laws of 24 October 2025 "
+                   "(applicable to collective agreements from 1 October 2026) and 30 "
+                   "December 2025. In companies of 50+, an employee who has had neither "
+                   "the required interviews nor a training action over the eight "
+                   "preceding years triggers a corrective payment into their training "
+                   "account, capped by statute at six times the annual credit — the euro "
+                   "figure under the new regime was NOT obtained. Any rule anywhere in "
+                   "this product encoded as 2 years, 6 years or 3.000 euro is wrong."),
+    ),
+)
+
 
 PACK = CountryPack(
     country="FR",
@@ -383,6 +560,8 @@ PACK = CountryPack(
     org_structure=ORG_STRUCTURE,
     performance=PERFORMANCE,
     job_architecture=JOB_ARCHITECTURE,
+    skills=SKILLS,
+    compensation=COMPENSATION,
     notes=(
         "THE INDEX IS NOT A PAY-GAP CALCULATION. It excludes prime d'anciennete, "
         "overtime, interessement, participation and severance from remuneration; it "

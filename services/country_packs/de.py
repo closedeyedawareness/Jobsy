@@ -255,6 +255,170 @@ JOB_ARCHITECTURE = JobArchitecture(
     ),
 )
 
+# ── skills ───────────────────────────────────────────────────────────────────
+
+_DQR = "https://www.dqr.de/dqr/de/der-dqr/der-dqr_node.html"
+_DQR_LISTE = ("https://www.dqr.de/dqr/shareddocs/downloads/media/content/"
+              "2025_dqr_liste_zugeordnete_qualifik_01082025.pdf")
+_KLDB_ISCO = ("https://statistik.arbeitsagentur.de/DE/Navigation/Grundlagen/Klassifikationen/"
+              "Klassifikation-der-Berufe/KldB2010-Fassung2020/Arbeitsmittel/Arbeitsmittel-Nav.html")
+_SGB4_28A = "https://www.gesetze-im-internet.de/sgb_4/__28a.html"
+_TVL = ("https://www.tdl-online.de/fileadmin/downloads/TV-L/"
+        "260812_TV-L__i.d.F._des_%C3%84TV_Nr._14_VT.pdf")
+
+SKILLS = SkillsFramework(
+    qualification_framework=Claim(
+        ("DQR", 8, "referenced 2013"), UITLEG, _DQR, _VERIFIED,
+        note="Eight levels, referenced to the EQF in a report dated 8 May 2013. Marked "
+             "UITLEG rather than WET DELIBERATELY: the DQR is a joint declaration by the "
+             "BMBF, BMWi and the two Länder conferences, NOT a statute. Its own pages say "
+             "it has orientierenden Charakter and keine regulierende Funktion, and that "
+             "the system of access rights does not change because of it. A DQR level "
+             "confers no entitlement. Only the official assignment list is authoritative "
+             "— the governing body explicitly disclaims placements found elsewhere, so a "
+             "vendor's 'DQR level' tag is not evidence of anything."),
+    occupation_taxonomy=Claim(
+        ("KldB 2010", "überarbeitete Fassung 2020"), WET,
+        "https://statistik.arbeitsagentur.de/DE/Navigation/Grundlagen/Klassifikationen/"
+        "Klassifikation-der-Berufe/KldB2010-Fassung2020/KldB2010-Fassung2020-Nav.html",
+        _VERIFIED,
+        note="Valid from reporting year 2021 and still maintained — the occupation index "
+             "carries a Stand of 1 January 2026. More useful than the classification "
+             "itself: SGB IV section 28a requires every employer to report an occupation "
+             "key from the BA's Schlüsselverzeichnis in the social-insurance Meldung, so "
+             "EVERY GERMAN EMPLOYER ALREADY HOLDS A CODED OCCUPATION PER EMPLOYEE BY LAW. "
+             "That is the highest-coverage occupation field available in this market, and "
+             "it beats asking a client for job titles. Note the digit layout of the "
+             "nine-character Tätigkeitsschlüssel could NOT be sourced, so do not hard-code "
+             "positions within it."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="KldB 2010 üF2020", spine="ISCO-08",
+            source=Claim("Umsteigeschlüssel KldB 5-Steller to ISCO-08 4-Steller", WET,
+                         _KLDB_ISCO, _VERIFIED,
+                         note="An official crosswalk exists and was downloaded and parsed. "
+                              "TWO THINGS BEFORE ANYONE BUILDS ON IT. First, the BA says "
+                              "plainly that Umsteigeschlüssel sind oftmals nicht "
+                              "eindeutig, and the data bears it out — KldB 11101 maps to "
+                              "ISCO 9211 AND 9213. It is one-to-many, so it is a "
+                              "distribution and not a lookup. Second, and this is a "
+                              "commercial blocker rather than a technical one: the file's "
+                              "own terms require the BA's permission for gewerbliche "
+                              "Zwecke. Shipping it inside a paid product needs that "
+                              "permission first. This is a question for Elmar, not a "
+                              "detail for an engineer."),
+        ),
+    ),
+)
+
+# ── compensation ─────────────────────────────────────────────────────────────
+
+COMPENSATION = CompensationModel(
+    structure=Claim(
+        ("MiLoG", "Tarifvertrag", "Betriebsvereinbarung", "Arbeitsvertrag"), WET,
+        "https://www.gesetze-im-internet.de/tvg/__3.html", _VERIFIED,
+        note="TVG section 3(1) binds the members of the contracting parties and any "
+             "employer that is itself a party. Above the statutory minimum wage, "
+             "everything else is a Tarifvertrag at sector or company level, then works "
+             "agreement, then contract."),
+    bargaining_coverage=Claim(
+        0.49, WET,
+        "https://www.destatis.de/DE/Themen/Arbeit/Verdienste/Tarifverdienste-Tarifbindung/"
+        "_inhalt.html", _VERIFIED,
+        note="49% of employees in 2025, unchanged from 2024, split 41% sector agreement "
+             "and 8% company agreement. The IAB series shows how far it has fallen: "
+             "sectoral coverage went from 69% to 43% in the West and 56% to 34% in the "
+             "East over 29 years. THE PRODUCT CONSEQUENCE IS LARGE — for about half of "
+             "German employees there is no collective pay scale at all, so 'no "
+             "Tarifvertrag' is the MODAL case here, not the exception, and it "
+             "concentrates in the East and in small firms. A model that assumes a scale "
+             "exists is a Dutch model."),
+    extension_mechanism=Claim(
+        "Allgemeinverbindlicherklärung (rare)", WET,
+        "https://www.bmas.de/SharedDocs/Downloads/DE/Arbeitsrecht/ave-verzeichnis.pdf",
+        _VERIFIED,
+        note="Germany has an extension mechanism and barely uses it: 225 declarations in "
+             "force on 1 January 2026, across narrow named sectors — construction, "
+             "building cleaning, chimney sweeps, security, hospitality, hairdressing, "
+             "care. Compare the Netherlands, where extension is the ordinary route by "
+             "which a sector agreement reaches non-members. So 'there is a sector "
+             "agreement, therefore it applies to the sector' is a Dutch assumption and is "
+             "wrong in Germany about half the time."),
+    seniority_progression=Claim(
+        "Stufenlaufzeit, 15 years to the top", WET, _TVL, _VERIFIED,
+        note="TV-L section 16(3): six Stufen, reached after 1, then 2, then 3, then 4, "
+             "then 5 years of uninterrupted service in the same Entgeltgruppe with the "
+             "same employer — fifteen years cumulatively. Performance can shorten or "
+             "lengthen only the steps to 4, 5 and 6; the first two are pure time. "
+             "See the constraints below for what does and does not stop the clock, which "
+             "is the part that matters. NOTE THE SCOPE: this is TV-L, read in full. TVöD "
+             "could not be obtained — the ministry refused every fetch — so do not quote "
+             "TVöD numbers to a client on the strength of this."),
+    market_data=(
+        Claim("Destatis Verdiensterhebung", WET,
+              "https://www.destatis.de/DE/Themen/Arbeit/Verdienste/"
+              "Verdienste-Branche-Berufe/_inhalt.html", _VERIFIED,
+              note="Annual since 2022, April reference month, individual-level, with gross "
+                   "monthly earnings published by occupation. The statutory variable list "
+                   "in VerdStatG section 4 is worth knowing because it names the fields a "
+                   "German employer is already required to be able to produce: ausgeübte "
+                   "Tätigkeit, höchster Bildungsabschluss, Geschlecht, Art des "
+                   "Beschäftigungsverhältnisses, Zahl der bezahlten Arbeitsstunden, "
+                   "Bruttomonatsverdienst."),
+        Claim("FDZ microdata is genuinely accessible", WET,
+              "https://www.forschungsdatenzentrum.de/de/sonstige-wirtschaftsstatistiken/vse",
+              _VERIFIED,
+              note="Unlike CBS in the Netherlands, the German research data centre offers "
+                   "Scientific Use Files and on-site access for the Verdiensterhebung "
+                   "2022-2025 and the four-yearly Verdienststrukturerhebung, and the "
+                   "AFiD-Modul Verdienste can be linked to firm-level data. Access is "
+                   "fee-based and application-gated. Occupation appears as the social "
+                   "insurance Berufsschlüssel, though the FDZ metadata does not name KldB "
+                   "explicitly."),
+    ),
+    constraints=(
+        Claim("Elternzeit does not advance the Stufenlaufzeit", WET, _TVL, _VERIFIED,
+              note="THE MOST IMPORTANT FINDING IN THIS PACK, and the clearest example "
+                   "anywhere of the thing this product exists to see. TV-L section 17(3) "
+                   "splits interruptions finely: MUTTERSCHUTZ COUNTS as service, and so "
+                   "do paid leave and sickness up to 39 weeks. ELTERNZEIT DOES NOT. It is "
+                   "unschädlich, meaning you do not lose the Stufe you reached, but "
+                   "explicitly nicht auf die Stufenlaufzeit angerechnet — so a "
+                   "three-year parental break delays every subsequent step by three "
+                   "years. A break longer than three years moves the employee DOWN one "
+                   "Stufe. Part-time, by contrast, is counted in full, deliberately. "
+                   "So the gap this produces sits INSIDE a formally gender-neutral "
+                   "scale: same Entgeltgruppe, different Stufe, entirely lawful on its "
+                   "face, and invisible to any comparison made at grade level. Compare "
+                   "within Entgeltgruppe AND Stufe, and treat Stufe as an OUTCOME "
+                   "variable rather than a control — controlling for it would subtract "
+                   "exactly the effect worth measuring."),
+        Claim("Vorweggewährte Stufen", WET, _TVL, _VERIFIED,
+              note="Section 16(5) lets the employer grant up to two Stufen above "
+                   "entitlement to attract or retain qualified staff. A discretionary, "
+                   "negotiable lever sitting on top of the scale — so expect Stufe not to "
+                   "be fully explained by tenure, and expect the residual to be where the "
+                   "interesting variance is."),
+        Claim("the minimum wage is not in the Act", WET,
+              "https://www.recht.bund.de/eli/bund/bgbl-1/2025/268", _VERIFIED,
+              note="13,90 euro per hour from 1 January 2026 and 14,60 from 1 January "
+                   "2027, set by the fifth Mindestlohnanpassungsverordnung. THE TRAP: "
+                   "MiLoG section 1 still reads 12 euro, its 2022 base figure, because "
+                   "the live value lives in successive regulations. Anyone scraping the "
+                   "statute gets a number four years stale."),
+        Claim("Entgeltumwandlung and the 15% subsidy", WET,
+              "https://www.gesetze-im-internet.de/betravg/__1a.html", _VERIFIED,
+              note="An employee is entitled to convert up to 4% of the contribution "
+                   "ceiling into occupational pension, and the employer must add 15% of "
+                   "the converted amount — BUT ONLY to the extent the employer actually "
+                   "saves social-security contributions by the conversion. Above the "
+                   "Beitragsbemessungsgrenze that saving can be nil and so can the "
+                   "subsidy. Do not model it as a flat 15%: doing so overstates total "
+                   "reward for exactly the highest earners."),
+    ),
+)
+
+
 PACK = CountryPack(
     country="DE",
     name="Germany",
@@ -269,6 +433,8 @@ PACK = CountryPack(
     org_structure=ORG_STRUCTURE,
     performance=PERFORMANCE,
     job_architecture=JOB_ARCHITECTURE,
+    skills=SKILLS,
+    compensation=COMPENSATION,
     notes=(
         "STRUCTURAL: EntgTranspG thresholds count per Betrieb, not per company. The "
         "headcount-in, band-out API cannot express this and will mislead if handed a "

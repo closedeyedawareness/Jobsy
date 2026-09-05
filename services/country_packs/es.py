@@ -340,6 +340,191 @@ JOB_ARCHITECTURE = JobArchitecture(
     ),
 )
 
+# ── skills ───────────────────────────────────────────────────────────────────
+
+_MECU = "https://www.boe.es/eli/es/rd/2022/04/12/272/con"
+_LO32022 = "https://www.boe.es/eli/es/lo/2022/03/31/3/con"
+_RD69_2025 = "https://www.boe.es/buscar/doc.php?id=BOE-A-2025-2039"
+_CNO_ISCO = "https://www.ine.es/daco/daco42/clasificaciones/corr_cno11_ciuo08.xls"
+_CCT2024 = "https://www.mites.gob.es/estadisticas/cct/cct24def/cct_2024_def.xls"
+_EES_MICRO = "https://www.ine.es/ftp/microdatos/salarial/datos_2022.zip"
+
+SKILLS = SkillsFramework(
+    qualification_framework=Claim(
+        ("MECU", 8), WET, _MECU, _VERIFIED,
+        note="RD 272/2022 sets eight levels and states level by level that each "
+             "corresponds to the same EQF level, so MECU to EQF is a clean 1:1. Levels 5 "
+             "to 8 were already regulated by the MECES for higher education, which has "
+             "its own four-level numbering — MECU 5A is MECES 1, 6 is 2, 7 is 3, 8 is 4 — "
+             "so two numbering systems coexist and a bare 'nivel 3' is ambiguous without "
+             "knowing which. WHEN SPAIN FORMALLY REFERENCED TO THE EQF COULD NOT BE "
+             "CONFIRMED: both decrees describe the compatibility certification as still "
+             "pending at the time of writing, and no completion was found. Do not state a "
+             "referencing year."),
+    occupation_taxonomy=Claim(
+        ("CNO-11",), WET,
+        "https://www.ine.es/dyngs/INEbase/es/operacion.htm?c=Estadistica_C&cid=1254736177033",
+        _VERIFIED,
+        note="Established by RD 1591/2010 and still current; no successor was announced on "
+             "the pages read, which is an absence of evidence rather than proof none is "
+             "planned."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="CNO-11", spine="ISCO-08",
+            source=Claim("INE publishes corr_cno11_ciuo08.xls", WET, _CNO_ISCO, _VERIFIED,
+                         note="Downloaded and parsed: 555 rows, four-digit CNO-11 against "
+                              "four-digit ISCO-08, MANY-TO-MANY, with frequency columns "
+                              "giving the cardinality of each side and a comment column "
+                              "explaining the splits. It also carries ISCO codes with NO "
+                              "Spanish counterpart, flagged as no aplicable a Espana — "
+                              "subsistence agricultural workers, community health "
+                              "workers, associate-professional nurses, because in Spain "
+                              "nursing is a degree profession in major group 2. Those "
+                              "rows have a blank CNO side and a loader must not read them "
+                              "as CNO entries. CORRECTION TO AN EARLIER ASSUMPTION IN "
+                              "THIS PACK: the CNO1 field in the INE earnings microdata is "
+                              "the ONE-DIGIT gran grupo, not four-digit, so this "
+                              "crosswalk cannot be joined to that microdata without "
+                              "collapsing to major group first."),
+        ),
+        SpineMapping(
+            dimension=QUALIFICATION, local_scheme="MECU", spine="EQF",
+            mapping={str(n): str(n) for n in range(1, 9)},
+            source=Claim("RD 272/2022 art. 4 states the correspondence level by level",
+                         WET, _MECU, _VERIFIED),
+        ),
+    ),
+)
+
+#: The competence catalogue, and it changed underneath the assumption this pack
+#: was written on. Ley Orgánica 5/2002 is REPEALED by LO 3/2022, and the five
+#: niveles de cualificación profesional went with it: RD 1128/2003 has been a
+#: derogated norm since 6 February 2025. What exists now is the Catálogo
+#: Nacional de Estándares de Competencias Profesionales with THREE levels, and
+#: "unidad de competencia" is superseded by "estándar de competencia" built from
+#: elementos de competencia with indicadores de calidad.
+#:
+#: RD 69/2025 Anexo II publishes the correspondence, which chains to the EQF
+#: through the MECU: ECP level 1 is MECU 3, level 2 is MECU 4, level 3 is MECU 5
+#: and MECES 1. Note what is NOT covered — the old CNCP levels 4 and 5 never had
+#: a certificado de profesionalidad and appear in no correspondence table, so any
+#: "five Spanish levels onto eight EQF levels" mapping is defined only for 1 to 3.
+COMPETENCE_CATALOGUE = Claim(
+    ("CNECP", 3), WET, _RD69_2025, _VERIFIED,
+    note="Public and free — each standard is an unauthenticated PDF, and 28 professional "
+         "families are listed including a new Inteligencia Artificial y Data. But NO BULK "
+         "DOWNLOAD, API OR DATASET COULD BE FOUND, and the one listing document linked "
+         "from the front page returns 404. A skills product would have to scrape "
+         "thousands of individual PDFs, which is the honest state of it. Separately, "
+         "LO 3/2022 art. 92 creates a PERMANENTLY OPEN administrative procedure to "
+         "accredit competences acquired through work experience, resolved within six "
+         "months, and art. 93 makes such an accreditation partial and cumulative. Arts. "
+         "15 and 17 give every citizen the right to obtain their own formative and "
+         "accreditation record from two state registers — which is a real, rights-based "
+         "route to an individual skills profile that has no equivalent in the other packs.")
+
+# ── compensation ─────────────────────────────────────────────────────────────
+
+COMPENSATION = CompensationModel(
+    structure=Claim(
+        ("SMI", "convenio sectorial", "convenio de empresa"), WET, _ET, _VERIFIED,
+        note="And the hierarchy CHANGED in a way that reversed an earlier reform. RDL "
+             "32/2021 rewrote ET art. 84.2 and REMOVED salary from the list of matters "
+             "where a company convenio beats the sector: the pre-2021 letter (a), la "
+             "cuantia del salario base y de los complementos salariales, is simply gone. "
+             "The sector floor on pay is restored. Verified against the consolidated "
+             "Estatuto whose header reads last modified 4 December 2025, so this is "
+             "current and not merely enacted. What company convenios still win on is "
+             "overtime and shift pay, working time, ADAPTING the classification system "
+             "locally, contract modalities and work-life measures. Note too that arts. "
+             "84.3 and 84.4 make regional and provincial agreements able to take priority "
+             "when MORE FAVOURABLE to workers, so which convenio governs pay is not "
+             "resolvable from the company's own convenio alone."),
+    bargaining_coverage=Claim(
+        0.9209, WET, _CCT2024, _VERIFIED,
+        note="92,09% at 31 December 2024, of which 86,11% through sector convenios and "
+             "11,17% through company ones. AND THE COVERAGE ITSELF HAS A GENDER GAP THAT "
+             "SPAIN PUBLISHES: 95,04% of men against 88,83% of women, 6,2 points. That is "
+             "a pay-equity signal in its own right and it sits in official statistics — "
+             "women are measurably less likely to be covered by the instrument that sets "
+             "pay floors, before any question about the floors themselves."),
+    extension_mechanism=Claim(
+        "erga omnes by operation of law — no extension act at all", WET, _ET, _VERIFIED,
+        note="THE STRUCTURAL OUTLIER OF THE SET. ET art. 82.3: convenios regulated by the "
+             "statute OBLIGE ALL EMPLOYERS AND WORKERS within their scope for their whole "
+             "term. There is no ministerial declaration, no royal decree, no opt-in — a "
+             "statutory convenio binds by force of the statute itself. Compare the "
+             "Netherlands, France, Belgium and Germany, which all need a positive act of "
+             "extension. Spain gets high coverage without any extension machinery, which "
+             "means there is nothing to look up: if the employer is in scope, they are "
+             "bound. The escape hatch to model is the descuelgue in the same article, "
+             "which lets a company disapply the convenio's pay terms on economic or "
+             "organisational grounds by agreement with worker representatives."),
+    seniority_progression=Claim(
+        0.6284, WET, _CCT2024, _VERIFIED,
+        note="THE ONLY HARD PREVALENCE FIGURE FOR SENIORITY PAY IN ANY PACK, and it is "
+             "official: 908 of 1.445 convenios signed in 2024 carry an antiguedad "
+             "complement — 62,84% of agreements and 65,68% of covered workers, at "
+             "essentially the same rate for company and sector convenios. It is NOT "
+             "statutory: ET art. 25.1 says a worker MAY have a right to economic "
+             "progression on the terms fixed by collective agreement or contract. So in "
+             "Spain about two thirds of covered employees have an automatic, "
+             "structurally gender-correlated pay component, and unlike every other market "
+             "here that share is measured rather than guessed. Named trienios and "
+             "quinquenios could not be confirmed at source — MITES does not break the "
+             "complement down by period length."),
+    market_data=(
+        Claim("EES microdata is free and needs no registration", WET, _EES_MICRO, _VERIFIED,
+              note="The Encuesta de Estructura Salarial microdata downloads directly at "
+                   "about 77 MB with no authentication, in CSV, SPSS, Stata, SAS, R and "
+                   "Parquet, for 2002, 2006, 2010, 2014, 2018 and 2022. Compare the "
+                   "Netherlands, where CBS microdata requires being a research "
+                   "institution and publishing your results. THE VARIABLE THAT MAKES IT "
+                   "unusually valuable is REGULACION, which tags every worker with WHICH "
+                   "CONVENIO LAYER GOVERNS THEM — state sector, lower-tier sector, "
+                   "company or group, workplace, or other. Nothing in the Dutch, German "
+                   "or French equivalents carries that, and it allows the sector-versus-"
+                   "company pay differential to be measured by sex on official data. "
+                   "ANOANTI and MESANTI alongside SEXO and SALBASE likewise allow the "
+                   "seniority-gender correlation to be measured rather than assumed. Note "
+                   "the granularity limit: CNO1 is one-digit only."),
+        Claim("pay by occupation and sex is published, but coarse", UITLEG,
+              "https://www.ine.es/jaxiT3/Tabla.htm?t=10916", _VERIFIED,
+              note="INE publishes mean annual salary by occupation group and sex with the "
+                   "female-to-male ratio built in, but across roughly seventeen "
+                   "aggregated groups rather than four-digit CNO. There is no published "
+                   "pay table at four-digit CNO. Headline for reference year 2024, "
+                   "published 28 May 2026: mean annual salary 29.540,26 euro, women "
+                   "26.904,90 and men 32.057,55."),
+    ),
+    constraints=(
+        Claim("ultraactividad is indefinite again", WET, _ET, _VERIFIED,
+              note="RDL 32/2021 rewrote ET art. 86 and the 2012 one-year guillotine is "
+                   "gone: where negotiation has run without agreement, the convenio "
+                   "REMAINS IN FORCE. The one-year mark is now only a trigger for "
+                   "compulsory mediation, not an expiry. PRACTICAL CONSEQUENCE FOR THE "
+                   "PRODUCT: do not build a fallback-to-SMI path when a Spanish convenio "
+                   "passes its end date. An expired, unrenewed convenio still governs "
+                   "pay, and treating it as lapsed would understate the floor."),
+        Claim(("salario_en_especie_max", 0.30), WET, _ET, _VERIFIED,
+              note="ET art. 26.1: pay in kind may never exceed 30% of the worker's salary "
+                   "perceptions, and may not reduce the full cash amount of the minimum "
+                   "wage. Two hard limits for any flexible-compensation feature. The IRPF "
+                   "exemption ceilings for meal, transport, childcare and health-insurance "
+                   "benefits sit in tax law that was NOT read, so no euro amounts are "
+                   "held here."),
+        Claim("occupational pension is not universally mandatory", UITLEG,
+              "https://www.boe.es/eli/es/l/2022/06/30/12/con", _VERIFIED,
+              note="Ley 12/2022 creates publicly promoted employment pension funds and "
+                   "simplified sectoral plans, but there is no general auto-enrolment "
+                   "mandate. Adhesion becomes binding only derivatively, where a "
+                   "statutory sectoral convenio contains a pension commitment. The "
+                   "conclusion is sound; the specific article number was taken from a "
+                   "summarising read and should be re-checked before it is cited."),
+    ),
+)
+
+
 PACK = CountryPack(
     country="ES",
     name="Spain",
@@ -354,6 +539,8 @@ PACK = CountryPack(
     org_structure=ORG_STRUCTURE,
     performance=PERFORMANCE,
     job_architecture=JOB_ARCHITECTURE,
+    skills=SKILLS,
+    compensation=COMPENSATION,
     notes=(
         "SCOPE: everything is counted per EMPRESA, never per centro de trabajo. RD "
         "901/2020 art. 3.1 says the plantilla total de la empresa counts cualquiera que "

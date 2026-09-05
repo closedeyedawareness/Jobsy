@@ -251,8 +251,38 @@ class CompensationModel:
     `market_data` is where a benchmarking source belongs, and it is separate
     from everything else because a vendor survey is a commercial artefact, not
     law, and must never carry a WET marker however authoritative it looks.
+
+    Three of these fields are their own fields rather than notes, because the
+    same question is being asked of every market and the answers only become
+    useful when they line up:
+
+    `bargaining_coverage` — what share of employees a collective agreement
+    reaches. This ranges from about 11% in Poland to near-universal in France
+    and Belgium, and it decides whether "the CAO says" is a sentence that means
+    anything for a given client.
+
+    `extension_mechanism` — WHY the coverage is what it is, which turns out to
+    be the more interesting half. The Netherlands extends agreements by
+    ministerial declaration, France by arrêté, Belgium by royal decree, Spain
+    binds everyone in scope by operation of law without any extension step at
+    all, Germany extends only rarely, and Poland has no mechanism. Countries
+    with similar coverage can have arrived there by completely different
+    machinery, and the machinery is what tells you whether a non-member
+    employer is bound.
+
+    `seniority_progression` — whether pay advances automatically with years of
+    service. This is here because it is one of the few pay-structure facts that
+    is directly a fairness question rather than a compliance one: automatic
+    seniority steps are gender-correlated through career breaks, so a market
+    where scales advance by tenure will show a gap that is produced by the
+    structure itself rather than by any decision anyone made about a person.
+    Knowing which markets work that way changes how a residual gap should be
+    read, and it is exactly the kind of thing that gets lost in a note.
     """
     structure: Claim                        # how pay is set in this market
+    bargaining_coverage: Optional[Claim] = None
+    extension_mechanism: Optional[Claim] = None
+    seniority_progression: Optional[Claim] = None
     market_data: tuple[Claim, ...] = ()
     constraints: tuple[Claim, ...] = ()     # what an employer may NOT do
 
@@ -348,7 +378,9 @@ class CountryPack:
 
         _walk(self.job_architecture, ("level_concept", "families", "mappings"))
         _walk(self.skills, ("qualification_framework", "occupation_taxonomy", "mappings"))
-        _walk(self.compensation, ("structure", "market_data", "constraints"))
+        _walk(self.compensation,
+              ("structure", "bargaining_coverage", "extension_mechanism",
+               "seniority_progression", "market_data", "constraints"))
         _walk(self.performance, ("codetermination", "constraints"))
         _walk(self.org_structure,
               ("employer_unit", "employee_representation", "constraints"))

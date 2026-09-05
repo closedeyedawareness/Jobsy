@@ -204,11 +204,17 @@ PC200 = CrosswalkSpec(
 ORG_STRUCTURE = OrgStructure(
     employer_unit=Claim(
         "onderneming / technische bedrijfseenheid", UITLEG, _RESEARCH, _VERIFIED,
-        note="The ondernemingsraad threshold is 100 employees, not 50 — the correction "
-             "the verification pass forced on this pack. Below 100 the analyseverslag "
-             "goes to the vakbondsafvaardiging instead. The unit is understood to be the "
-             "technische bedrijfseenheid, which is a Belgian construct that can be "
-             "narrower or wider than the legal entity, but that was not verified."),
+        note="The ondernemingsraad threshold is 100, not 50 — and there is a "
+             "SECOND-ORDER RULE that a simple flag at 100 still gets wrong. The OR is "
+             "CREATED at 100 but RENEWED at 50, so a firm of 50 to 99 has one only if it "
+             "already had one. The correct rule is 'OR at 100, or 50 if one already "
+             "exists'. The comité voor preventie en bescherming op het werk sits at 50 "
+             "for both creation and renewal and is what the 50-99 band has instead; where "
+             "there is no comité either, the duties cascade to the vakbondsafvaardiging, "
+             "which has NO statutory headcount at all — its threshold is set per joint "
+             "committee, so do not model a single national number. The unit is understood "
+             "to be the technische bedrijfseenheid, a Belgian construct that can be "
+             "narrower or wider than the legal entity; that part is still unverified."),
     employee_representation=Claim(
         "ondernemingsraad, of vakbondsafvaardiging", WET, _MODEL_FORM_URL, _VERIFIED,
         note="TWO different recipients depending on size, and two different official "
@@ -233,6 +239,190 @@ JOB_ARCHITECTURE = JobArchitecture(
     ),
 )
 
+# ── skills ───────────────────────────────────────────────────────────────────
+
+_VKS = "https://data-onderwijs.vlaanderen.be/edulex/document.aspx?docid=14111"
+_CFC = "https://cfc.cfwb.be/fr/"
+_STATBEL_ISCO = ("https://statbel.fgov.be/nl/over-statbel/methodologie/classificaties/"
+                 "internationale-standaard-beroepen-classificatie-isco-08")
+_INDEX = "https://werk.belgie.be/nl/themas/verloning/automatische-loonindexering"
+_LOONNORM = "https://werk.belgie.be/nl/themas/verloning/loonnorm"
+_PC200_LOON = "https://www.sfonds200.be/nl/sectorinformatie/verloning/"
+_OR = "https://werk.belgie.be"
+
+SKILLS = SkillsFramework(
+    qualification_framework=Claim(
+        ("VKS", "CFC", 8), WET, _VKS, _VERIFIED,
+        note="THERE IS NO SINGLE BELGIAN QUALIFICATION FRAMEWORK, and that is the finding. "
+             "Labour law is federal but qualifications are a Community competence, so "
+             "Flanders has the Vlaamse Kwalificatiestructuur under the decree of 30 April "
+             "2009 and the Fédération Wallonie-Bruxelles has the Cadre francophone des "
+             "certifications under a cooperation accord of 26 February 2015. A Belgian "
+             "employer with sites in Flanders and Wallonia genuinely faces TWO "
+             "qualification systems. Both run 1 to 8 and both are EQF-referenced, so THE "
+             "EQF LEVEL IS THE ONLY RELIABLE JOIN KEY BETWEEN THE TWO REGIONS — which is "
+             "the spine earning its keep inside a single country rather than between "
+             "countries. No official VKS-to-CFC crosswalk could be found. A third "
+             "framework for the German-speaking Community could not be confirmed either "
+             "way; it is absent from the European register, which is not proof."),
+    occupation_taxonomy=Claim(
+        ("ISCO-08", "no national adaptation"), WET, _STATBEL_ISCO, _VERIFIED,
+        note="Belgium uses ISCO-08 DIRECTLY for occupation — 435 four-digit codes, in use "
+             "since 1 January 2011, downloadable as XLS and CSV. There is no Belgian "
+             "adaptation, which makes this the only market in the set where the national "
+             "taxonomy IS the spine and the hop is an identity. Worth contrasting: "
+             "Belgium does maintain a national adaptation for industry, NACE-BEL, so the "
+             "absence for occupation is a choice rather than an oversight. Practical "
+             "note, the English Statbel classifications page omits ISCO — use the Dutch "
+             "one."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="ISCO-08 (used directly)", spine="ISCO-08",
+            source=Claim("Statbel codes occupations in ISCO-08 with no intermediate "
+                         "national classification", WET, _STATBEL_ISCO, _VERIFIED,
+                         note="An identity hop. The earlier guess in this pack said "
+                              "Belgium probably used ISCO-08 directly and marked it "
+                              "ONBEVESTIGD; that guess was right and is now sourced."),
+        ),
+    ),
+)
+
+# ── compensation ─────────────────────────────────────────────────────────────
+
+COMPENSATION = CompensationModel(
+    structure=Claim(
+        ("NAR/CNT interprofessional", "paritair comité", "company"), WET,
+        "https://werk.belgie.be/nl/themas/paritaire-comites-en-collectieve-"
+        "arbeidsovereenkomsten-caos/collectieve", _VERIFIED,
+        note="Three layers, and a company CAO binds ALL the employer's staff regardless "
+             "of union membership and regardless of whether the signatory organisation "
+             "was in the majority. Every private employer sits in a joint committee, with "
+             "PC 200 as the residual catch-all for white-collar staff."),
+    bargaining_coverage=Claim(
+        1.0, UITLEG, "OECD/AIAS ICTWSS via the OECD SDMX API", _VERIFIED,
+        note="The OECD series returns 100% for Belgium for every year from 1995 to 2024 — "
+             "effectively universal. The figure of about 96% that circulates could not be "
+             "sourced anywhere, so it is not used here. For scale from the same pull: "
+             "Germany 52, Netherlands 70,5, France 98, United States 11,6. Marked UITLEG "
+             "rather than WET because the measure code behind the series could not be "
+             "verified."),
+    extension_mechanism=Claim(
+        "koninklijk besluit (algemeen verbindend verklaring)", WET,
+        "https://werk.belgie.be/nl/themas/paritaire-comites-en-collectieve-"
+        "arbeidsovereenkomsten-caos/collectieve", _VERIFIED,
+        note="A CAO declared generally binding is published in full in the Belgisch "
+             "Staatsblad as an annex to a royal decree, binds all employers in scope "
+             "fifteen days later, removes the possibility of individual deviation unless "
+             "the CAO itself allows it, and NON-COMPLIANCE IS CRIMINALLY SANCTIONABLE. "
+             "That last point is the difference from the Dutch AVV, where the sanction is "
+             "nullity of the deviating term rather than a criminal offence."),
+    seniority_progression=Claim(
+        "baremieke verhogingen, experience-based", WET, _PC200_LOON, _VERIFIED,
+        note="PC 200 pays on job class times YEARS OF EXPERIENCE, with schaal I in the "
+             "first year of service and schaal II from one year after hiring, so the step "
+             "is automatic on the service anniversary. The age-based youth scale was "
+             "ABOLISHED with effect from 1 January 2024, which is a real, dated move from "
+             "age to experience. Two things are NOT established and should not be "
+             "asserted: the year CP 218 made the same switch, and any prevalence figure "
+             "for automatic progression across Belgian sectors. Strong indirect evidence "
+             "that it is general: the wage-norm law carves out baremieke verhogingen "
+             "separately, which it would not need to do if they were rare."),
+    market_data=(
+        Claim("two official pay gaps, a factor of 28 apart, both correct", WET,
+              "https://statbel.fgov.be/nl/themas/werk-opleiding/lonen-en-arbeidskosten/"
+              "loonkloof", _VERIFIED,
+              note="THE METHODOLOGY TRAP, and it is the sharpest in any pack. Statbel "
+                   "publishes the Eurostat-harmonised HOURLY gap for 2023 at 0,7%, second "
+                   "lowest in the EU. IGVM/IEFH publishes the GROSS ANNUAL gap for 2022 "
+                   "at 19,9% raw, or 7,0% corrected for working time, and 41,9% raw for "
+                   "blue-collar workers in the private sector. These are not "
+                   "contradictory — hourly against annual, time-corrected against raw — "
+                   "and both are official. A product quoting 0,7% and one quoting 19,9% "
+                   "are describing the same country. Never mix them in one narrative, and "
+                   "never show either without its basis."),
+        Claim("Statbel Structure of Earnings Survey", UITLEG,
+              "https://statbel.fgov.be/nl/themas/werk-opleiding/lonen-en-arbeidskosten",
+              _VERIFIED,
+              note="Annual since 1999, latest published reference year 2022, downloadable "
+                   "1999 to 2022, broken down by sex, occupational category, seniority, "
+                   "sector, education level, age and region. Note the caveat: the "
+                   "published crosstable uses Statbel's own beroepscategorie rather than "
+                   "explicit ISCO codes, so pay by true ISCO code and sex is not "
+                   "available as a ready-made table."),
+    ),
+    constraints=(
+        Claim("indexation is CAO-based, NOT statutory", WET, _INDEX, _VERIFIED,
+              note="A CORRECTION TO A COMMON BELIEF, and the ministry says it plainly: "
+                   "er bestaat geen algemene Belgische wet die bepaalt dat alle lonen "
+                   "automatisch geindexeerd moeten worden. Indexation is set in SECTORAL "
+                   "collective agreements and is near-universal only because coverage is "
+                   "near-universal. Two mechanism families exist: threshold-triggered, "
+                   "where wages move when the smoothed health index crosses a pivot at "
+                   "unpredictable times, and fixed-interval, most commonly annual. PC 200 "
+                   "indexes every 1 January using the smoothed health index for November "
+                   "and December against the same months a year earlier."),
+        Claim(("pc200_indexation", {"2022": 3.58, "2023": 11.08, "2024": 1.48,
+                                    "2025": 3.58, "2026": 2.21}), WET,
+              _PC200_LOON, _VERIFIED,
+              note="THE NUMBERS THAT MAKE THE HAZARD CONCRETE. On 1 January 2023 every PC "
+                   "200 employee received 11,08% with zero managerial discretion. An "
+                   "unadjusted year-on-year comparison will report inflation as a pay "
+                   "decision, make 2023 look like an extraordinary reward year and 2024 "
+                   "at 1,48% look like a freeze, and destroy comparability across joint "
+                   "committees, because a January-indexing PC and a threshold PC that "
+                   "crossed in October will show a spurious gap purely from timing. THE "
+                   "DECOMPOSITION THIS COUNTRY MAKES POSSIBLE: indexation, then scale "
+                   "progression, then the conventional sectoral increase, then the "
+                   "residual. ONLY THE RESIDUAL IS A PAY DECISION. Belgium is the market "
+                   "where those four are explicitly separable, which is an advantage if "
+                   "modelled and a defect if not."),
+        Claim("de loonnorm", WET, _LOONNORM, _VERIFIED,
+              note="Under the law of 26 July 1996 as amended in 2017, the maximum "
+                   "increase in labour cost per employee over a two-year period is "
+                   "capped, and the cap binds at interprofessional, sectoral, company AND "
+                   "INDIVIDUAL level — it constrains individual pay deals, not only "
+                   "collective agreements. There is no Dutch or German equivalent. "
+                   "THE CRITICAL POINT: indexation and baremieke verhogingen sit OUTSIDE "
+                   "the cap by art. 6 para 4, so A ZERO LOONNORM DOES NOT MEAN ZERO PAY "
+                   "GROWTH. The norm was 0% for 2023-2024 and 0% again for 2025-2026, "
+                   "while PC 200 wages rose 11,08% and then 1,48%, entirely lawfully. "
+                   "Sanctions run from 250 to 5.000 euro per employee concerned, capped "
+                   "at a hundred; structurally more potent, a sectoral CAO that exceeds "
+                   "the norm cannot be submitted for algemeen verbindend verklaring."),
+        Claim("blue-collar contributions run on a 108% base", WET,
+              "https://www.socialsecurity.be/employer/instructions/dmfa/nl/latest/"
+              "instructions/socialsecuritycontributions/contributions/"
+              "basiccontributions.html", _VERIFIED,
+              note="Employer social contributions in 2026 are 24,92% basic, reduced to "
+                   "19,88% for ordinary private employment, which is the operative rate. "
+                   "The modelling detail that will bite: contributions for ARBEIDERS are "
+                   "computed on the gross wage INCREASED BY 8%, while bedienden are "
+                   "computed on 100%. Employer cost for the same gross wage therefore "
+                   "differs by worker status, and status correlates with sex."),
+        Claim("the Federal Learning Account is abolished", WET,
+              "https://careerpro.be/nl/", _VERIFIED,
+              note="LIVE RISK, worth checking against anything on the roadmap. The "
+                   "repealing law was voted on 18 December 2025: since 1 January 2026 no "
+                   "new training can be registered in the Federal Learning Account, "
+                   "existing data can be consulted only until 31 December 2026, and is "
+                   "deleted after that. Anything treating the FLA as a Belgian training "
+                   "data source is building on something being switched off."),
+        Claim("no qualification field exists in Belgian payroll declarations", WET,
+              "https://www.socialsecurity.be/docu_xml/dmfa/DmfAOriginal_20263.html",
+              _VERIFIED,
+              note="A documented ABSENCE rather than a gap in the research. Neither DmfA "
+                   "nor Dimona carries any qualification, education, diploma, competency, "
+                   "certificate or training field; the worker blocks are occupation, "
+                   "service, scale salary and remuneration. The largest payroll vendor's "
+                   "public API publishes no training, education, skill, competence, "
+                   "qualification or certificate resource either. SO ASSUME BELGIAN "
+                   "QUALIFICATION DATA ARRIVES AS CUSTOMER-NAMED FREE FIELDS. There is no "
+                   "canonical Belgian export column to target, and inventing a plausible "
+                   "Dutch or French heading would be a fabrication."),
+    ),
+)
+
+
 PACK = CountryPack(
     country="BE",
     name="Belgium",
@@ -246,6 +436,8 @@ PACK = CountryPack(
     crosswalks=(PC200,),
     org_structure=ORG_STRUCTURE,
     job_architecture=JOB_ARCHITECTURE,
+    skills=SKILLS,
+    compensation=COMPENSATION,
     notes=(
         "DRAFT since 2026-09-05: the biennial cycle, the 50/100 thresholds, the two "
         "model forms and the ondernemingsraad route were confirmed against IGVM/IEFH and "

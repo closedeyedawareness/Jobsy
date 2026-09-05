@@ -180,19 +180,18 @@ CATS = CrosswalkSpec(
 
 ORG_STRUCTURE = OrgStructure(
     employer_unit=Claim(
-        "onderneming", ONBEVESTIGD, "", "2026-09-05",
-        note="Dutch thresholds are believed to attach to the onderneming, and the "
-             "ondernemingsraad becomes mandatory at 50 people under the Wet op de "
-             "ondernemingsraden. NEITHER WAS CHECKED against the statute in this round, "
-             "which is why this is the weakest claim in the Dutch pack while the German, "
-             "Spanish, Polish and French equivalents are all sourced. Read WOR art. 2 "
-             "before relying on the 50. The irony is deliberate and worth keeping: the "
-             "home market is the one nobody thought to verify."),
+        "onderneming", WET, "https://wetten.overheid.nl/BWBR0002747", "2026-09-05",
+        note="VERIFIED, having been the weakest claim in the product for a day: WOR "
+             "art. 2 attaches to the ondernemer who maintains an onderneming with IN DE "
+             "REGEL at least 50 people. The unit is the onderneming, and the test is "
+             "habitual rather than a count on a given date. Worth remembering how this "
+             "went: Germany, Spain, Poland and France were all sourced first, and the "
+             "home market was the one nobody thought to check."),
     employee_representation=Claim(
-        "ondernemingsraad", ONBEVESTIGD, "", "2026-09-05",
-        note="Consultation and consent rights over pay and appraisal systems are believed "
-             "to sit in WOR art. 27. Unverified. Do not tell a Dutch client what their OR "
-             "must agree to on the strength of this line."),
+        "ondernemingsraad", WET, "https://wetten.overheid.nl/BWBR0002747", "2026-09-05",
+        note="Confirmed at source. The consent rights are in WOR art. 27 lid 1 sub c and "
+             "sub g, and the CAO carve-out is in lid 3 — see the performance slot, where "
+             "both are set out with the qualification that matters."),
 )
 
 JOB_ARCHITECTURE = JobArchitecture(
@@ -215,6 +214,198 @@ JOB_ARCHITECTURE = JobArchitecture(
     ),
 )
 
+# ── skills ───────────────────────────────────────────────────────────────────
+
+_WET_NLQF = "https://wetten.overheid.nl/BWBR0050058/2025-01-01"
+_BESLUIT_NLQF = "https://wetten.overheid.nl/BWBR0050303/2025-01-01"
+_BRC = "https://www.cbs.nl/-/media/_excel/2026/17/brc2014.xlsx"
+_WOR = "https://wetten.overheid.nl/BWBR0002747"
+
+SKILLS = SkillsFramework(
+    qualification_framework=Claim(
+        ("NLQF", 8), WET, _BESLUIT_NLQF, "2026-09-05",
+        note="Statutory since 1 January 2025 under the Wet NLQF; the level table itself "
+             "sits in the Besluit NLQF art. 2, because the Act delegates it. Eight "
+             "numbered levels mapping 1:1 to EQF 1-8, PLUS an Instroomniveau that maps to "
+             "nothing and a level 4+ that also maps to EQF 4. Classification is compulsory "
+             "for government-regulated qualifications and opt-in for non-formal ones, so "
+             "the register is not a census of Dutch learning."),
+    occupation_taxonomy=Claim(
+        ("BRC 2014", "editie 2025"), WET,
+        "https://www.cbs.nl/nl-nl/onze-diensten/methoden/classificaties/onderwijs-en-beroepen/"
+        "beroepenclassificatie--isco-en-sbc--", "2026-09-05",
+        note="CBS states that from reporting year 2013 it uses only ISCO-2008 and the "
+             "Beroepenindeling ROA-CBS 2014 derived from it, and that the older national "
+             "SBC classifications are neither used nor maintained. So SBC 1992 and SBC "
+             "2010 are dead and anything still mapping to them is mapping to a corpse."),
+    mappings=(
+        SpineMapping(
+            dimension=OCCUPATION, local_scheme="BRC 2014 ed. 2025", spine="ISCO-08",
+            source=Claim("CBS publishes the codelists, and the most detailed BRC level IS "
+                         "the ISCO-08 unit group", WET, _BRC, "2026-09-05",
+                         note="THE HOP IS DIRECTIONAL AND THE DIRECTION MATTERS. The "
+                              "published mapping runs ISCO to BRC and inverting it is "
+                              "lossy: 588 ISCO unit groups collapse into 115 "
+                              "beroepsgroepen, so going back reaches a unique 4-digit "
+                              "ISCO code for only 22 of the 115, and one beroepsgroep "
+                              "spans 35 of them. At ISCO MAJOR-GROUP level the inverse "
+                              "does resolve, 113 of 115, the two exceptions being Koks "
+                              "and a residual Overig bucket. So route NL to ISCO at "
+                              "one-digit level on published evidence, and do not claim "
+                              "four-digit precision the file cannot support. Better "
+                              "route: the same workbook carries a free index of 4.715 "
+                              "Dutch job titles onto 424 four-digit ISCO codes, which "
+                              "reaches the precision the code path cannot."),
+        ),
+        SpineMapping(
+            dimension=QUALIFICATION, local_scheme="NLQF", spine="EQF",
+            mapping={"1": "1", "2": "2", "3": "3", "4": "4", "4+": "4",
+                     "5": "5", "6": "6", "7": "7", "8": "8"},
+            source=Claim("Besluit NLQF art. 2", WET, _BESLUIT_NLQF, "2026-09-05",
+                         note="NLQF to EQF is a function; EQF to NLQF is NOT, because EQF "
+                              "level 4 has two Dutch pre-images, 4 and 4+, and the "
+                              "Instroomniveau maps to nothing at all. A round trip "
+                              "through the spine therefore does not return where it "
+                              "started, and any bridge that treats this as reversible "
+                              "will quietly promote or demote people at level 4."),
+        ),
+    ),
+)
+
+# ── compensation ─────────────────────────────────────────────────────────────
+
+COMPENSATION = CompensationModel(
+    structure=Claim(
+        ("WML", "CAO", "company"), WET,
+        "https://wetten.overheid.nl/BWBR0001937", "2026-09-05",
+        note="Three floors, each binding only upward. Wet op de CAO art. 12 makes any "
+             "individual term conflicting with the CAO VOID rather than merely "
+             "unenforceable, and art. 13 substitutes the CAO term where the contract is "
+             "silent. Note who may invoke that nullity: art. 12 gives it to any party to "
+             "the collective agreement, so the union can, not only the employee."),
+    bargaining_coverage=Claim(
+        0.725, WET,
+        "https://zoek.officielebekendmakingen.nl/kst-29544-1304.html", "2026-09-05",
+        note="72,5% in 2024, down from 76,7% in 2010, against union density of 15,3% in "
+             "2025 — coverage is roughly 4,7 times membership and the difference is the "
+             "extension machinery. PRODUCT-RELEVANT: the directive's action-plan trigger "
+             "is 80% bargaining coverage, and the Netherlands is below it, so it owes an "
+             "action plan. That is why SZW is writing letters about the CAO system."),
+    extension_mechanism=Claim(
+        "algemeenverbindendverklaring (AVV)", WET,
+        "https://wetten.overheid.nl/BWBR0001987", "2026-09-05",
+        note="The minister may declare CAO provisions generally binding, and a "
+             "conflicting term between employer and employee is then VOID. About 998.600 "
+             "of the 6.182.400 CAO-covered employees are bound this way rather than "
+             "through membership, roughly 16%, and it is highly sectoral: horeca around "
+             "39%, public administration zero. So a non-member employer who signed "
+             "nothing can still be unable to agree pay below the scale, bounded from "
+             "outside the contract entirely — and because an AVV runs only for its "
+             "declared period, that constraint lapses and revives. The AVV split comes "
+             "from the SZW CAO register; CBS explicitly does NOT know whether a given "
+             "employee is covered by membership or by AVV, so never attribute it to CBS."),
+    seniority_progression=Claim(
+        "conditional annual step", WET,
+        "https://www.caogemeenten.nl/cao-gemeenten-2025-2027/"
+        "salaris-salaristoeslagen-en-vergoedingen", "2026-09-05",
+        note="NOT the pure years-of-service lookup this product assumed. Both CAOs read "
+             "in full make the annual periodiek conditional on adequate functioning: the "
+             "CAO Rijk requires that the manager considers the employee to be functioning "
+             "sufficiently, and the Cao Gemeenten grants the step if the employee "
+             "voldoende functioneert and is not yet at the scale maximum. So model it as "
+             "DEFAULT-YES BUT WITHHOLDABLE. That matters for fairness work, because the "
+             "structural gender correlation then runs through TWO channels rather than "
+             "one: career breaks stopping the clock, and a discretionary sufficiency "
+             "gate. The second is the one a pay-equity product can actually audit — a "
+             "withheld step is a decision about a person, and decisions about people can "
+             "be compared. Evidence is two public-sector CAOs only; do not generalise to "
+             "the market without reading private-sector texts."),
+    market_data=(
+        Claim("CBS StatLine 86355NED", WET,
+              "https://opendata.cbs.nl/statline/#/CBS/nl/dataset/86355NED", "2026-09-05",
+              note="Hourly wage by occupation, 2013-2025, classified on BRC 2014 editie "
+                   "2025 — the SAME edition as the ISCO routing above, so benchmark and "
+                   "classification agree for once. But its wage definition EXCLUDES "
+                   "bijzondere beloningen and overtime, so it will not match a client's "
+                   "total-cash figure, and that mismatch has to be stated in any "
+                   "comparison against the market rather than absorbed silently."),
+        Claim("CBS microdata is not available to us", WET,
+              "https://www.cbs.nl/nl-nl/onze-diensten/maatwerk-en-microdata", "2026-09-05",
+              note="Access is limited to universities, scientific organisations and "
+                   "planning agencies whose PRIMARY ACTIVITY is research and who publish "
+                   "publicly, and every output must be publicly released when the project "
+                   "ends. A Dutch BV does not qualify, and mandatory publication is "
+                   "incompatible with a proprietary benchmark. This is a "
+                   "university-partnership route, not a product data source — worth "
+                   "knowing before anyone plans around it."),
+        Claim("EBB collects no earnings", WET,
+              "https://www.cbs.nl/nl-nl/onze-diensten/methoden/onderzoeksomschrijvingen/"
+              "korte-onderzoeksbeschrijvingen/enquete-beroepsbevolking--ebb--", "2026-09-05",
+              note="Income enters the Enquete Beroepsbevolking only through the "
+                   "weighting. Do not use it as a pay source."),
+    ),
+    constraints=(
+        Claim("Waadi art. 8", WET, "https://wetten.overheid.nl/BWBR0009616", "2026-09-05",
+              note="An agency worker placed with a hirer is entitled to at least the same "
+                   "terms as employees in equal or equivalent roles at that hirer. So a "
+                   "pay-equity dataset that excludes the hirer's agency staff is "
+                   "measuring an incomplete population BY THE LAW'S OWN DEFINITION, not "
+                   "merely by preference. Payrolling is carved out and sits under a "
+                   "stricter regime."),
+        Claim("verplichtstelling bedrijfstakpensioenfonds", WET,
+              "https://wetten.overheid.nl/BWBR0012092", "2026-09-05",
+              note="A sector-level erga omnes device parallel to the AVV but a separate "
+                   "instrument: the minister can make participation in a sector pension "
+                   "fund compulsory, binding employers to that fund's rules. Around 90% "
+                   "of employees have a supplementary scheme. How much of that 90% runs "
+                   "through a verplichtstelling could NOT be sourced — the widely quoted "
+                   "figure has no primary basis and must not be repeated. Separately, the "
+                   "Wtp transition to 1 January 2028 is restructuring pension cost as a "
+                   "share of pay right now, which makes it an unstable component for any "
+                   "equity comparison spanning 2026 to 2028."),
+        Claim("WKR vrije ruimte 2026", WET,
+              "https://zoek.officielebekendmakingen.nl/kst-36812-129.html", "2026-09-05",
+              note="2% over the first 400.000 euro of the fiscal wage bill plus 1,18% "
+                   "above it. Relevant because the Netherlands values benefits in kind "
+                   "inside this regime at actual value, where France for example uses an "
+                   "administrative forfait — so the same benefit produces different "
+                   "numbers in the two countries by construction."),
+    ),
+)
+
+# ── performance ──────────────────────────────────────────────────────────────
+
+PERFORMANCE = PerformanceModel(
+    codetermination=Claim(
+        True, WET, _WOR, "2026-09-05",
+        note="WOR art. 27 lid 1 gives the ondernemingsraad a CONSENT right — "
+             "instemmingsrecht, not consultation — over sub c, a belonings- or "
+             "functiewaarderingssysteem, and separately over sub g, a regeling op het "
+             "gebied van de personeelsbeoordeling. So both a pay structure and an "
+             "appraisal system need the works council's agreement. Sub l also covers "
+             "arrangements for observing or monitoring attendance, behaviour or "
+             "performance, which is likely to reach the tooling itself and not only the "
+             "policy."),
+    constraints=(
+        Claim("WOR art. 27 lid 3", WET, _WOR, "2026-09-05",
+              note="THE CARVE-OUT, and it is large. Consent is not required to the extent "
+                   "the matter is already substantively regulated in a collective "
+                   "agreement. With CAO coverage at 72,5%, the instemmingsrecht over pay "
+                   "and job evaluation bites hardest in the uncovered quarter of the "
+                   "market. Any feature built on 'your OR must consent to your pay "
+                   "system' has to pass through this gate first, or it will tell most "
+                   "Dutch clients something untrue about their own situation."),
+        Claim("WOR ladder by size", WET, _WOR, "2026-09-05",
+              note="Under 10 people nothing is mandatory; from 10 to 49 the employer must "
+                   "convene a personeelsvergadering at least twice a year, with a "
+                   "personeelsvertegenwoordiging of at least three elected members as the "
+                   "alternative; from 50 an ondernemingsraad is compulsory. Art. 2 says "
+                   "IN DE REGEL ten minste 50 — habitually, not a headcount on any given "
+                   "day, so a roster snapshot is the wrong instrument for this test."),
+    ),
+)
+
+
 PACK = CountryPack(
     country="NL",
     name="Netherlands",
@@ -228,6 +419,9 @@ PACK = CountryPack(
     crosswalks=(ISF, CATS),
     org_structure=ORG_STRUCTURE,
     job_architecture=JOB_ARCHITECTURE,
+    skills=SKILLS,
+    compensation=COMPENSATION,
+    performance=PERFORMANCE,
     notes=(
         "DRAFT rather than LIVE only because the transposition claim is stale, not "
         "because the crosswalk data is in doubt: that was verified against primary "
