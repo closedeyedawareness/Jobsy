@@ -161,7 +161,8 @@ _TRANSPOSED = Claim(
          "thresholds circulating in commentary (250+ annual, 100-249 triennial, first "
          "report 2028) come from secondary sources that disagree with one another, and "
          "the disagreement is itself the finding: the draft is still moving. Do not "
-         "build to it.")
+         "build to it.",
+    review_after_months=6)
 
 REPORTING = PayReporting(
     transposed=_TRANSPOSED,
@@ -327,12 +328,30 @@ ORG_STRUCTURE = OrgStructure(
              "Germany's Betrieb and Spain's empresa — and unlike those two, it is not "
              "even a stable unit, because it follows how the employer organises itself."),
     employee_representation=Claim(
-        "zwiazki zawodowe / rada pracownikow", ONBEVESTIGD, "", _VERIFIED,
-        note="Union density is 9,4% and bargaining coverage 11,6%, so most Polish "
-             "employers have no union counterparty at all — which makes the regulamin "
-             "wynagradzania, mandatory at 50+, the practical instrument instead. Where a "
-             "union does exist the employer must AGREE the regulamin with it, not merely "
-             "consult. The rada pracownikow threshold was not verified."),
+        "zwiazki zawodowe / rada pracownikow", UITLEG,
+        "Elmar van Dijk, domain knowledge, 2026-09-05; the ustawa o informowaniu "
+        "pracownikow i przeprowadzaniu z nimi konsultacji has NOT been read",
+        _VERIFIED,
+        note="THE THRESHOLD IS 50, AND IT IS NOT A FLAG. Below 50 there is no statutory "
+             "right to a rada pracownikow under the general employee-information act. At "
+             "50 and above the arrangement CAN apply — but a council does not come into "
+             "being simply because the fiftieth employee is hired. The statutory election "
+             "and establishment procedure has to be triggered by somebody. "
+             "So a Polish employer of 200 may lawfully have no rada pracownikow at all, "
+             "and a boolean derived from headcount would assert one that does not exist. "
+             "This is the same shape as Belgium, where the works council is created at "
+             "100 but renewed at 50 — in both markets the number ENABLES a body rather "
+             "than producing one, and the product must ask whether it was actually "
+             "constituted rather than infer it. "
+             "Marked UITLEG rather than WET deliberately: this came from Elmar's own "
+             "knowledge of the market and the statute has not been read. What would "
+             "upgrade it is opening that act and citing the article that sets the "
+             "threshold and the procedure. "
+             "Context that is separately sourced: union density is 9,4% and bargaining "
+             "coverage 11,6%, so most Polish employers have no union counterparty either, "
+             "which leaves the regulamin wynagradzania as the practical instrument. Where "
+             "a union does exist the employer must AGREE the regulamin with it, not "
+             "merely consult."),
 )
 
 PERFORMANCE = PerformanceModel(

@@ -105,7 +105,8 @@ _TRANSPOSED = Claim(
          "and Belgium asked the Commission for six months forbearance on infringement. "
          "Only regional decrees covering their own public sectors (Flemish, and "
          "Federation Wallonie-Bruxelles) are in force. None of this touches the 2012 "
-         "law, which applies either way and is the duty a private-sector client has.")
+         "law, which applies either way and is the duty a private-sector client has.",
+    review_after_months=6)
 
 REPORTING = PayReporting(
     transposed=_TRANSPOSED,

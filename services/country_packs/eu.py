@@ -82,7 +82,8 @@ REPORTING = PayReporting(
         note="Art. 34(1): member states had to bring implementing law into force by "
              "7 June 2026. This pack states the directive's own position; whether a "
              "given country has actually transposed is that country's pack to answer, "
-             "and as of September 2026 most had not."),
+             "and as of September 2026 most had not.",
+    review_after_months=6),
     national_law=Claim("Directive (EU) 2023/970", WET, OJ, _ASOF),
     joint_assessment_trigger_pct=Claim(
         5.0, WET, OJ, _ASOF,
@@ -157,14 +158,27 @@ SKILLS = SkillsFramework(
 
 PERFORMANCE = PerformanceModel(
     codetermination=Claim(
-        None, ONBEVESTIGD, "", _ASOF,
-        note="The directive says nothing directly about performance management. What it "
-             "does say, in Art. 6, is that the criteria used for pay AND PAY PROGRESSION "
-             "must be objective, gender-neutral and accessible to workers — and a 9-box "
-             "that feeds pay progression is therefore in scope of that article even "
-             "though it is not named. Whether a given member state's transposition "
-             "reaches talent grids specifically is unknown and must be answered per "
-             "country, not here."),
+        "indirect, and nationally conditioned", UITLEG,
+        "Elmar van Dijk, domain knowledge, 2026-09-05, read against Art. 6", _ASOF,
+        note="THE ANSWER IS CONDITIONAL, NOT UNKNOWN, and the difference matters: a "
+             "conditional answer names what it depends on, so a reader can go and settle "
+             "it for their own case. "
+             "The directive says nothing directly about performance management. Art. 6 "
+             "says the criteria used for pay AND PAY PROGRESSION must be objective, "
+             "gender-neutral and accessible to workers. So EU rules can reach a talent or "
+             "assessment grid INDIRECTLY, wherever that grid is used for decisions about "
+             "pay, promotion, career development, selection or other terms of employment. "
+             "A 9-box that only informs a development conversation sits further from the "
+             "article than one that feeds a pay round. "
+             "WHETHER AND HOW IT CARRIES THROUGH depends on three things, none of them "
+             "answerable at this level: the national transposition, the local "
+             "co-determination rules, and how the system actually operates in practice "
+             "rather than how it is described. The German pack is the sharpest example of "
+             "the second — a works council there has co-determination over pay "
+             "structuring outright, so the question is settled before the directive is "
+             "even reached. "
+             "Marked UITLEG: this is a reading of Art. 6 against how these systems are "
+             "used, not a citation to a text that names talent grids."),
 )
 
 PACK = CountryPack(

@@ -102,12 +102,19 @@ GENDER_CODES: dict[str, tuple[str, ...]] = {
 
 _TRANSPOSED = Claim(
     value=False, hardness=ONBEVESTIGD, as_of=_ASOF,
-    note="Research indicates Germany had not transposed Directive (EU) 2023/970 by the "
-         "7 June 2026 deadline, that amending the EntgTranspG is the expected route, and "
-         "that an Expertenkommission delivered its final report on 7 November 2025 with "
-         "no Referentenentwurf public since. The lead ministry is the BMBFSFJ, not the "
-         "BMAS. Re-check on gesetze-im-internet.de before stating a client position; the "
-         "2017 Act applies regardless of the directive status.")
+    note="AS AT 5 SEPTEMBER 2026 A SEARCH FOUND NO GERMAN IMPLEMENTING ACT for Directive "
+         "(EU) 2023/970, and the 7 June 2026 deadline had passed. Note the shape of that "
+         "sentence: it reports a search on a date, not a state of the world. Nobody can "
+         "verify that a law does not exist, only that they looked and did not find one, "
+         "so this claim carries a review interval instead of pretending to be settled. "
+         "What the search did find: amending the EntgTranspG is the expected route, an "
+         "Expertenkommission reported on 7 November 2025, and no Referentenentwurf has "
+         "been public since. The lead ministry is the BMBFSFJ, not the BMAS. "
+         "WHY IT MATTERS IF THIS GOES STALE: the German 2017 Act starts reporting above "
+         "500 employees and the directive starts at 250. If Germany transposes and nobody "
+         "re-checks, a 300-person employer is told they sit outside a duty that by then "
+         "reaches them. The 2017 Act applies either way.",
+    review_after_months=6)
 
 REPORTING = PayReporting(
     transposed=_TRANSPOSED,

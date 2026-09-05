@@ -91,7 +91,7 @@ _TRANSPOSED = Claim(
           "'op een bij koninklijk besluit te bepalen tijdstip', which can differ per "
           "article. Nothing client-facing may present 1 January 2027 as a commencement "
           "date."),
-)
+    review_after_months=6)
 
 REPORTING = PayReporting(
     transposed=_TRANSPOSED,

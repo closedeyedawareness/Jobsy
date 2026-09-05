@@ -167,7 +167,8 @@ _TRANSPOSED = Claim(
          "requirements (burden of proof, remedies, sanctions) sit at statute level, so "
          "an RD alone may not suffice. Whether an accompanying law is intended is "
          "unconfirmed. Spain's existing register and audit are unaffected and remain the "
-         "live duty.")
+         "live duty.",
+    review_after_months=6)
 
 REPORTING = PayReporting(
     transposed=_TRANSPOSED,

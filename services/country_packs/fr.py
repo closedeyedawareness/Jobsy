@@ -156,7 +156,8 @@ _TRANSPOSED = Claim(
          "permanently. Press reported a projet de loi due at the Conseil des ministres "
          "on 9 SEPTEMBER 2026 — four days after this pack was written, so this claim has "
          "a known expiry date and should be re-read then. Until it lands, the Index is "
-         "fully in force and unchanged; the March 2026 cycle ran normally.")
+         "fully in force and unchanged; the March 2026 cycle ran normally.",
+    review_after_months=6)
 
 REPORTING = PayReporting(
     transposed=_TRANSPOSED,
@@ -498,17 +499,26 @@ COMPENSATION = CompensationModel(
              "opposition test is a veto needing employers of more than half the covered "
              "employees, which is hard to trigger."),
     seniority_progression=Claim(
-        None, ONBEVESTIGD, "", _VERIFIED,
-        note="HONESTLY UNKNOWN, and it should stay that way rather than be generalised. "
-             "The prime d'ancienneté is confirmed not statutory. Whether automatic "
-             "progression through coefficients is COMMON would require reading a "
-             "representative sample of roughly 200 conventions collectives, which was not "
-             "possible. What is established is the structure that decides it: every "
-             "extendable branch convention must carry a classification grid, and the "
-             "branch beats the company on that grid, so the progression rule is written "
-             "PER BRANCH with no national default. Treat it as a per-IDCC attribute to be "
-             "looked up. The join key already exists — the IDCC is in every DSN record — "
-             "but the rule behind it has to be read from the convention."),
+        "per branch; no general French practice", UITLEG,
+        "Elmar van Dijk, domain knowledge, 2026-09-05, consistent with the statutory "
+        "structure below", _VERIFIED,
+        note="THE ANSWER IS THAT THERE IS NO NATIONAL ANSWER, and that is a finding "
+             "rather than a gap. Coefficients and classifications are widespread, but "
+             "whether progression through them is AUTOMATIC depends on the applicable "
+             "sector convention and cannot reliably be stated as general French practice. "
+             "This pack previously recorded the question as unknown because reading two "
+             "hundred conventions was not possible. That was the wrong shape for the "
+             "answer: 'nobody has looked' and 'no general answer exists' are different "
+             "states, and only the second tells a reader to stop looking for one. "
+             "It fits the structure that was independently verified: every extendable "
+             "branch convention must carry a classification grid, and the branch beats "
+             "the company on that grid, so the progression rule is written PER BRANCH "
+             "with no national default to fall back on. "
+             "So treat it as a per-IDCC attribute to look up rather than a market fact. "
+             "The join key already exists — the IDCC sits in every DSN record — but the "
+             "rule behind it has to be read from the convention itself. "
+             "Marked UITLEG: this is Elmar's reading of the market, corroborated by the "
+             "statutory structure, not a citation to a text that says it."),
     market_data=(
         Claim("INSEE publishes pay by PCS and sex", WET,
               "https://www.insee.fr/fr/statistiques/8743657", _VERIFIED,

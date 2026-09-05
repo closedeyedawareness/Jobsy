@@ -53,6 +53,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Any, Optional
 
 __all__ = [
@@ -94,6 +95,58 @@ class Claim:
     source: str = ""
     as_of: str = ""
     note: str = ""
+    #: How many months this claim stays trustworthy, or None if it does not
+    #: decay on a clock.
+    #:
+    #: Most claims here do not. A statute's text does not go stale — art. 9 says
+    #: what it said in 2023, and if it is amended that is an event somebody
+    #: notices, not a slow drift. But some claims are NEGATIVES about the state
+    #: of legislation: "Germany has not transposed the directive." You cannot
+    #: verify a negative, only date a search for one, and the answer quietly
+    #: stops being true the moment a parliament acts.
+    #:
+    #: Those claims carry a review interval so that a check from two years ago
+    #: stops looking identical to one from this morning. What happens when it
+    #: lapses is deliberately NOT silence: the claim keeps speaking and says how
+    #: old it is. Going quiet would throw away information that is usually still
+    #: correct and leave the reader with nothing instead of something dated.
+    #:
+    #: The cost of a stale transposition claim is not abstract. Germany's own
+    #: 2017 Act starts reporting above 500 employees; the directive starts at
+    #: 250. Say "not transposed" after Germany has, and a 300-person employer is
+    #: told they sit outside a duty that now reaches them — the exact shape of
+    #: error this package was built to remove.
+    review_after_months: Optional[int] = None
+
+    def months_old(self, today: Optional[date] = None) -> Optional[int]:
+        """Whole months since this claim was last checked, or None if undated.
+
+        Accepts the two shapes `as_of` actually takes in these packs: a full
+        date, and a bare year-month from an earlier pass that recorded only the
+        month. A bare month is read as its first day, which errs toward calling
+        a claim OLDER than it is — the right direction to err.
+        """
+        if not self.as_of:
+            return None
+        raw = self.as_of.strip()
+        for suffix in ("", "-01"):
+            try:
+                when = datetime.strptime(raw + suffix, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            now = today or date.today()
+            months = (now.year - when.year) * 12 + (now.month - when.month)
+            if now.day < when.day:
+                months -= 1
+            return max(0, months)
+        return None
+
+    def needs_review(self, today: Optional[date] = None) -> bool:
+        """Whether this claim has outlived the interval it set for itself."""
+        if not self.review_after_months:
+            return False
+        age = self.months_old(today)
+        return age is not None and age >= self.review_after_months
 
     def __post_init__(self) -> None:
         if self.hardness not in HARDNESS:

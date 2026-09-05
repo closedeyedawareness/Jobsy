@@ -549,6 +549,24 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
                 "question for their adviser and not for this screen.")
 
         rep = pack.reporting
+        if rep and rep.transposed.needs_review():
+            # Not silence, and not business as usual. A claim about whether a
+            # country has legislated is a NEGATIVE — nobody can verify that a law
+            # does not exist, only date a search for one — so it decays on a
+            # clock rather than being settled once. When the interval lapses the
+            # claim keeps speaking and says how old it is: going quiet would
+            # throw away information that is usually still correct and leave the
+            # reader with nothing instead of something dated.
+            months = rep.transposed.months_old()
+            out.append(
+                f"{where}STALE: the statement below about whether this country has "
+                f"legislated was last checked {months} months ago, against an interval of "
+                f"{rep.transposed.review_after_months}. Legislation moves faster than "
+                "that. Treat it as a prompt to look, not as an answer — and note which "
+                "way the error runs: if a country has legislated since, thresholds "
+                "usually reach FURTHER DOWN than the national law they replace, so a "
+                "stale 'not transposed' understates who is in scope.")
+
         if rep and rep.pre_existing_duty and rep.pre_existing_duty.value:
             out.append(f"{where}{rep.pre_existing_duty.note}")
         if rep and not rep.transposed.value:
