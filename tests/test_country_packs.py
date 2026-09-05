@@ -19,6 +19,15 @@ from services import country_packs as cp
 ALL_PACKS = sorted(cp.load().items())
 PACK_IDS = [c for c, _ in ALL_PACKS]
 
+#: Several tests need "a real EU market we hold no pack for". France used to be
+#: that example, chosen because its Index applies from 50 employees and so makes
+#: the point vividly. Then France got a pack and three tests broke — which is
+#: the suite noticing coverage grew, not a fault. Rather than rename the country
+#: every time and eventually pick one that is also about to land, the stand-in
+#: is now resolved from whatever is genuinely still uncovered.
+_CANDIDATES = ("IT", "SE", "DK", "PT", "IE", "AT", "FI", "CZ", "RO", "GR")
+UNCOVERED = next((c for c in _CANDIDATES if c not in cp.load()), None)
+
 
 # ── the rules every pack must satisfy ────────────────────────────────────────
 
@@ -108,15 +117,18 @@ def test_unknown_country_is_answered_with_silence():
     """No pack means no answer — not the EU baseline.
 
     The directive does apply Union-wide, which makes inheritance tempting, but
-    several member states are stricter than it. France's Index applies from 50
-    employees, so a French client handed the EU bands would be told they have
-    no duty at 60 when they have one. Understating an obligation is the worst
-    available answer, and worse than saying France is not covered yet.
+    several member states are stricter than it, and the packs written since have
+    proved it three times over rather than hypothetically: France's Index
+    applies from 50, Belgium's 2012 law from 50, and Spain's registro
+    retributivo from ONE employee. Any of those clients handed the EU bands
+    would have been told they had no duty while sitting on a live one.
+    Understating an obligation is the worst answer available.
     """
-    assert "FR" not in cp.load(), "this test's premise is that FR has no pack yet"
-    reporting, source = cp.reporting_for("FR")
+    if UNCOVERED is None:
+        pytest.skip("every candidate market now has a pack — a good problem")
+    reporting, source = cp.reporting_for(UNCOVERED)
     assert reporting is None and source == ""
-    band, source = cp.band_for(180, "FR")
+    band, source = cp.band_for(180, UNCOVERED)
     assert band is None and source == ""
 
 
@@ -182,7 +194,8 @@ def test_has_crosswalk_is_about_data_not_nationality():
     moment a second pack existed.
     """
     assert cp.has_crosswalk("NL") is True
-    assert cp.has_crosswalk("FR") is False
+    if UNCOVERED is not None:
+        assert cp.has_crosswalk(UNCOVERED) is False
     assert cp.has_crosswalk(None) in (True, False)   # must not raise on no country
 
 
@@ -318,3 +331,144 @@ def test_hard_law_claims_cite_something_a_reader_can_open(code, pack):
         assert src, f"{code}: a WET claim with no source: {c.value!r}"
         assert src.startswith("http") or "/" in src or ".md" in src, (
             f"{code}: WET claim cites {src!r}, which is not a document anybody can open")
+
+
+# ── the currency guard ───────────────────────────────────────────────────────
+
+def test_currency_warning_is_silent_while_every_pack_is_euro():
+    """It must not cry wolf. Today NL, BE, DE and EU are all EUR."""
+    from services.pay_equity_service import _currency_notes
+    assert _currency_notes(("NL", "BE", "DE")) == []
+    assert _currency_notes(("NL",)) == []
+    assert _currency_notes(()) == []
+
+
+def test_currency_warning_fires_when_units_differ(monkeypatch):
+    """Proven with a stand-in market, because the real one does not exist yet.
+
+    The guard is written for Poland and every pack today is EUR, so shipping it
+    unexercised would mean the first time it ever runs is in front of a client
+    with a Polish roster. A fake PL pack costs nothing and turns "it should
+    fire" into "it fires, and this is the sentence it produces".
+
+    The stand-in is deliberately minimal: only `currency` matters to this code
+    path, and inventing a plausible-looking Polish legal claim to pad it out
+    would be exactly the thing test_only_what_was_seen warns about.
+    """
+    from services import country_packs as cp
+    from services import pay_equity_service as pes
+
+    fake_pl = cp.CountryPack(country="PL", name="Poland (stand-in)",
+                             currency="PLN", languages=("pl",), status=cp.STUB)
+    real = cp.for_country
+
+    def patched(country=None):
+        if (country or "").upper() == "PL":
+            return fake_pl
+        return real(country)
+
+    monkeypatch.setattr(cp, "for_country", patched)
+
+    notes = pes._currency_notes(("NL", "PL"))
+    assert len(notes) == 1
+    note = notes[0]
+    assert note.startswith("CURRENCY:")
+    assert "EUR: NL" in note and "PLN: PL" in note, (
+        f"the note must name which country is in which unit, got: {note}")
+    assert "does not convert" in note, (
+        "the note must stay consistent with country_service, which refuses to convert")
+
+    # Two euro countries alongside the non-euro one still warn, and the euro
+    # group is listed together rather than one line per country.
+    grouped = pes._currency_notes(("NL", "BE", "PL"))[0]
+    assert "EUR: BE, NL" in grouped, grouped
+
+
+def test_currency_warning_ignores_markets_we_hold_no_pack_for():
+    """An unknown country has no currency we can claim to know.
+
+    Guessing that an uncovered EU market is EUR would often be right and would
+    still be a guess, and the same guess about Poland, Sweden or Denmark would
+    be wrong. Silence on what we do not hold is the rule the reporting resolver
+    follows too.
+    """
+    from services.pay_equity_service import _currency_notes
+    if UNCOVERED is None:
+        pytest.skip("every candidate market now has a pack — a good problem")
+    assert _currency_notes(("NL", UNCOVERED)) == []
+
+
+# ── what France and Spain added to the picture ───────────────────────────────
+
+def test_spain_has_a_duty_at_one_employee():
+    """The finding that breaks "you grow into a reporting duty".
+
+    RD 902/2020 art. 5.1 requires the registro retributivo of every employer
+    "al margen de su tamano". A screen that gates a register behind a headcount
+    tells a twelve-person Spanish employer they are out of scope when they have
+    been in default since 2020. Asserted at 1 employee because that is the
+    number the statute actually reaches.
+    """
+    for headcount in (1, 3, 12, 49, 99):
+        band, source = cp.band_for(headcount, "ES")
+        assert source == "ES" and band is not None, headcount
+        assert band.first_report.value is not None, (
+            f"Spain must report a live duty at {headcount} employees")
+
+
+def test_france_covers_the_band_the_directive_would_have_got_wrong():
+    """France is why the resolver refuses to inherit.
+
+    The EU baseline says no duty below 100. The Index applies from 50, annually,
+    with a penalty of up to 1% of payroll. A French client at 80 handed the
+    directive's bands would have been told they were out of scope.
+    """
+    band, source = cp.band_for(80, "FR")
+    assert source == "FR", "France must answer from its own law, not the baseline"
+    assert band.first_report.value is not None
+    assert band.frequency.value == "annually"
+
+    eu_band, _ = cp.band_for(80, "EU")
+    assert eu_band.first_report.value is None, (
+        "premise: the directive imposes no duty at 80, which is exactly why "
+        "inheriting it for France would understate the obligation")
+
+
+@pytest.mark.parametrize("code,pack", ALL_PACKS, ids=PACK_IDS)
+def test_point_bands_are_contiguous_and_ordered(code, pack):
+    """A gap or an overlap in a point table silently misgrades somebody.
+
+    Métallurgie is the first crosswalk outside ISF that may show real points:
+    the joint branch publishes the cotation-to-groupe table openly, so the
+    numbers here were transcribed rather than derived. Transcription is where
+    an off-by-one lives, and a job scoring 42 landing in no groupe at all, or
+    in two, would be a quiet wrong answer about somebody's classification.
+    """
+    for cw in pack.crosswalks:
+        if not cw.point_bands:
+            continue
+        bands = list(cw.point_bands)
+        for name, lo, hi in bands:
+            assert lo <= hi, f"{code}/{cw.system}: {name} runs {lo}-{hi}"
+        for (n1, _, hi1), (n2, lo2, _) in zip(bands, bands[1:]):
+            assert lo2 == hi1 + 1, (
+                f"{code}/{cw.system}: {n1} ends {hi1} and {n2} starts {lo2} — "
+                "a point score between them belongs to no group")
+
+
+def test_metallurgie_point_table_matches_the_published_grid():
+    """Nine groupes A-I over 6 to 60 points, transcribed from the branch PDF.
+
+    Secondary sources widely say EIGHT groupes. The convention says nine, and
+    the joint UIMM/CFDT/CFE-CGC/FO grid agrees. This asserts the endpoints and
+    the count so the majority-but-wrong version cannot drift back in.
+    """
+    fr = cp.load()["FR"]
+    metal = next(c for c in fr.crosswalks if "métallurgie" in c.system.lower())
+    assert metal.publishes_point_table is True, (
+        "the whole point of Métallurgie is that the table IS public, unlike CATS, "
+        "PC 200 and ERA")
+    assert metal.groups == ("A", "B", "C", "D", "E", "F", "G", "H", "I")
+    assert len(metal.point_bands) == 9, "nine groupes, not the widely repeated eight"
+    assert metal.point_bands[0][1] == 6, "the scale starts at 6, not 0 or 1"
+    assert metal.point_bands[-1][2] == 60, "and ends at 60"
