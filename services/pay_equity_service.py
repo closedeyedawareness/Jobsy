@@ -392,6 +392,90 @@ def _grade_assignment_gap(
         return None, None, None, "Grade-assignment model could not be fit on this data."
 
 
+
+def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
+    """The reporting duty, read from the country packs rather than retyped.
+
+    This used to be a paragraph of hard-coded text, and the text was wrong. It
+    told every client that the duty was "150+ employees first report 7 June
+    2028 (annually thereafter)". Directive (EU) 2023/970 art. 9 has a 250+ band
+    the sentence never mentioned, dates the first report 7 June 2027 rather
+    than 2028, and makes the 150-249 band THREE-YEARLY, not annual. A 180-
+    person client was being told they filed a year late and then four times
+    too often. It sat in production from May to September 2026 because a legal
+    date written as prose has nothing to check it against.
+
+    So it is not prose any more. `services/country_packs` holds each claim with
+    its hardness, its source and the date somebody last looked at it, the EU
+    pack holds the directive's own bands once so they cannot drift, and
+    tests/test_country_packs.py asserts every boundary from both sides.
+
+    Silence is a real answer here. A country we hold no pack for gets no
+    sentence at all, because the failure worth preventing is not an unhelpful
+    report — it is a confident one that understates somebody's legal duty.
+    """
+    try:
+        from services import country_packs as cp
+    except Exception:
+        return []
+
+    # No country column does not mean no country. Fall back to the client's
+    # active market, so a single-market Dutch roster still gets its duty stated
+    # instead of silently losing the note it had before this rewrite.
+    resolved = tuple(countries or ())
+    if not resolved:
+        active = cp.for_country(None)
+        if active is None:
+            return []
+        resolved = (active.country,)
+
+    out: list[str] = []
+    for country in resolved:
+        pack = cp.for_country(country)
+        if pack is None:
+            out.append(f"No pay-reporting duty is stated for {country}: Jobsy holds no "
+                       "country pack for that market yet. This is a gap in the tool, not "
+                       "an absence of obligation — check the national rules directly.")
+            continue
+
+        band, source = cp.band_for(headcount, country)
+        national = pack.reporting.national_law if pack.reporting else None
+        origin = ("Directive (EU) 2023/970" if source == cp.BASELINE
+                  else (str(national.value) if national else f"national law in {pack.country}"))
+        where = (f"{pack.name}: " if len(resolved) > 1 else "")
+
+        if band is None or band.first_report.value is None:
+            out.append(f"{where}no mandatory pay-gap reporting duty applies at this size "
+                       f"under {origin}.")
+        else:
+            # A first_report that is a date reads as a deadline; one that is a
+            # phrase ("in force since 2012") reads as a duty already running.
+            # Those are different sentences and a client acts differently on
+            # each, so the note does not force them into one template.
+            first = str(band.first_report.value)
+            when = (f"first applies {first}" if first[:2].isdigit()
+                    else f"has been {first}")
+            out.append(
+                f"{where}at roughly {headcount} people the reporting duty under {origin} "
+                f"{when}, repeating {band.frequency.value}. Headcount here is the size of "
+                "the analysed roster; the legal threshold counts employees, which may be "
+                "a different number.")
+
+        rep = pack.reporting
+        if rep and rep.pre_existing_duty and rep.pre_existing_duty.value:
+            out.append(f"{where}{rep.pre_existing_duty.note}")
+        if rep and not rep.transposed.value:
+            out.append(f"{where}the directive is recorded as not yet transposed "
+                       f"({rep.transposed.as_of}). Frame this analysis as getting ahead of "
+                       "the law rather than as a live deadline, unless a national duty "
+                       "already applies.")
+        if pack.status != cp.LIVE:
+            out.append(f"{where}this country pack is {pack.status.upper()} — its legal "
+                       "claims have not all been verified against primary sources. Confirm "
+                       "before relying on a date.")
+    return out
+
+
 def analyze_gender_pay_gap(
     df: pd.DataFrame,
     *,
@@ -621,15 +705,7 @@ def analyze_gender_pay_gap(
                  "working conditions, which Art. 4 requires and which needs data this tool "
                  "does not currently collect. Treat a significant grade-assignment gap as reason "
                  "to commission that fuller evaluation, not as proof on its own.")
-    notes.append("Dutch implementing legislation for the EU Pay Transparency Directive is not "
-                 "yet in force (bill before the Tweede Kamer as of May 2026, targeted for 1 "
-                 "January 2027 — later than the original June 2026 EU deadline, which the "
-                 "European Commission declined to extend). Once live, the formal reporting duty "
-                 "that starts the 6-month remediation clock is phased by size: 150+ employees "
-                 "first report 7 June 2028 (annually thereafter); 100-149 employees first report "
-                 "7 June 2031 (every 3 years); under 100 employees has no reporting duty under "
-                 "this mechanism. Frame this analysis as getting ahead of the law, not as a live "
-                 "compliance deadline, unless the client is already at 150+.")
+    notes.extend(_reporting_duty_notes(countries_present, n_total))
 
     # ── country, said plainly ────────────────────────────────────────────
     #

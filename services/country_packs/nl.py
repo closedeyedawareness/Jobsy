@@ -1,0 +1,179 @@
+"""
+jobsy/services/country_packs/nl.py — the Netherlands.
+
+The first pack, and therefore the one that had to prove the schema fits real
+knowledge rather than a shape invented for it. Everything here already existed
+somewhere in the codebase; what is new is that it now carries its evidence and
+sits in one place instead of five.
+
+Where each part came from:
+
+  * the ISF and CATS crosswalks: `services/cao_crosswalk_service.py`, verified
+    2026-07-21 against the primary FNV CAO texts, with page citations in
+    `docs/cao-metalektro-isf-reference.md`.
+  * the reporting duty: the notes block in `services/pay_equity_service.py`,
+    written May 2026.
+  * the column vocabulary: the Dutch words that were inlined at `_smart_detect`
+    call sites in `ui/app.py`, `ui/views/pay_equity.py`, `ui/views/connect.py`,
+    `services/architecture_report_service.py` and `services/afas_connector.py`.
+
+One thing the move surfaced immediately, which is the point of the exercise.
+The Dutch transposition status has been stated to every client since May and
+nobody has re-checked it since; four months is a long time in this file. It is
+marked ONBEVESTIGD below with what to look for, and that is why this pack is
+DRAFT and not LIVE. It should go live the moment somebody confirms where the
+bill actually stands — not before, because a stale date about a client's legal
+duty is worse than no date.
+"""
+from __future__ import annotations
+
+from . import (CONVENTIE, DRAFT, ONBEVESTIGD, UITLEG, WET, Claim, CountryPack,
+               CrosswalkSpec, PayReporting, ReportingBand)
+
+_EU_DIRECTIVE = "https://eur-lex.europa.eu/eli/dir/2023/970/oj"
+_ISF_DOC = "docs/cao-metalektro-isf-reference.md (page citations to the primary FNV CAO texts)"
+
+# ── how a Dutch payroll export actually names things ─────────────────────────
+#
+# Not a translation table. These are the column headings that turn up in real
+# exports from Dutch payroll systems, which is why "bruto", "vast" and
+# "werkland" are here next to the tidy ones. Detection reads content as well as
+# names, so a wrong guess here costs a prompt, not a wrong number.
+VOCABULARY: dict[str, tuple[str, ...]] = {
+    "salary":     ("salaris", "brutosalaris", "bruto", "jaarsalaris", "maandsalaris",
+                   "loon", "brutoloon", "bezoldiging", "vast salaris"),
+    "gender":     ("geslacht", "sekse", "m/v", "man/vrouw"),
+    "function":   ("functie", "functietitel", "functienaam", "rol", "vakgebied"),
+    "level":      ("niveau", "schaal", "salarisschaal", "functiegroep",
+                   "functieschaal", "werknemerscategorie", "categorie"),
+    "fte":        ("fte", "deeltijd", "deeltijdfactor", "parttime", "parttimefactor",
+                   "werkuren", "contracturen", "dienstverband"),
+    "tenure":     ("dienstjaren", "indiensttreding", "datum in dienst", "startdatum",
+                   "in dienst sinds"),
+    "country":    ("land", "werkland", "vestigingsland"),
+    "variable":   ("bonus", "variabel", "toeslag", "toelage", "gratificatie"),
+    "holiday":    ("vakantiegeld", "vakantietoeslag"),
+    "employee":   ("medewerker", "werknemer", "personeelsnummer", "medewerkernummer"),
+}
+
+#: How Dutch systems write gender. `V` is the one that catches an English-shaped
+#: parser out: it reads as "vrouw", never as a variant of "V for male".
+GENDER_CODES: dict[str, tuple[str, ...]] = {
+    "female": ("v", "vrouw", "f", "female", "w"),
+    "male":   ("m", "man", "male"),
+}
+
+# ── the reporting duty ───────────────────────────────────────────────────────
+
+_TRANSPOSED = Claim(
+    value=False,
+    hardness=ONBEVESTIGD,
+    as_of="2026-05",
+    note=("As written in pay_equity_service in May 2026: implementing legislation not "
+          "yet in force, bill before the Tweede Kamer, targeted 1 January 2027. Nobody "
+          "has re-checked since. Look for: the wetsvoorstel implementatie Richtlijn "
+          "(EU) 2023/970 on wetten.overheid.nl and its status on tweedekamer.nl. Until "
+          "someone does, this pack stays DRAFT and the screen should not state a Dutch "
+          "commencement date as settled."),
+)
+
+REPORTING = PayReporting(
+    transposed=_TRANSPOSED,
+    national_law=None,
+    joint_assessment_trigger_pct=Claim(
+        value=5.0, hardness=WET, source=_EU_DIRECTIVE, as_of="2026-09-05",
+        note="Directive (EU) 2023/970 art. 10: a joint pay assessment is triggered where "
+             "an unjustified gap of at least 5% in a CATEGORY OF WORKERS is not remedied "
+             "within six months of the report."),
+    # Deliberately empty: the directive's bands apply, and they are held once in
+    # the EU pack rather than copied here. `reporting_for('NL')` resolves to them
+    # and tells the caller the numbers came from the directive, not from Dutch law.
+    #
+    # What used to sit here was a copy, and the copy was wrong. It read
+    # "150+ first report 2028-06-07, annually" — which merges the directive's
+    # 250+ and 150-249 bands, moves the date a year late, and turns a
+    # three-yearly duty into an annual one. That text is still live in
+    # pay_equity_service.py and is the reason this package exists.
+    #
+    # It stays empty until the Dutch implementing act is in force and someone
+    # has read its own phase-in. If that act genuinely gives a later Dutch date,
+    # THAT is what belongs here — sourced, dated, and as a deliberate override.
+    bands=(),
+)
+
+# ── statutory and near-universal pay components ──────────────────────────────
+
+PAY_COMPONENTS = (
+    Claim(("holiday_allowance", 0.08), WET,
+          "https://wetten.overheid.nl/BWBR0002638 (Wet minimumloon en minimumvakantiebijslag, art. 15)",
+          "2026-09-05",
+          note="8% statutory minimum holiday allowance. Flat for everyone, which is why "
+               "pay_equity_service excludes it from implied total pay: a component every "
+               "employee receives at the same rate cannot create a gap."),
+    Claim(("thirteenth_month", None), CONVENTIE, "", "2026-09-05",
+          note="Common in Dutch CAOs but not statutory; value comes from the client's "
+               "own PayMix rows, never assumed."),
+)
+
+# ── the collective-agreement crosswalks ──────────────────────────────────────
+#
+# The distinction between these two is the whole reason CrosswalkSpec has a
+# `publishes_point_table` field. See the module docstring of the package.
+
+ISF = CrosswalkSpec(
+    system="ISF (Metalektro, systeemhouder FME)",
+    publishes_point_table=True,
+    groups=("A", "B", "C", "D", "E", "F", "G", "H", "J", "K",
+            "L", "M", "N", "O", "P", "Q"),
+    point_bands=(
+        ("A", 0, 130), ("B", 131, 180), ("C", 181, 230), ("D", 231, 280),
+        ("E", 281, 330), ("F", 331, 380), ("G", 381, 430), ("H", 431, 480),
+        ("J", 481, 535), ("K", 536, 590), ("L", 591, 645), ("M", 646, 700),
+        ("N", 701, 760), ("O", 761, 820), ("P", 821, 880), ("Q", 881, 940),
+    ),
+    scales={
+        "A": (2768.86, 2803.01), "B": (2809.65, 2897.15), "C": (2869.64, 3030.46),
+        "D": (2954.58, 3195.36), "E": (3057.10, 3398.63), "F": (3178.77, 3637.77),
+        "G": (3318.71, 3922.71), "H": (3487.83, 4255.92), "J": (3702.73, 4655.03),
+        "K": (3950.20, 5121.58),
+    },
+    source=Claim("ISF point boundaries A-Q and 2026 monthly scales A-K", WET,
+                 _ISF_DOC, "2026-07-21",
+                 note="Point BOUNDARIES are published; the scoring method that produces a "
+                      "job's point total is protected IP and is not reproduced. Groups L-Q "
+                      "(Hoger Personeel) have no rigid step table, so no scales are held "
+                      "for them."),
+)
+
+CATS = CrosswalkSpec(
+    system="CATS (De Leeuw Consult)",
+    publishes_point_table=False,
+    groups=("A", "B", "C", "D", "E", "F", "G", "H", "I", "J"),
+    point_bands=(),          # deliberately empty: see source note
+    sectors=("Metaal en Techniek",),
+    source=Claim("functiegroep to salarisgroep label alignment, Metaal en Techniek", WET,
+                 _ISF_DOC, "2026-07-21",
+                 note="No public point-boundary table exists for CATS. Classification is a "
+                      "qualitative comparison against roughly 95 functiefamilies. Label "
+                      "alignment is therefore the only honest output; a point position "
+                      "would have to be re-derived from a protected method. Other sectors "
+                      "are added only once sourced the same way."),
+)
+
+PACK = CountryPack(
+    country="NL",
+    name="Netherlands",
+    currency="EUR",
+    languages=("nl",),
+    status=DRAFT,
+    vocabulary=VOCABULARY,
+    gender_codes=GENDER_CODES,
+    pay_components=PAY_COMPONENTS,
+    reporting=REPORTING,
+    crosswalks=(ISF, CATS),
+    notes=(
+        "DRAFT rather than LIVE only because the transposition claim is stale, not "
+        "because the crosswalk data is in doubt: that was verified against primary "
+        "texts on 2026-07-21 and is the best-evidenced part of this pack.",
+    ),
+)

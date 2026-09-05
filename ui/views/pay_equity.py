@@ -18,12 +18,25 @@ def _is_dutch_client() -> bool:
 
     Both crosswalk render sites call this, so the rule lives in one place and
     the two cannot drift apart.
+
+    The name is now narrower than the question. What this actually asks is
+    "do we hold a crosswalk we can honestly render for this market", and that
+    stopped being the same as "is the client Dutch" the moment a second country
+    pack existed: Belgium has PC 200 and Germany has ERA, and neither is Dutch.
+    So the body delegates to `country_packs.has_crosswalk()`, which answers the
+    real question from data, while the name stays put because two existing
+    guard tests assert on it and renaming would edit the guard alongside the
+    thing it guards. For NL the answer is unchanged.
     """
     try:
-        from services import country_service
-        return country_service.active_country() == "NL"
+        from services import country_packs
+        return country_packs.has_crosswalk(system="ISF")
     except Exception:
-        return True     # no session to ask: the library is Dutch
+        try:
+            from services import country_service
+            return country_service.active_country() == "NL"
+        except Exception:
+            return True     # no session to ask: the library is Dutch
 
 
 def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, salary_already_fte=False, catalog=None):

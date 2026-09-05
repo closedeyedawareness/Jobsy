@@ -70,6 +70,17 @@ DELIBERATE_ORPHANS = {
         "the Art. 4 engine. No role is rated and no weighting is decided, so wiring an "
         "unvalidated job evaluation into a product that prints pay findings would be worse "
         "than not having one. Unreached is the correct state until the instrument is real.",
+    # The four below are one argument, not four. country_packs discovers its
+    # members with pkgutil rather than a hand-kept list, for the same reason
+    # this file exists: a register you must remember to update is the first
+    # thing to go stale, and what it forgets is the market nobody tested. A
+    # static import graph cannot see a dynamic import, so every pack reads as an
+    # orphan by construction. Wiring them in by name would satisfy this test and
+    # reintroduce exactly the register the design removes.
+    "services/country_packs/eu.py": "country pack, loaded by pkgutil discovery in country_packs/__init__",
+    "services/country_packs/nl.py": "country pack, loaded by pkgutil discovery in country_packs/__init__",
+    "services/country_packs/be.py": "country pack, loaded by pkgutil discovery in country_packs/__init__",
+    "services/country_packs/de.py": "country pack, loaded by pkgutil discovery in country_packs/__init__",
 }
 
 
