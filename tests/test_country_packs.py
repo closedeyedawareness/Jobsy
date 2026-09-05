@@ -1027,3 +1027,86 @@ def test_the_spine_hands_back_a_route_and_never_a_converted_code():
         assert "scheme" in hop and "hardness" in hop
         assert "value" not in hop and "code" not in hop, (
             "a hop describes a correspondence; it does not carry a translated code")
+
+
+# ── three registers, and the line between them ───────────────────────────────
+#
+# Elmar asked whether the countersignature on a country pack needs somebody with
+# a certification. It does not — verifying that a pack repeats what a statute
+# says is fact-checking, and anyone with the text in front of them can do it.
+#
+# But the question exposed something the packs had not separated. The notes were
+# being written as determinations — "at roughly 300 people the reporting duty
+# first applies 2027-06-07" — which is not reporting what a directive says, it is
+# telling a specific employer what they must do. Nobody here can carry that.
+#
+# So the notes now run in three registers, and these tests hold the line between
+# them: what the source PROVIDES, what the roster LOOKS LIKE against it, and a
+# DIRECTION that is worth following whatever the legal answer turns out to be.
+
+
+def _notes(country, headcount=300):
+    from services.pay_equity_service import _reporting_duty_notes
+    return _reporting_duty_notes((country,), headcount)
+
+
+def test_every_reading_opens_with_what_it_is_and_is_not():
+    """The statement leads, because a caveat at the bottom is decoration.
+
+    Whatever else the notes say, the first thing a reader meets has to be that
+    this reports sources rather than settling a position — and that the
+    headcount it just used is not the headcount any of these laws count with.
+    """
+    for code in cp.load():
+        notes = _notes(code)
+        assert notes, f"{code} produced no notes at all"
+        first = notes[0]
+        assert "NOT legal advice" in first
+        assert "roster is not any of those counts" in first
+        assert "confirm anything you act on" in first
+
+
+@pytest.mark.parametrize("code", sorted(cp.load()))
+def test_the_duty_is_reported_never_determined(code):
+    """The register test, and the one that would fail if this slid back.
+
+    A note may say what a text provides for employers of a given size. It may
+    not tell this employer what their duty is. The difference is invisible in
+    tone and total in consequence, so it is asserted on the actual strings.
+    """
+    joined = " ".join(_notes(code)).lower()
+
+    for determination in ("your duty", "you must", "you are required",
+                          "your obligation", "your deadline"):
+        assert determination not in joined, (
+            f"{code}: a note says {determination!r}. That settles a position this tool "
+            "cannot settle — report what the source provides instead.")
+
+    # And where a duty exists, it is attributed to the instrument rather than
+    # attached to the reader.
+    if any("provides that employers of" in n for n in _notes(code)):
+        assert "a roster is not the count the law uses" in joined, (
+            f"{code}: states a bracket without saying the roster is not that count")
+
+
+@pytest.mark.parametrize("code", sorted(cp.load()))
+def test_every_reading_offers_a_direction(code):
+    """Descriptive is not the same as useless, and Elmar was right to say so.
+
+    Refusing to say anything actionable would be safe for us and worthless for
+    the client — a different kind of dishonesty. The third register carries
+    work that is worth doing whatever the legal answer turns out to be, which
+    is exactly the class of statement nobody needs a certification to make.
+    """
+    notes = _notes(code)
+    direction = next((n for n in notes if "WHERE THE WORK PAYS OFF" in n), None)
+    assert direction, f"{code}: no direction offered — the reading is a citation, not help"
+
+    assert "MEDIAN" in direction, "the median is the measure most exports do not compute"
+    assert "BY CATEGORY OF WORKERS" in direction
+
+    # A direction points; it does not instruct.
+    low = direction.lower()
+    for instruction in ("you must", "you are required", "your duty"):
+        assert instruction not in low, (
+            f"{code}: the direction instructs rather than points — {instruction!r}")

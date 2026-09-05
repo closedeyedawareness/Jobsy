@@ -393,6 +393,76 @@ def _grade_assignment_gap(
 
 
 
+#: The one sentence that has to be true of everything below it.
+#:
+#: These notes were, until now, written as though they settled something: "at
+#: roughly 300 people the reporting duty first applies 2027-06-07". That is not
+#: reporting what a directive says, it is telling a specific employer what they
+#: must do — and nobody here can carry that. Neither the tool nor its author is
+#: in a position to accept a compliance requirement on a client's behalf, so the
+#: engine reports and points, and the client's adviser decides.
+#:
+#: The distinction is the same one that governs the country packs' own sources:
+#: describing what a text provides is not asserting a position under it.
+_NOT_ADVICE = (
+    "WHAT THESE NOTES ARE: a report of what published law and collective agreements "
+    "say, each with its source named, and a direction for where the work usually pays "
+    "off. They are NOT legal advice and do not settle your position. The thresholds "
+    "count employees differently in every country in this tool — per establishment in "
+    "Germany, per company in Spain, per organisational unit in Poland — and an analysed "
+    "roster is not any of those counts. Use this to decide what to look into, and "
+    "confirm anything you act on with someone who can carry that advice."
+)
+
+
+def _direction(pack, band) -> Optional[str]:
+    """A careful pointer at what would improve things, not an instruction.
+
+    The third register, and the reason the other two can afford to be strictly
+    descriptive. A client did not open this screen for a citation; they opened
+    it to know what to do next. Refusing to say anything useful would be a
+    different kind of dishonesty — safe for us, useless for them.
+
+    So the rule for this line is narrow: it may name work that is worth doing
+    WHATEVER the legal answer turns out to be, and it may not tell anyone what
+    they are obliged to do. "Producing a median alongside the mean is the step
+    that pays off regardless of the filing date" is a direction. "You must file
+    by June" is a determination, and it belongs to somebody else.
+    """
+    rep_ = pack.reporting
+    trigger = rep_.joint_assessment_trigger_pct if rep_ else None
+    if trigger is None:
+        baseline = cp_module().load().get("EU")
+        trigger = baseline.reporting.joint_assessment_trigger_pct if baseline else None
+
+    parts = [
+        "WHERE THE WORK PAYS OFF, whatever the dates turn out to be. The measures the "
+        "directive asks for are wider than a single headline gap: the mean AND THE "
+        "MEDIAN, the gap in variable pay separately from base pay, the proportion of "
+        "each sex receiving variable pay at all, the distribution across quartile pay "
+        "bands, and all of it broken down BY CATEGORY OF WORKERS."
+    ]
+    if trigger is not None and trigger.value:
+        parts.append(
+            f"That last one is not presentation. The {trigger.value:g}% threshold that "
+            "starts a formal assessment is measured PER CATEGORY, so a comfortable "
+            "company-wide figure can sit on top of a category that crosses it. If one "
+            "thing here is worth doing early, it is looking per category rather than at "
+            "the headline."
+        )
+    if pack.status != cp_module().LIVE:
+        parts.append(
+            "And treat the dates above as a prompt to check rather than a schedule to "
+            "plan against: this market's pack has not been countersigned yet."
+        )
+    return " ".join(parts)
+
+
+def cp_module():
+    from services import country_packs
+    return country_packs
+
+
 def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
     """The reporting duty, read from the country packs rather than retyped.
 
@@ -429,7 +499,7 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
             return []
         resolved = (active.country,)
 
-    out: list[str] = []
+    out: list[str] = [_NOT_ADVICE]
     for country in resolved:
         pack = cp.for_country(country)
         if pack is None:
@@ -451,21 +521,32 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
             # "no reporting duty" to that article invites a reader to go and
             # look for something the article never says.
             src = (band.first_report.source if band else "") or origin
-            out.append(f"{where}no mandatory pay-gap reporting duty applies at this size. "
-                       f"Source: {src}.")
+            out.append(f"{where}the sources held for this market provide no mandatory "
+                       f"pay-gap reporting duty at this size. Source: {src}. An absence "
+                       "in what we hold is not the same as an absence in law — see the "
+                       "note at the top.")
         else:
             # A first_report that is a date reads as a deadline; one that is a
             # phrase ("in force since 2012") reads as a duty already running.
             # Those are different sentences and a client acts differently on
             # each, so the note does not force them into one template.
+            # Report what the source provides for employers of this size. What
+            # it does NOT say is what THIS employer must do — that turns on a
+            # headcount defined differently in every market, and on facts this
+            # tool does not hold.
             first = str(band.first_report.value)
-            when = (f"first applies {first}" if first[:2].isdigit()
-                    else f"has been {first}")
+            lo = band.min_employees
+            hi = band.max_employees
+            bracket = (f"{lo} or more" if hi is None else f"{lo} to {hi}")
+            when = (f"report from {first}" if first[:2].isdigit()
+                    else f"have reported since {first[len('in force since '):]}"
+                    if first.startswith("in force since") else f"report {first}")
             out.append(
-                f"{where}at roughly {headcount} people the reporting duty under {origin} "
-                f"{when}, repeating {band.frequency.value}. Headcount here is the size of "
-                "the analysed roster; the legal threshold counts employees, which may be "
-                "a different number.")
+                f"{where}{origin} provides that employers of {bracket} employees "
+                f"{when}, repeating {band.frequency.value}. The analysed roster holds "
+                f"about {headcount} people, which falls in that bracket — but a roster is "
+                "not the count the law uses, so whether it reaches this employer is a "
+                "question for their adviser and not for this screen.")
 
         rep = pack.reporting
         if rep and rep.pre_existing_duty and rep.pre_existing_duty.value:
@@ -489,6 +570,10 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
                            f"({rep.transposed.as_of}) and no national pay duty was found, "
                            "so treat this analysis as getting ahead of the law rather "
                            "than as a live deadline.")
+        richting = _direction(pack, band)
+        if richting:
+            out.append(f"{where}{richting}")
+
         if pack.status != cp.LIVE:
             # Two different warnings, because they call for two different
             # actions. A pack still holding unverified claims needs somebody to
