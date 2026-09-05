@@ -7,7 +7,9 @@ records (models.py), validates them (validator.py), builds the resolution index
 
     jobs               dict[job_id -> Job]
     profiles           dict[job_id -> JobProfile]
-    salary             dict[(function, level) -> SalaryBand]
+    salary             (function, level) -> SalaryBand, for the market being
+                       looked at: country, then the EU baseline, then nothing.
+                       Never another market's rows — see _MarketBands.
     title_mapping      dict[normalized existing title -> job_id]
     career_paths       dict[job_id -> CareerStep]
     levels             list[str]   (seniority ladder, in sheet order)
@@ -23,6 +25,8 @@ standard_title, JobID or job_id, etc., and the build still works.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 from typing import Optional
 
@@ -69,6 +73,64 @@ def _num(row, *names: str) -> Optional[float]:
     return None
 
 
+
+class _MarketBands(Mapping):
+    """Salary bands seen from the market currently being looked at.
+
+    A Mapping rather than a dict because every existing caller reaches for
+    `.get((function, level))`, `len(...)` or `in` — nine sites across core,
+    services and ui — and a Mapping gives all three consistently. Changing the
+    key to a three-tuple would have meant teaching nine call sites about country
+    to fix a rule that belongs in one place.
+
+    RESOLUTION IS COUNTRY, THEN EU, THEN NOTHING. Never another market's rows.
+    That last clause is the entire point: falling back to whatever bands happen
+    to exist is precisely the defect — it is how Dutch numbers ended up under a
+    Belgian client's name. An empty answer is a correct answer here, and the
+    sidebar already has language for it.
+
+    EU is honoured because migration 0012 made it a real scope rather than a
+    NULL, and the reporting resolver already reads it that way. Nobody is likely
+    to publish a pan-European salary band, but a resolution rule that is uniform
+    across the product is worth more than one special case saved.
+    """
+
+    __slots__ = ("_by_country",)
+
+    def __init__(self, by_country: dict) -> None:
+        self._by_country = by_country
+
+    def _market(self) -> str:
+        # Local import: core reaches into services only where it must, the way
+        # db_loader already does for auth_service.
+        try:
+            from services import country_service
+            return (country_service.active_country() or "NL").strip().upper()
+        except Exception:
+            # No session to ask — the library is Dutch, which is what every row
+            # in it says today. Same assumption as 0012's backfill, made once
+            # here rather than scattered through the callers.
+            return "NL"
+
+    def _view(self) -> dict:
+        market = self._market()
+        bands = dict(self._by_country.get("EU", {}))
+        bands.update(self._by_country.get(market, {}))
+        return bands
+
+    def __getitem__(self, key):
+        return self._view()[key]
+
+    def __iter__(self):
+        return iter(self._view())
+
+    def __len__(self) -> int:
+        return len(self._view())
+
+    def __repr__(self) -> str:
+        return f"_MarketBands({self._market()}: {len(self)} bands)"
+
+
 class Repository:
     """Typed, validated, indexed view of the reference library."""
 
@@ -83,7 +145,20 @@ class Repository:
 
         self.jobs: dict[str, Job] = {}
         self.profiles: dict[str, JobProfile] = {}
-        self.salary: dict[tuple[str, str], SalaryBand] = {}
+        # Bands are stored per market and READ through a view that resolves to
+        # the market being looked at. Before this they were stored flat on
+        # (function, level) with the country dropped, and the loader filters on
+        # org and status and nothing else — so a Belgian client received the
+        # library's Dutch bands, Dutch compa-ratios and Dutch above/below-market
+        # labels against their own people, underneath a sidebar warning
+        # promising that bands "will be empty rather than wrong".
+        #
+        # The warning was right about the data and wrong about the consequence,
+        # and it was the more visible of the two. benefit_observations was keyed
+        # (industry, category, country) one method below this one; the lesson had
+        # been learned in this file and not carried across.
+        self._salary_by_country: dict[str, dict[tuple[str, str], SalaryBand]] = {}
+        self.salary = _MarketBands(self._salary_by_country)
         self.title_mapping: dict[str, str] = {}
         self.career_paths: dict[str, CareerStep] = {}
         self.levels: list[str] = []
@@ -196,9 +271,22 @@ class Repository:
                 typical_tools=_split(row, "TypicalTools", "typical_tools"),
             )
 
+    def salary_markets(self) -> tuple[str, ...]:
+        """Every market this library actually holds bands for.
+
+        So a caller can tell "we have bands, none of them yours" apart from "we
+        have no bands at all". Those look identical through an empty mapping and
+        mean completely different things to somebody deciding whether to trust a
+        blank screen: the first is a coverage gap we can name, the second is an
+        empty library.
+        """
+        return tuple(sorted(self._salary_by_country))
+
     def _build_salary(self, df) -> None:
         if df is None:
             return
+        # Country is read the way benefit_observations already reads it, one
+        # method down: missing means the Dutch library, matching 0012's backfill.
         for row in df.itertuples(index=False):
             function = _val(row, "Function", "function")
             level = _val(row, "Level", "level")
@@ -213,7 +301,8 @@ class Repository:
             p25 = _num(row, "P25", "p25") or 0.0
             p50 = _num(row, "P50", "p50") or round((low + high) / 2)
             p75 = _num(row, "P75", "p75") or 0.0
-            self.salary[(function, level)] = SalaryBand(
+            country = (_val(row, "Country", "country") or "NL").strip().upper()
+            self._salary_by_country.setdefault(country, {})[(function, level)] = SalaryBand(
                 function=function, level=level, min=low, max=high, currency=currency,
                 grade=grade, p25=p25, p50=p50, p75=p75,
             )

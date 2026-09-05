@@ -131,6 +131,15 @@ def _fetch_all(client, table: str, org_ids) -> list[dict]:
     same code runs under the secret key, which sees every tenant — and a loader
     whose correctness depends on which credential happens to be in use is not a
     loader anybody can reason about.
+
+    ORDERED, because `.range()` without `.order()` is unspecified row order in
+    Postgres. Unpaged that is merely untidy; paged it is a correctness bug, since
+    a row can appear in two pages or in none as the planner changes its mind
+    between requests. It has not bitten yet because every row in every table is
+    Dutch and nothing downstream cares about order — but the moment two markets'
+    rows exist, "which row survives" stops being a shrug and becomes a number on
+    somebody's screen. `id` is the primary key on every table this loads, so it
+    is total and stable.
     """
     ids = [org_ids] if isinstance(org_ids, str) else [o for o in org_ids if o]
     rows: list[dict] = []
@@ -140,6 +149,7 @@ def _fetch_all(client, table: str, org_ids) -> list[dict]:
                 .select("*")
                 .in_("org_id", ids)
                 .eq("status", "active")
+                .order("id")
                 .range(start, start + PAGE - 1)
                 .execute())
         batch = resp.data or []

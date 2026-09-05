@@ -282,10 +282,6 @@ def test_country_service_filters_eu_out_of_the_choices():
 # means they will FAIL LOUDLY the moment the fix lands, which is the reminder to
 # turn them into ordinary assertions. A skip would go quiet forever.
 
-@pytest.mark.xfail(strict=True, reason=(
-    "core/repository._build_salary keys bands as (function, level) with country "
-    "dropped, so a Belgian client is served the Dutch library's 45 bands. See "
-    "docs/country-data-tiers.md §5. Owned by another agent; fix, then unmark."))
 def test_repository_keys_salary_bands_by_country():
     """A band belongs to a market, and the key has to say so.
 
@@ -304,9 +300,6 @@ def test_repository_keys_salary_bands_by_country():
         "Function x Level collapse into one entry.")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "core/db_loader._fetch_all pages with .range() and no .order(), so row order "
-    "is unspecified. Owned by another agent; fix, then unmark."))
 def test_paged_reads_are_ordered():
     """`.range()` without `.order()` is unspecified row order in Postgres.
 
@@ -360,3 +353,66 @@ def test_no_client_org_has_eu_as_its_home_country():
     assert not offenders, (
         f"orgs with default_country 'EU': {offenders}. EU is a fallback scope for "
         f"reference rows, not a jurisdiction anyone files in.")
+
+
+# ── the read path, proved rather than assumed ────────────────────────────────
+
+def test_a_market_without_bands_gets_silence_not_another_markets_numbers():
+    """The defect, reproduced against the fix.
+
+    Before this, `_fetch_all` filtered on org and status and nothing else, and
+    `_build_salary` keyed bands (function, level) with country dropped. A
+    Belgian client therefore received the library's Dutch bands, Dutch
+    compa-ratios and Dutch above/below-market labels against their own people —
+    underneath a sidebar warning promising that bands "will be empty rather than
+    wrong".
+
+    An empty answer is the correct answer here. Falling back to whatever bands
+    happen to exist is the whole failure.
+    """
+    from core.repository import _MarketBands
+
+    bands = _MarketBands({
+        "NL": {("Finance", "Senior"): "dutch band"},
+        "EU": {("Finance", "Junior"): "eu baseline"},
+    })
+
+    class _Market:
+        def __init__(self, code): self.code = code
+        def __enter__(self):
+            import services.country_service as cs
+            self._real = cs.active_country
+            cs.active_country = lambda: self.code
+            return self
+        def __exit__(self, *_):
+            import services.country_service as cs
+            cs.active_country = self._real
+
+    with _Market("BE"):
+        assert bands.get(("Finance", "Senior")) is None, (
+            "Belgium was served the Dutch band — the defect is back")
+        assert ("Finance", "Senior") not in bands
+        # The EU baseline still resolves, because 0012 made it a real scope.
+        assert bands.get(("Finance", "Junior")) == "eu baseline"
+
+    with _Market("NL"):
+        assert bands.get(("Finance", "Senior")) == "dutch band"
+        assert bands.get(("Finance", "Junior")) == "eu baseline", (
+            "a country's own rows should sit ON TOP of the EU baseline, not replace it")
+
+
+def test_the_library_can_say_which_markets_it_covers():
+    """"We have bands, none of them yours" is not "we have no bands".
+
+    Through an empty mapping those look identical and mean completely different
+    things to somebody deciding whether to trust a blank screen. One is a
+    coverage gap that can be named; the other is an empty library.
+    """
+    from core.repository import Repository
+
+    repo = Repository.__new__(Repository)
+    repo._salary_by_country = {"NL": {("a", "b"): 1}, "EU": {}}
+    assert repo.salary_markets() == ("EU", "NL")
+
+    repo._salary_by_country = {}
+    assert repo.salary_markets() == ()

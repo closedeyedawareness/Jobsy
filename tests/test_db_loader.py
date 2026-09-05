@@ -27,6 +27,21 @@ class _FakeQuery:
     def eq(self, *_a, **_k):
         return self
 
+    def order(self, column, *_a, **_k):
+        """Sorts for real, so the double cannot pass a test the server would fail.
+
+        A stub returning `self` would let `_fetch_all` claim deterministic paging
+        while proving nothing — and unspecified order is exactly the failure the
+        `.order()` call was added to prevent, so a double that shrugs at it is
+        worse than no double. Rows missing the column sort last rather than
+        raising: the loader must survive a table that has not got there yet.
+        """
+        self._rows = sorted(
+            self._rows,
+            key=lambda r: (r.get(column) is None, r.get(column)),
+        )
+        return self
+
     def in_(self, column, values):
         """PostgREST's IN. The loader asks for the client org and the library
         org together; like eq above, this fake records rather than filters —
@@ -176,7 +191,13 @@ def test_a_table_larger_than_one_page_is_read_completely():
     client = _FakeClient({"benefits_observations": rows})
     df = load_frames(client, "org-1")["benefitsobservations"]
     assert len(df) == PAGE + 8
-    assert df.iloc[-1]["ObsID"] == f"BO-{PAGE + 7:05d}"
+    # Completeness as a SET, not "the last row is the one I put last". The old
+    # form asserted insertion order, which PostgREST never promised — and that
+    # assumption is exactly what `.order()` was added to remove, so a test still
+    # resting on it would have been asserting the defect. Every row present
+    # exactly once is the property that actually matters here.
+    assert set(df["ObsID"]) == {f"BO-{i:05d}" for i in range(PAGE + 8)}
+    assert df["ObsID"].is_unique, "a row appeared in two pages"
 
 
 def test_pay_mix_arrives_with_the_rest_of_the_library():
