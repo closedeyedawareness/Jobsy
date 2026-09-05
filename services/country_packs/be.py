@@ -228,15 +228,12 @@ JOB_ARCHITECTURE = JobArchitecture(
              "the country. The joint committee, not the employer, is the unit that sets "
              "pay, and ONE CLIENT CAN SIT IN SEVERAL AT ONCE — so a Belgian org chart "
              "must carry the paritair comite per population, not once per company."),
-    mappings=(
-        SpineMapping(
-            dimension=OCCUPATION, local_scheme="ISCO-08 (Statbel)", spine="ISCO-08",
-            source=Claim("Statbel is understood to use ISCO-08 directly", ONBEVESTIGD,
-                         "", _VERIFIED,
-                         note="Belgium may use ISCO-08 without a national adaptation, "
-                              "which would make this hop trivial. Unverified."),
-        ),
-    ),
+    # No occupation mapping here: the sourced one lives on the skills slot.
+    # What stood here was an early guess that Belgium used ISCO-08 directly. The
+    # guess was right and is now confirmed at Statbel — but leaving both meant
+    # the route ran through the guess and reported ONBEVESTIGD for a fact that
+    # had been verified.
+    mappings=(),
 )
 
 # ── skills ───────────────────────────────────────────────────────────────────

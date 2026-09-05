@@ -665,8 +665,32 @@ def band_for(headcount: int, country: Optional[str] = None):
 # ── country to country ───────────────────────────────────────────────────────
 
 
+#: Weakest to strongest, so `max` picks the best-evidenced claim.
+_HARDNESS_ORDER = (ONBEVESTIGD, CONVENTIE, UITLEG, WET)
+
+
 def _mappings_for(pack: Optional[CountryPack], dimension: str) -> tuple:
-    """Every spine mapping this pack holds for one dimension."""
+    """Every spine mapping this pack holds for one dimension, best first.
+
+    SORTED, and that is not tidiness. A pack can legitimately hold more than one
+    mapping for the same dimension — an early sketch on the job-architecture
+    slot and a later, sourced one on the skills slot, written weeks apart by
+    different passes. Returning them in declaration order meant `bridge()` took
+    whichever happened to be defined first, which was reliably the OLDER one:
+    four markets were routing through a guess marked ONBEVESTIGD while a WET
+    mapping sat unused two slots away.
+
+    That failure is quiet in the worst way. Nothing errors; the route simply
+    reports a weaker hardness than the evidence supports, so a caller who is
+    doing the right thing — checking the hardness before trusting the hop —
+    is told to distrust something that was in fact verified. It makes the
+    honest caller wrong.
+
+    So the ordering is by evidence, and the stale duplicates were deleted
+    besides. Both, because either alone leaves the trap set: sorting without
+    deleting keeps a superseded claim in `unverified` forever, and deleting
+    without sorting leaves the next duplicate free to win on position again.
+    """
     if pack is None:
         return ()
     out = []
@@ -674,7 +698,11 @@ def _mappings_for(pack: Optional[CountryPack], dimension: str) -> tuple:
         for m in getattr(slot, "mappings", ()) or ():
             if m.dimension == dimension:
                 out.append(m)
-    return tuple(out)
+    return tuple(sorted(
+        out,
+        key=lambda m: _HARDNESS_ORDER.index(m.source.hardness)
+        if m.source.hardness in _HARDNESS_ORDER else 0,
+        reverse=True))
 
 
 def bridge(source_country: str, target_country: str, dimension: str) -> dict:

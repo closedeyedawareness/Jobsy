@@ -394,18 +394,11 @@ JOB_ARCHITECTURE = JobArchitecture(
              "survives. Crucially a grupo IS NOT A PAY GRADE: hosteleria has three for "
              "roughly 1,3 million workers and quimica has nine, so grupos cannot be "
              "ranked or compared across convenios."),
-    mappings=(
-        SpineMapping(
-            dimension=OCCUPATION, local_scheme="CNO-11 (INE)", spine="ISCO-08",
-            source=Claim("the INE earnings survey carries a CNO1 field and CNO is the "
-                         "Spanish ISCO derivative", UITLEG,
-                         "https://www.ine.es/", _VERIFIED,
-                         note="CNO-11 appears as a field in the Encuesta de Estructura "
-                              "Salarial, which was read directly, and CNO is the national "
-                              "adaptation of ISCO-08. The correspondence itself was not "
-                              "read at source, hence UITLEG rather than WET."),
-        ),
-    ),
+    # Superseded, and it was wrong in a detail worth remembering: it cited the
+    # CNO1 field in the earnings microdata as its evidence, but that field is the
+    # ONE-DIGIT major group. The real crosswalk is four-digit and many-to-many,
+    # and it sits on the skills slot.
+    mappings=(),
 )
 
 # ── skills ───────────────────────────────────────────────────────────────────

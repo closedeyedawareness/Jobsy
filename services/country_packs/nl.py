@@ -200,18 +200,10 @@ JOB_ARCHITECTURE = JobArchitecture(
         note="The Dutch unit of grading is the functiegroep, set per CAO and paired with "
              "a salarisschaal. It is a collective-agreement construct, not a statutory "
              "one, so CONVENTIE is the correct marker."),
-    mappings=(
-        SpineMapping(
-            dimension=OCCUPATION, local_scheme="BRC / SBC (CBS)", spine="ISCO-08",
-            source=Claim("CBS occupational classifications derive from ISCO", ONBEVESTIGD,
-                         "", "2026-09-05",
-                         note="The Beroepenindeling ROA-CBS and the older SBC are "
-                              "understood to be ISCO-derived, which would make the hop to "
-                              "the spine structural rather than a lookup. Confirm against "
-                              "the CBS classification documentation before routing "
-                              "anything through it."),
-        ),
-    ),
+    # Superseded. This guessed that the Dutch classifications were ISCO-derived;
+    # CBS confirms it and says more besides — SBC is dead, BRC 2014 is current,
+    # and the inverse hop is lossy. All of that sits on the skills slot now.
+    mappings=(),
 )
 
 # ── skills ───────────────────────────────────────────────────────────────────

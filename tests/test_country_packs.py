@@ -1110,3 +1110,44 @@ def test_every_reading_offers_a_direction(code):
     for instruction in ("you must", "you are required", "your duty"):
         assert instruction not in low, (
             f"{code}: the direction instructs rather than points — {instruction!r}")
+
+
+def test_a_pack_holds_one_mapping_per_dimension():
+    """Two mappings for the same hop is how a verified fact got hidden.
+
+    Four markets carried both an early sketch on the job-architecture slot and
+    a later sourced mapping on the skills slot, written weeks apart. `bridge()`
+    took whichever was declared first, which was reliably the older one — so
+    routes reported ONBEVESTIGD while a WET mapping sat unused two slots away.
+
+    Nothing errored. The route simply understated its own evidence, which
+    punishes exactly the caller who is doing the right thing by checking the
+    hardness before trusting the hop. That is worse than a loud failure.
+    """
+    for code, pack in cp.load().items():
+        seen: dict[str, list[str]] = {}
+        for slot in (pack.job_architecture, pack.skills):
+            for m in getattr(slot, "mappings", ()) or ():
+                seen.setdefault(m.dimension, []).append(m.local_scheme)
+        for dimension, schemes in seen.items():
+            assert len(schemes) == 1, (
+                f"{code} holds {len(schemes)} {dimension} mappings: {schemes}. Keep the "
+                "best-evidenced one and delete the rest — a superseded claim also sits "
+                "in `unverified` forever and asks somebody to re-check a settled fact.")
+
+
+def test_the_bridge_prefers_the_best_evidenced_hop():
+    """Belt as well as braces, since the test above can only see today's packs.
+
+    Deleting the duplicates fixes what exists; sorting by hardness stops the
+    next one winning on declaration order. Either alone leaves the trap set.
+    """
+    order = (cp.ONBEVESTIGD, cp.CONVENTIE, cp.UITLEG, cp.WET)
+    for code, pack in cp.load().items():
+        got = cp._mappings_for(pack, cp.OCCUPATION)
+        if len(got) < 2:
+            continue
+        ranks = [order.index(m.source.hardness) for m in got]
+        assert ranks == sorted(ranks, reverse=True), (
+            f"{code}: mappings are not offered best-first, so bridge() may route "
+            "through weaker evidence than the pack holds")

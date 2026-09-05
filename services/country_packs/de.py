@@ -243,16 +243,10 @@ JOB_ARCHITECTURE = JobArchitecture(
         note="Set per Tarifvertrag and per Tarifgebiet, so an Entgeltgruppe 11 in "
              "Baden-Wuerttemberg and in Nordrhein-Westfalen are not the same thing. "
              "There is no national German grade."),
-    mappings=(
-        SpineMapping(
-            dimension=OCCUPATION, local_scheme="KldB 2010", spine="ISCO-08",
-            source=Claim("Klassifikation der Berufe 2010 carries an ISCO-08 "
-                         "correspondence", ONBEVESTIGD, "", _VERIFIED,
-                         note="The federal employment agency's KldB 2010 is understood to "
-                              "publish an official crosswalk to ISCO-08. Confirm at the "
-                              "Bundesagentur fuer Arbeit before routing through it."),
-        ),
-    ),
+    # Superseded: the crosswalk was confirmed at the Bundesagentur and the
+    # sourced mapping now lives on the skills slot, with the licence position
+    # recorded alongside it.
+    mappings=(),
 )
 
 # ── skills ───────────────────────────────────────────────────────────────────
