@@ -646,6 +646,68 @@ COMPENSATION = CompensationModel(
                    "wrong by whatever the contribution rate turns out to be. Never price "
                    "an employer's cost off this table. Confirmed by Elmar van Dijk, "
                    "2026-09-06."),
+        Claim(("cotizacion_base_2026", {
+                  "tope_maximo_month": 5101.20,
+                  "tope_maximo_day": 170.04,
+                  "tope_minimo_month": 1381.20,
+                  "mei_total": 0.0090,
+                  "mei_employer": 0.0075,
+                  "mei_employee": 0.0015,
+                  "solidaridad_range": (0.055, 0.07),
+              }), UITLEG,
+              "Art. 147 and art. 19 bis LGSS for the structure; Orden PJC/297/2026 for the "
+              "figures. Amounts supplied by Elmar van Dijk 2026-09-06 from law-firm and "
+              "payroll-vendor summaries; the BOE text of the Orden was NOT read",
+              _VERIFIED,
+              note="THE SECOND TEST, IN FULL — the one the tax table above does not "
+                   "answer. Social insurance runs on its own base with its own rules. "
+                   "Art. 147 LGSS defines what that base CONTAINS: which pay components "
+                   "must count (base salary, overtime, holiday pay) and which are "
+                   "excluded, such as severance within statutory limits. The statute "
+                   "names no euro amounts, deliberately, because they move every year — "
+                   "the figures, the eleven contribution groups and the calculation rules "
+                   "are published separately in the annual Orden de Cotización. So bind "
+                   "to the Orden for numbers and to art. 147 for what qualifies. "
+                   "THE PART THAT BREAKS A COST MODEL: employer cost is NOT LINEAR IN "
+                   "PAY. Ordinary contributions run between a floor of 1.381,20 a month "
+                   "(the minimum wage plus a sixth) and a CEILING of 5.101,20 a month, or "
+                   "170,04 a day. Above that ceiling the old intuition was that cost "
+                   "simply stops — and from art. 19 bis that is now wrong: a progressive "
+                   "SOLIDARITY CONTRIBUTION of roughly 5,5% to 7% applies to the excess, "
+                   "rising with how far above the ceiling the pay sits. On top of "
+                   "everything sits the MEI at 0,90% in 2026, split 0,75 employer and "
+                   "0,15 employee. "
+                   "FLAG ON THE FLOOR, AND IT SHOULD BE SETTLED BEFORE USE. The two "
+                   "ceilings here do not look like they come from the same year. The "
+                   "minimum base is built as the monthly minimum wage plus a sixth — the "
+                   "same thing as spreading fourteen payments over twelve months. Against "
+                   "the 2025 wage of 1.184 that gives 1.381,33, which is the figure held "
+                   "above to within thirteen cents. Against the 2026 wage of 1.221, which "
+                   "this pack holds from RD 126/2026, it would be 1.424,50. So the floor "
+                   "reads like a 2025 number while the 5.101,20 ceiling is above the 2025 "
+                   "maximum and therefore reads like a 2026 one. "
+                   "That is arithmetic on figures in this pack, not a reading of the "
+                   "Orden, so it is a question rather than a correction — but it is the "
+                   "kind of mismatch that survives review because both numbers look "
+                   "right on their own. The BOE text of Orden PJC/297/2026 settles it in "
+                   "one look. "
+                   "WHY THAT MATTERS FOR A PAY-EQUITY READING SPECIFICALLY: the "
+                   "discontinuity falls at the TOP of the distribution, which is exactly "
+                   "where a gender gap is usually widest. A model that treats employer "
+                   "cost as a fixed percentage of pay will be wrong precisely among the "
+                   "highest earners, and wrong in a way that looks like a rounding "
+                   "difference. Poland has the same shape for a different reason — a cap "
+                   "that applies to two contributions and not the rest — so this is a "
+                   "class of error rather than a Spanish quirk. "
+                   "Note also that the contribution GROUP is a classification axis in its "
+                   "own right, and `grupo de cotización` already appears in this pack's "
+                   "level vocabulary: it drives the base, so it is not a synonym for the "
+                   "grupo profesional that drives the pay grid. Two different groupings "
+                   "with confusingly similar names. "
+                   "Marked UITLEG: the structure comes from the named articles, but the "
+                   "amounts come from secondary summaries rather than the BOE text of the "
+                   "Orden, which nobody has opened. Read it before any figure here reaches "
+                   "a client."),
         Claim("occupational pension is not universally mandatory", UITLEG,
               "https://www.boe.es/eli/es/l/2022/06/30/12/con", _VERIFIED,
               note="Ley 12/2022 creates publicly promoted employment pension funds and "
