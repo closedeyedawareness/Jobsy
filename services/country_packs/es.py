@@ -262,23 +262,91 @@ PAY_COMPONENTS = (
 # grupo, scattered across some fifty boletines in heterogeneous PDF layouts.
 # Química is the exception and the only sector held here.
 
+_QUIMICA_2025 = "https://www.boe.es/boe/dias/2026/02/19/pdfs/BOE-A-2026-3870.pdf"
+
+#: EIGHT published rows, not nine. Grupo 0 is a real professional group — the
+#: directive staff — but it carries NO published salary figure and is expressly
+#: kept out of the pay machinery: the convenio excludes grupo 0 from the masa
+#: salarial used to apply and distribute increases, while still requiring its
+#: pay to appear in the employer's own registro salarial. And senior management
+#: is outside the convenio altogether.
+#:
+#: So grupo 0 is a named grade with no national floor, and listing it as a ninth
+#: scale would invent one. It is left out of `groups` deliberately rather than
+#: carried with a null.
+_QUIMICA_GRUPOS = ("1", "2", "3", "4", "5", "6", "7", "8")
+
+#: In force from 1 January 2026. The convenio publishes only the 2024 table and
+#: then uplifts it 3% a year by agreement of the negotiating committee, so these
+#: are the 2026 figures from the committee's published act.
+_QUIMICA_SMG_2026 = (20311.46, 21733.25, 23561.31, 26201.81,
+                     29856.97, 34935.76, 42450.95, 53825.35)
+
+#: The SAME grades on continuous shift work, which is a second national grid the
+#: pack did not know existed. It runs roughly 20% above the general one at the
+#: bottom and includes night-work pay, and it is pro-rated by the share of days
+#: actually worked on shift.
+_QUIMICA_SMG_TURNO_2026 = (25023.72, 26445.52, 28273.56, 30914.04,
+                           34570.13, 39648.00, 47163.22, 58537.63)
+
 QUIMICA = CrosswalkSpec(
-    system="XXI Convenio general de la industria química",
+    system="XXI Convenio general de la industria química — régimen general",
     publishes_point_table=False,
-    groups=("0", "1", "2", "3", "4", "5", "6", "7", "8"),
+    groups=_QUIMICA_GRUPOS,
     point_bands=(),
-    scales={"1": (19145.50, 19145.50), "8": (50735.56, 50735.56)},
+    scales={g: (v, v) for g, v in zip(_QUIMICA_GRUPOS, _QUIMICA_SMG_2026)},
     sectors=("Industria química",),
-    source=Claim("9 grupos (0-8) x 6 divisiones orgánicas funcionales, with a national "
-                 "annual salary table", WET, _QUIMICA, _VERIFIED,
-                 note="The closest Spain comes to a nationally published grade-level pay "
-                      "grid, which is why it is the one sector encoded. Only the two "
-                      "endpoints of the 2024 table are held (grupo 1 at 19.145,50 and "
-                      "grupo 8 at 50.735,56 EUR/year); the intermediate grupos were not "
-                      "captured and must be read from the BOE text before any figure is "
-                      "shown per grupo. The convenio's art. 22 does name weighted "
-                      "factors, but whether it yields numeric scores is unconfirmed, so "
-                      "no point table is claimed."),
+    source=Claim("8 grupos with a published national annual floor, 2026 figures", WET,
+                 _QUIMICA_2025, _VERIFIED,
+                 note="COMPLETE for 2026, cross-checked arithmetically against the 2024 "
+                      "base at 3% a year. "
+                      "WHAT THE FIGURE MEASURES, WHICH MATTERS MORE THAN THE FIGURE: it "
+                      "is the SALARIO MINIMO GARANTIZADO, an ALL-IN ANNUAL FLOOR made up "
+                      "of the totality of pay concepts for normal work — NOT salario base "
+                      "in the narrow sense. It EXCLUDES antiguedad, shift, night and "
+                      "holiday premiums, position complements including hazard and "
+                      "toxicity pay, and sales commissions and incentives unless the "
+                      "incentive is a fixed concept. So it is comparable across employers "
+                      "and NOT comparable to a base-salary field that sits beside a "
+                      "bonus. Putting it next to a client's 'salario base' column would "
+                      "compare two different quantities. "
+                      "TRANSCRIPTION TRAP: in the published PDFs the group labels sit one "
+                      "row off from the values because of the column layout, so a naive "
+                      "text extraction shifts the whole grid by one grade. These figures "
+                      "were realigned and every cell checked against the 3% uplift. "
+                      "The convenio's art. 22 names weighted factors but whether it "
+                      "yields numeric scores is still unconfirmed, so no point table is "
+                      "claimed."),
+)
+
+QUIMICA_TURNO = CrosswalkSpec(
+    system="XXI Convenio general de la industria química — proceso continuo (turnos)",
+    publishes_point_table=False,
+    groups=_QUIMICA_GRUPOS,
+    point_bands=(),
+    scales={g: (v, v) for g, v in zip(_QUIMICA_GRUPOS, _QUIMICA_SMG_TURNO_2026)},
+    sectors=("Industria química",),
+    source=Claim("a second national grid for continuous shift work, 2026 figures", WET,
+                 _QUIMICA_2025, _VERIFIED,
+                 note="THE SAME EIGHT GRADES ON A SECOND FLOOR, and the same warning "
+                      "applies: this is a SALARIO MINIMO GARANTIZADO, an all-in annual "
+                      "floor, and is NOT SALARIO BASE — putting it beside a client's base-"
+                      "pay column compares two different quantities. Continuous-shift "
+                      "workers have their own guaranteed annual minimum, about 20% above "
+                      "the "
+                      "general one at grupo 1 and still about 9% above it at grupo 8, and "
+                      "this one DOES include night-work pay where the general grid "
+                      "excludes it. It is applied PRO RATA to the share of days actually "
+                      "worked on shift over the year, so it is not a flat alternative "
+                      "scale — an employee can sit between the two. "
+                      "WHY THIS MATTERS FOR A PAY-EQUITY READING: shift work is not "
+                      "evenly distributed by sex, so a raw comparison within one grupo "
+                      "will show a gap that is partly a shift-pattern artefact and "
+                      "partly not, and the two are separable only if the shift share is "
+                      "known. Note also a stale cross-reference in the official uplift "
+                      "acts: their prose cites article 44 for this table, but in the XXI "
+                      "convenio it is article 47.6 — article 44 is weekend and holiday "
+                      "work. The acts' own table headings have it right."),
 )
 
 # ── capability slots ─────────────────────────────────────────────────────────
@@ -357,10 +425,21 @@ SKILLS = SkillsFramework(
              "to 8 were already regulated by the MECES for higher education, which has "
              "its own four-level numbering — MECU 5A is MECES 1, 6 is 2, 7 is 3, 8 is 4 — "
              "so two numbering systems coexist and a bare 'nivel 3' is ambiguous without "
-             "knowing which. WHEN SPAIN FORMALLY REFERENCED TO THE EQF COULD NOT BE "
-             "CONFIRMED: both decrees describe the compatibility certification as still "
-             "pending at the time of writing, and no completion was found. Do not state a "
-             "referencing year."),
+             "knowing which. "
+             "REFERENCED IN NOVEMBER 2024, and this pack's earlier suspicion was right "
+             "about the past and wrong about the present. The decrees really did describe "
+             "the certification as pending, and it really was — Spain was the LAST of the "
+             "twenty-seven member states to complete it. The report was endorsed by the "
+             "EQF Advisory Group in November 2024, and the international-expert step the "
+             "decrees promised in the future tense was actually performed, by experts "
+             "from France and Portugal. So the hypothesis that Spain was an EU state with "
+             "an EQF correspondence in law but no completed referencing was TRUE UNTIL "
+             "ROUGHLY DECEMBER 2024 and is no longer. "
+             "ONE CAVEAT THAT SURVIVES AND MATTERS: referencing is complete, but EQF "
+             "LABELLING ON CERTIFICATES IS NOT. Levels appear on only some qualifications "
+             "at level 3 and above, and the report's own final criterion still speaks in "
+             "the future tense about assessing the legal changes needed to put the level "
+             "on diplomas. Do not assume a Spanish diploma carries an EQF level."),
     occupation_taxonomy=Claim(
         ("CNO-11",), WET,
         "https://www.ine.es/dyngs/INEbase/es/operacion.htm?c=Estadistica_C&cid=1254736177033",
@@ -412,10 +491,25 @@ SKILLS = SkillsFramework(
 COMPETENCE_CATALOGUE = Claim(
     ("CNECP", 3), WET, _RD69_2025, _VERIFIED,
     note="Public and free — each standard is an unauthenticated PDF, and 28 professional "
-         "families are listed including a new Inteligencia Artificial y Data. But NO BULK "
-         "DOWNLOAD, API OR DATASET COULD BE FOUND, and the one listing document linked "
-         "from the front page returns 404. A skills product would have to scrape "
-         "thousands of individual PDFs, which is the honest state of it. Separately, "
+         "families are listed including a new Inteligencia Artificial y Data. There is "
+         "still NO dataset, no API and no bulk download: the national open-data portal "
+         "returns nothing for the catalogue, and the listing document linked from "
+         "INCUAL's own page is a dead link on their own site. "
+         "BUT THE SITUATION IS FAR BETTER THAN SCRAPING THOUSANDS OF PDFS BLIND. A single "
+         "133-page master catalogue PDF carries the whole skeleton — 2.627 standard codes "
+         "with title, family and level, from one request — and 83 per-family index pages "
+         "add the ones published since. Neither is complete alone: the PDF holds retired "
+         "standards the site has dropped and the site holds newer ones, so the union of "
+         "about 2.661 is the real catalogue. The per-standard PDF URLs are then "
+         "ENUMERABLE from the code alone, with a single constant folder id and no UUID "
+         "needed, and a wrong code returns a clean 404 rather than a soft success. "
+         "THE REAL BLOCKER IS NOT TECHNICAL BUT LEGAL, and it is a question for Elmar. "
+         "INCUAL's own notice authorises reproduction, whole or partial, provided "
+         "integrity is kept and INCUAL is cited as the source — but it expressly "
+         "PROHIBITS TRANSFORMATION without permission. A product that reproduces the "
+         "standards is covered; one that reshapes them into its own skills model may not "
+         "be, and that is exactly what a skills product does. Get a legal read before "
+         "building on it. Separately, "
          "LO 3/2022 art. 92 creates a PERMANENTLY OPEN administrative procedure to "
          "accredit competences acquired through work experience, resolved within six "
          "months, and art. 93 makes such an accreditation partial and cumulative. Arts. "
@@ -509,10 +603,38 @@ COMPENSATION = CompensationModel(
         Claim(("salario_en_especie_max", 0.30), WET, _ET, _VERIFIED,
               note="ET art. 26.1: pay in kind may never exceed 30% of the worker's salary "
                    "perceptions, and may not reduce the full cash amount of the minimum "
-                   "wage. Two hard limits for any flexible-compensation feature. The IRPF "
-                   "exemption ceilings for meal, transport, childcare and health-insurance "
-                   "benefits sit in tax law that was NOT read, so no euro amounts are "
-                   "held here."),
+                   "wage. Two LABOUR-law limits that cap a flexible-pay plan independently "
+                   "of anything in tax law."),
+        Claim(("irpf_exempt_limits", {
+                  "vales_comida_per_day": 11.0,
+                  "comedor_directo": None,
+                  "transporte_publico_per_month": 136.36,
+                  "transporte_publico_per_year": 1500.0,
+                  "guarderia": None,
+                  "seguro_salud_per_person_per_year": 500.0,
+                  "seguro_salud_discapacidad": 1500.0,
+                  "acciones_general": 12000.0,
+                  "acciones_empresa_emergente": 50000.0,
+              }), WET,
+              "https://www.boe.es/buscar/act.php?id=BOE-A-2006-20764 (Ley 35/2006 IRPF) "
+              "and https://www.boe.es/buscar/act.php?id=BOE-A-2007-6820 (RD 439/2007)",
+              _VERIFIED,
+              note="Read from the consolidated texts in force September 2026. A None value "
+                   "means NO CAP, not unknown: a directly run company canteen and a "
+                   "first-cycle childcare place are exempt without any euro limit — the 11 "
+                   "euro a day bites only on indirect formulas such as vouchers and cards. "
+                   "The health-insurance allowance is PER PERSON, so a worker with a "
+                   "spouse and two children carries 2.000 euro of exemption, but the scope "
+                   "is spouse and descendants only — ascendants and unmarried partners are "
+                   "outside the text. The transport allowance has been unchanged for "
+                   "fifteen years, and the general 500 for health cover has stood since "
+                   "2006; any 2026 figure higher than these is unsupported. Meal vouchers "
+                   "expressly cover teleworking days at the place the worker chooses. "
+                   "THE WARNING THAT MATTERS MOST: THESE ARE INCOME-TAX EXEMPTIONS AND "
+                   "SAY NOTHING ABOUT SOCIAL INSURANCE. Cotización is governed by a "
+                   "different statute that was not read, and exemption from one does not "
+                   "generally imply exemption from the other. Do not price an employer's "
+                   "cost off this table."),
         Claim("occupational pension is not universally mandatory", UITLEG,
               "https://www.boe.es/eli/es/l/2022/06/30/12/con", _VERIFIED,
               note="Ley 12/2022 creates publicly promoted employment pension funds and "
@@ -535,7 +657,7 @@ PACK = CountryPack(
     gender_codes=GENDER_CODES,
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,
-    crosswalks=(QUIMICA,),
+    crosswalks=(QUIMICA, QUIMICA_TURNO),
     org_structure=ORG_STRUCTURE,
     performance=PERFORMANCE,
     job_architecture=JOB_ARCHITECTURE,

@@ -890,3 +890,57 @@ def test_polish_category_one_equals_the_national_minimum_wage():
         f"category I is {bottom} but the minimum wage is {minimum.value[1]}. One of the "
         "two was updated without the other, or Poland has decoupled them — check which "
         "before changing this test.")
+
+
+def test_the_spanish_shift_grid_sits_above_the_general_one_at_every_grade():
+    """Two national floors for the same eight grades, and the order is fixed.
+
+    Spain's chemical convenio publishes a second guaranteed annual minimum for
+    continuous shift work, and it is higher at every grupo because it absorbs
+    night pay that the general grid excludes. If a transcription ever put a
+    shift figure below its general counterpart, the row was misaligned — which
+    is the exact failure the published PDFs invite, since their group labels sit
+    one row off from the values.
+
+    The two grids are also why shift share matters to a fairness reading: shift
+    work is not evenly distributed by sex, so part of a within-grade gap can be
+    a shift-pattern artefact, and the two are only separable if somebody knows
+    the share.
+    """
+    es = cp.load()["ES"]
+    general = next(c for c in es.crosswalks if "general" in c.system)
+    shift = next(c for c in es.crosswalks if "continuo" in c.system)
+
+    assert general.groups == shift.groups, "the two grids must cover the same grades"
+    assert len(general.scales) == len(general.groups) == 8, (
+        "eight published rows — grupo 0 is a real grade with no national floor and is "
+        "deliberately absent rather than carried as a null")
+
+    for g in general.groups:
+        assert shift.scales[g][0] > general.scales[g][0], (
+            f"grupo {g}: shift floor {shift.scales[g][0]} is not above the general "
+            f"floor {general.scales[g][0]} — check the row alignment before believing it")
+
+
+def test_the_spanish_floor_is_not_a_base_salary_and_the_pack_says_so():
+    """The figure means something other than what its column name suggests.
+
+    The Spanish grid publishes a salario mínimo garantizado: an all-in annual
+    floor covering the totality of pay concepts for normal work, explicitly
+    excluding seniority, shift, night and holiday premiums, position complements
+    and variable incentives. Put beside a client's "salario base" column it
+    compares two different quantities and the comparison looks entirely
+    reasonable while being wrong.
+
+    That is a note, not a number, so it cannot be asserted arithmetically — but
+    it can be asserted that the note exists, because the risk here is that a
+    future edit tidies the explanation away and leaves the figure looking
+    self-explanatory.
+    """
+    es = cp.load()["ES"]
+    for cw in es.crosswalks:
+        note = (cw.source.note or "").lower()
+        assert "salario minimo garantizado" in note or "salario mínimo garantizado" in note, (
+            f"{cw.system}: the note must name what the figure actually measures")
+        assert "not salario base" in note or "not comparable" in note, (
+            f"{cw.system}: the note must warn that this is not a base-salary figure")
