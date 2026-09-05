@@ -5,6 +5,32 @@ from __future__ import annotations
 from ui.shared import *  # noqa: F401,F403
 
 
+def _market_panel(kind: str) -> None:
+    """Render what this market changes about the page the reader is on.
+
+    Collapsed by default and deliberately not styled as a warning. Most of what
+    it holds is not a problem to be fixed — it is the shape of the market, and
+    a banner shouting at somebody every time they open the 9-box would be read
+    once and dismissed forever. What it must not be is absent: these findings
+    sat in the country packs for a day with nothing rendering them, which is
+    the same as not having them.
+    """
+    try:
+        from services import market_notes
+    except ImportError:
+        from jobsy.services import market_notes  # type: ignore
+
+    notes = (market_notes.performance_notes() if kind == "performance"
+             else market_notes.org_structure_notes())
+    if not notes:
+        return
+
+    with st.expander(notes[0], expanded=False):
+        for note in notes[1:]:
+            st.markdown(f"- {note}")
+        st.caption(market_notes.market_caveat())
+
+
 def nine_box_page(catalog):
     """9-box grid: Performance × Potential for succession weighting."""
     st.markdown(
@@ -15,6 +41,12 @@ def nine_box_page(catalog):
         f'Scores feed succession weighting.</p>',
         unsafe_allow_html=True,
     )
+
+    # A 9-box is a neutral instrument in one market and a co-determined one in
+    # the next. In Germany the works council's right reaches the introduction
+    # and use of any technical system objectively suitable to evaluate
+    # behaviour or performance — which is this page, and arguably this product.
+    _market_panel("performance")
 
     results   = st.session_state.get("last_results",[])
     df_input  = st.session_state.get("upload_df")

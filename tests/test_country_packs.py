@@ -1151,3 +1151,87 @@ def test_the_bridge_prefers_the_best_evidenced_hop():
         assert ranks == sorted(ranks, reverse=True), (
             f"{code}: mappings are not offered best-first, so bridge() may route "
             "through weaker evidence than the pack holds")
+
+
+# ── the slots reach a screen ─────────────────────────────────────────────────
+#
+# Four capability slots sat in the packs for a day with nothing reading them.
+# A grep across services, ui, core and tools found zero references to
+# job_architecture, compensation, performance or org_structure outside the
+# package itself — so the German works-council finding, the Elternzeit finding
+# and the four meanings of "headcount" existed only in the code. Written down
+# and unreachable is the same as not written down.
+
+
+def test_the_market_notes_render_for_every_pack():
+    """Every market must be able to say what it changes about how you work."""
+    from services import market_notes
+
+    for code in cp.load():
+        if code == cp.BASELINE:
+            continue
+        for fn in (market_notes.org_structure_notes, market_notes.performance_notes):
+            notes = fn(code)
+            if not notes:
+                continue
+            assert notes[0].endswith("."), f"{code}: the heading should be a sentence"
+
+            # One line is legitimate, but only when it is the line that says so.
+            # Belgium holds no performance slot, and admitting that is the
+            # designed answer — it tells a reader the silence is ours and not
+            # the market's. A bare heading with nothing under it is the failure.
+            if len(notes) == 1:
+                assert "no answer is held" in notes[0], (
+                    f"{code}/{fn.__name__} produced a heading and nothing under it. "
+                    "Either say something, or say plainly that nothing is held.")
+
+
+def test_a_note_carries_its_own_weight():
+    """A reader who never opens the source still has to know what they have.
+
+    The packs carry hardness on every claim; the screen is where that becomes
+    visible to somebody who will never read the code. An UNVERIFIED claim and a
+    statutory one must not look alike in a list of bullets.
+    """
+    from services import market_notes
+
+    de = market_notes.performance_notes("DE")
+    assert any(n.startswith("UNVERIFIED — ") for n in de), (
+        "Germany still holds an unverified performance claim; it must be labelled")
+    assert any(n.startswith("Reading of the law rather than its words — ") for n in de), (
+        "the §87(1) no. 6 reading is UITLEG and must not be dressed as statute")
+
+
+def test_a_stale_claim_says_so_on_the_screen():
+    """The decay policy has to be visible, not just modelled.
+
+    A claim that has outlived its review interval keeps speaking — silence
+    would throw away information that is usually still correct — but it says
+    how old it is, so the reader can weigh it.
+    """
+    from datetime import date
+    from services.market_notes import _line
+
+    fresh = cp.Claim("x", cp.WET, "src", "2026-09-01", note="a fact",
+                     review_after_months=6)
+    assert _line(fresh, date(2026, 9, 5)) == "a fact"
+
+    old = cp.Claim("x", cp.WET, "src", "2026-01-01", note="a fact",
+                   review_after_months=6)
+    line = _line(old, date(2026, 9, 5))
+    assert line.startswith("STALE (8 months"), line
+    assert line.endswith("a fact"), "the claim must still be readable, not suppressed"
+
+
+def test_both_views_actually_call_the_panel():
+    """Guarding the call site, not just the helper.
+
+    The whole defect was a function nothing invoked. A test that only exercises
+    market_notes would have passed all day while the screen stayed empty.
+    """
+    import pathlib
+    views = pathlib.Path(cp.__file__).parent.parent.parent / "ui" / "views"
+    for name, kind in (("nine_box.py", "performance"), ("organigram.py", "org_structure")):
+        text = (views / name).read_text(encoding="utf-8")
+        assert f'_market_panel("{kind}")' in text, (
+            f"{name} defines or imports the panel but never calls it for {kind}")
