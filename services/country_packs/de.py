@@ -113,7 +113,14 @@ _TRANSPOSED = Claim(
          "WHY IT MATTERS IF THIS GOES STALE: the German 2017 Act starts reporting above "
          "500 employees and the directive starts at 250. If Germany transposes and nobody "
          "re-checks, a 300-person employer is told they sit outside a duty that by then "
-         "reaches them. The 2017 Act applies either way.",
+         "reaches them. The 2017 Act applies either way. "
+         "STATUS: OPEN, deliberately. Elmar reviewed this on 2026-09-05 and confirmed the "
+         "handling rather than the answer: with the transposition deadline three months "
+         "past, do not assume the 2017 Act still stands alone — check whether an amending "
+         "or replacing instrument has come into force. The six-month re-check is the "
+         "right treatment for a claim this time-sensitive, so the claim stays ONBEVESTIGD "
+         "on purpose. It is not waiting to be filled in; it is waiting to be looked at "
+         "again, and the screen will say so when the interval lapses.",
     review_after_months=6)
 
 REPORTING = PayReporting(
@@ -229,15 +236,36 @@ PERFORMANCE = PerformanceModel(
              "of a system the works council must agree to. Implemented without that "
              "agreement it is not merely bad practice, it is unenforceable."),
     constraints=(
-        Claim("technische Einrichtungen", ONBEVESTIGD, "", _VERIFIED,
-              note="Section 87(1) no. 6 is widely understood to give the Betriebsrat "
-                   "co-determination over technical systems capable of monitoring "
-                   "employee performance or behaviour, which in practice is the hook that "
-                   "catches HR software itself rather than only the policy it implements. "
-                   "NOT verified in this round, unlike no. 10. Read the provision before "
-                   "telling a client their Jobsy rollout needs a Betriebsvereinbarung — "
-                   "and note that if it is right, it applies to the tool and not just to "
-                   "the talent grid inside it."),
+        Claim("BetrVG §87(1) Nr. 6 — technische Einrichtungen", UITLEG, _BETRVG_URL,
+              _VERIFIED,
+              note="THIS ONE IS ABOUT JOBSY ITSELF, NOT ABOUT THE CLIENT'S PAY POLICY, "
+                   "and it is the most commercially consequential line in any pack. "
+                   "The provision gives the Betriebsrat co-determination over the "
+                   "EINFUEHRUNG UND ANWENDUNG von technischen Einrichtungen, die dazu "
+                   "bestimmt sind, das Verhalten oder die Leistung der Arbeitnehmer zu "
+                   "ueberwachen — the introduction AND the use of technical devices "
+                   "intended to monitor behaviour or performance. "
+                   "GERMAN PRACTICE READS THAT BROADLY, and the breadth is the point. It "
+                   "is not confined to classic surveillance. A system can fall under it "
+                   "where it is OBJECTIVELY SUITABLE to collect, record, combine or "
+                   "evaluate person-related data about behaviour or performance — so "
+                   "INTENT DOES NOT SAVE YOU. Dashboards, individual performance scores, "
+                   "rankings, productivity measures and certain HR and AI systems are all "
+                   "potentially in scope. "
+                   "So do NOT record this as 'relevant only if the system is meant to "
+                   "monitor staff'. The safer statement, and the one this pack now makes: "
+                   "co-determination is LIKELY TO APPLY wherever Jobsy can technically "
+                   "process person-related data from which an employee's behaviour or "
+                   "performance could be followed or assessed. Jobsy holds per-person pay, "
+                   "grade and rating-adjacent data, so on that reading a German rollout at "
+                   "an employer with a works council is a matter for a "
+                   "Betriebsvereinbarung, not an IT decision. That is a fact about SELLING "
+                   "AND DEPLOYING the product, not about advising on someone's pay. "
+                   "Source: Elmar van Dijk, domain knowledge, 2026-09-05, against the text "
+                   "of the provision. Marked UITLEG rather than WET because the breadth of "
+                   "application is settled case law and practice rather than something the "
+                   "sentence itself says — which is exactly the kind of thing a German "
+                   "employment lawyer should confirm before it is put to a client."),
         Claim("section 87(1) no. 11", ONBEVESTIGD, "", _VERIFIED,
               note="Believed to cover performance-related pay rates (Akkord- und "
                    "Praemiensaetze and comparable performance-based pay). Unverified."),
