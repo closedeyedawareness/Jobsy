@@ -458,6 +458,35 @@ def validate(pack: CountryPack) -> list[str]:
             if x.groups and g not in x.groups:
                 problems.append(f"crosswalk[{x.system}] has a point band for unknown group {g!r}.")
 
+        # The same two checks for salary scales, which are about to carry real
+        # transcribed tables rather than a pair of endpoints. A grade table is
+        # copied by hand from a PDF annex, and the two ways that goes wrong are
+        # a key that matches no group (a typo, or a group letter from a
+        # different sector's table) and a range whose ends are the wrong way
+        # round. Both look entirely plausible on screen and both misprice a
+        # person, so they are caught here rather than trusted.
+        for g, bounds in (x.scales or {}).items():
+            if x.groups and g not in x.groups:
+                problems.append(
+                    f"crosswalk[{x.system}] has a salary scale for unknown group {g!r}. "
+                    f"Known groups: {', '.join(x.groups)}.")
+            try:
+                lo, hi = bounds
+            except (TypeError, ValueError):
+                problems.append(
+                    f"crosswalk[{x.system}] scale for {g!r} is not a (min, max) pair.")
+                continue
+            if lo is None or hi is None:
+                problems.append(f"crosswalk[{x.system}] scale for {g!r} has a None bound.")
+            elif lo > hi:
+                problems.append(
+                    f"crosswalk[{x.system}] scale for {g!r} runs {lo} to {hi}, which is "
+                    f"backwards.")
+            elif lo <= 0:
+                problems.append(
+                    f"crosswalk[{x.system}] scale for {g!r} starts at {lo}; a pay scale "
+                    f"bound of zero or less is a transcription error, not a wage.")
+
     if p.status == LIVE:
         if p.reporting is None:
             problems.append("a live pack must state the reporting duty, even if the answer "

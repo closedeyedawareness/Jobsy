@@ -771,3 +771,73 @@ def test_seniority_progression_is_answered_or_explicitly_unknown():
         if claim.value is None:
             assert not claim.verified or "unknown" in claim.note.lower(), (
                 f"{code}: an unanswered seniority question must say so plainly")
+
+
+# ── guarding a hand-transcribed pay table ────────────────────────────────────
+
+def test_salary_scales_are_checked_before_anyone_reads_a_number_off_them():
+    """These tables are copied by hand out of a PDF annex.
+
+    Spain's química grid and Poland's local-government ladder are transcribed
+    from official annexes, group by group. The two ways that goes wrong both
+    look entirely plausible on screen — a key matching no group, and a range
+    whose ends are reversed — and both misprice a real person. So `validate()`
+    refuses them, and this asserts it keeps refusing.
+    """
+    def _pack(scales, groups=("1", "2")):
+        return cp.CountryPack(
+            country="ZZ", name="fixture", currency="EUR", languages=("en",),
+            crosswalks=(cp.CrosswalkSpec(
+                system="fixture", publishes_point_table=False,
+                groups=groups, scales=scales,
+                source=cp.Claim("fixture", cp.CONVENTIE, "test", "2026-09-05")),))
+
+    assert not cp.validate(_pack({"1": (100.0, 200.0)})), "a sane scale must pass"
+
+    unknown = cp.validate(_pack({"9": (100.0, 200.0)}))
+    assert any("unknown group" in m for m in unknown), unknown
+
+    backwards = cp.validate(_pack({"1": (200.0, 100.0)}))
+    assert any("backwards" in m for m in backwards), backwards
+
+    zero = cp.validate(_pack({"1": (0.0, 200.0)}))
+    assert any("transcription error" in m for m in zero), zero
+
+
+@pytest.mark.parametrize("code,pack", ALL_PACKS, ids=PACK_IDS)
+def test_a_partial_pay_table_says_it_is_partial(code, pack):
+    """Fewer scales than groups is fine. Not saying why is not.
+
+    There are two legitimate reasons a crosswalk holds fewer salary scales than
+    it lists groups, and a reader has to be able to tell them apart:
+
+      * The rest of the table exists and we have not captured it yet. Spain's
+        química and Poland's samorząd currently hold only the first and last
+        rows of a longer published annex.
+      * The rest of the table does not exist. The Dutch ISF groups L to Q are
+        Hoger Personeel and have no rigid step table at all, so there is
+        nothing to hold.
+
+    Both are honest; confusing them is not. Someone who finds two scales against
+    nine groups will otherwise assume those two are all there is, and price a
+    person off a table they did not know was truncated. This test was written
+    for the first case and immediately caught the second, which is the more
+    useful outcome — the rule is not "say it is incomplete", it is "account for
+    the shortfall".
+    """
+    for cw in pack.crosswalks:
+        if not cw.scales or not cw.groups:
+            continue
+        if len(cw.scales) >= len(cw.groups):
+            continue
+        note = (cw.source.note or "").lower()
+        accounted_for = (
+            # the table continues and we have not transcribed it
+            "only", "endpoint", "intermediate", "not captured", "must be read",
+            # or the table genuinely stops there
+            "no scales", "no rigid", "have no",
+        )
+        assert any(word in note for word in accounted_for), (
+            f"{code}/{cw.system} holds {len(cw.scales)} scales for {len(cw.groups)} "
+            "groups and its source note does not account for the shortfall — say either "
+            "that the rest was not captured, or that it does not exist")
