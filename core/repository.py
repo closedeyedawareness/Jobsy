@@ -9,7 +9,7 @@ records (models.py), validates them (validator.py), builds the resolution index
     profiles           dict[job_id -> JobProfile]
     salary             (function, level) -> SalaryBand, for the market being
                        looked at: country, then the EU baseline, then nothing.
-                       Never another market's rows — see _MarketBands.
+                       Never another market's rows — see _MarketRows.
     title_mapping      dict[normalized existing title -> job_id]
     career_paths       dict[job_id -> CareerStep]
     levels             list[str]   (seniority ladder, in sheet order)
@@ -74,8 +74,14 @@ def _num(row, *names: str) -> Optional[float]:
 
 
 
-class _MarketBands(Mapping):
-    """Salary bands seen from the market currently being looked at.
+class _MarketRows(Mapping):
+    """Library rows seen from the market currently being looked at.
+
+    Used for salary bands, pay elements and the benefits catalogue — three
+    tables that each hold a national fact under a key that does not mention a
+    country. Written once for bands and generalised the day migration 0015 gave
+    the other two a country column, because a rule enforced in one place and
+    reimplemented in two is a rule with two chances to be got wrong.
 
     A Mapping rather than a dict because every existing caller reaches for
     `.get((function, level))`, `len(...)` or `in` — nine sites across core,
@@ -128,7 +134,7 @@ class _MarketBands(Mapping):
         return len(self._view())
 
     def __repr__(self) -> str:
-        return f"_MarketBands({self._market()}: {len(self)} bands)"
+        return f"_MarketRows({self._market()}: {len(self)} rows)"
 
 
 class Repository:
@@ -158,7 +164,7 @@ class Repository:
         # (industry, category, country) one method below this one; the lesson had
         # been learned in this file and not carried across.
         self._salary_by_country: dict[str, dict[tuple[str, str], SalaryBand]] = {}
-        self.salary = _MarketBands(self._salary_by_country)
+        self.salary = _MarketRows(self._salary_by_country)
         self.title_mapping: dict[str, str] = {}
         self.career_paths: dict[str, CareerStep] = {}
         self.levels: list[str] = []
@@ -178,11 +184,25 @@ class Repository:
         self.seniority_levels: dict[str, SeniorityLevel] = {}
         # {category: {level:int -> {"name": str, "anchor": str}}}
         self.skill_proficiency: dict[str, dict[int, dict]] = {}
-        self.benefits_catalog: dict[str, BenefitCatalogItem] = {}
+        # 0015 gave benefits_catalog a country column, which made a latent
+        # defect reachable: WHETHER A BENEFIT IS STATUTORY, AND WHAT IT IS
+        # TYPICALLY WORTH, IS A NATIONAL FACT, and this dictionary was keyed on
+        # category alone. With one market loaded that is invisible; with two, a
+        # Belgian client reads Dutch answers under their own name. Exactly the
+        # shape found in salary bands, in the same file, a few hours earlier —
+        # so it is fixed here at the same time rather than left to be
+        # rediscovered by whoever imports the second market.
+        self._benefits_catalog_by_country: dict[str, dict] = {}
+        self.benefits_catalog = _MarketRows(self._benefits_catalog_by_country)
         self.benefit_observations: dict[tuple, list[BenefitObservation]] = {}
         self.level_benefit_factors: dict[tuple, float] = {}
         self.pay_mix: dict[tuple, PayMixEntry] = {}      # (function, level) -> policy
-        self.pay_elements: dict[str, PayElement] = {}    # element_id -> component
+        # Same shape, sharper stakes. Holiday allowance is 8% of annual pay in
+        # the Netherlands, 92% of one month for Belgian white-collar staff, and
+        # not statutory at all in Germany — the packs hold all three. A single
+        # element_id key silently picks one of them for everybody.
+        self._pay_elements_by_country: dict[str, dict] = {}
+        self.pay_elements = _MarketRows(self._pay_elements_by_country)
 
         self._build_jobs(data.get("jobs"))
         self._build_profiles(data.get("profiles"))
@@ -598,7 +618,8 @@ class Repository:
         for row in df.itertuples(index=False):
             category = _val(row, "Category", "category")
             if not category: continue
-            self.benefits_catalog[category] = BenefitCatalogItem(
+            country = (_val(row, "Country", "country") or "NL").strip().upper()
+            self._benefits_catalog_by_country.setdefault(country, {})[category] = BenefitCatalogItem(
                 benefit_id=_val(row, "BenefitID", "benefit_id") or "",
                 category=category,
                 basis=_val(row, "Basis", "basis") or "",
@@ -658,7 +679,8 @@ class Repository:
         for row in df.itertuples(index=False):
             element_id = _val(row, "ElementID", "element_id")
             if not element_id: continue
-            self.pay_elements[element_id] = PayElement(
+            country = (_val(row, "Country", "country") or "NL").strip().upper()
+            self._pay_elements_by_country.setdefault(country, {})[element_id] = PayElement(
                 element_id=element_id,
                 name=_val(row, "Name", "name") or "",
                 category=_val(row, "Category", "category") or "",

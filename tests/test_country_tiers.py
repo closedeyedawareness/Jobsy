@@ -370,9 +370,9 @@ def test_a_market_without_bands_gets_silence_not_another_markets_numbers():
     An empty answer is the correct answer here. Falling back to whatever bands
     happen to exist is the whole failure.
     """
-    from core.repository import _MarketBands
+    from core.repository import _MarketRows
 
-    bands = _MarketBands({
+    bands = _MarketRows({
         "NL": {("Finance", "Senior"): "dutch band"},
         "EU": {("Finance", "Junior"): "eu baseline"},
     })
@@ -416,3 +416,104 @@ def test_the_library_can_say_which_markets_it_covers():
 
     repo._salary_by_country = {}
     assert repo.salary_markets() == ()
+
+
+# ── 0015 gave two more tables a country, which made two more holes reachable ──
+
+def _repo_with_two_markets_of_library_rows():
+    """pay_elements and benefits_catalog in two markets, built through the
+    real Repository rather than by hand, so the builders are what is tested."""
+    import pandas as pd
+    from core.repository import Repository
+
+    pay = pd.DataFrame([
+        {"ElementID": "PE-HOL", "Name": "Holiday allowance", "Category": "Statutory",
+         "Basis": "Annual", "TypicalValue": "8%", "StatutoryNL": "Yes (statutory min 8%)",
+         "Taxable": "Yes", "Description": "", "Country": "NL"},
+        {"ElementID": "PE-HOL", "Name": "Dubbel vakantiegeld", "Category": "Statutory",
+         "Basis": "Annual", "TypicalValue": "92% of one month", "StatutoryNL": "Yes",
+         "Taxable": "Yes", "Description": "", "Country": "BE"},
+    ])
+    ben = pd.DataFrame([
+        {"BenefitID": "BEN-01", "Category": "Pension", "Basis": "Annual", "Unit": "EUR",
+         "TypicalValueDescription": "Dutch second pillar", "StatutoryNL": "Partly (sector funds)",
+         "Taxable": "No", "Description": "", "Country": "NL"},
+        {"BenefitID": "BEN-01", "Category": "Pension", "Basis": "Annual", "Unit": "EUR",
+         "TypicalValueDescription": "Belgian group insurance", "StatutoryNL": "No",
+         "Taxable": "No", "Description": "", "Country": "BE"},
+    ])
+    data = {
+        "jobs": pd.DataFrame(columns=["JobID", "StandardTitle", "Function", "Level"]),
+        "titles": pd.DataFrame(columns=["ExistingTitle", "JobID"]),
+        "payelements": pay,
+        "benefitscatalog": ben,
+    }
+    return Repository(data, validate=False)
+
+
+def test_holiday_allowance_is_read_from_the_client_s_own_market():
+    """The sharpest instance of the pattern, and it is a real number.
+
+    Holiday allowance is 8% of annual pay in the Netherlands, 92% of ONE
+    MONTH's gross for Belgian white-collar staff, and not statutory at all in
+    Germany — all three are in the packs. Keyed on element_id alone, one of
+    those answers silently becomes everybody's, and it reads as a fact about
+    the reader's own country.
+    """
+    repo = _repo_with_two_markets_of_library_rows()
+
+    class _Market:
+        def __init__(self, code): self.code = code
+        def __enter__(self):
+            import services.country_service as cs
+            self._real = cs.active_country
+            cs.active_country = lambda: self.code
+            return self
+        def __exit__(self, *_):
+            import services.country_service as cs
+            cs.active_country = self._real
+
+    with _Market("NL"):
+        assert repo.pay_elements["PE-HOL"].typical_value == "8%"
+    with _Market("BE"):
+        assert repo.pay_elements["PE-HOL"].typical_value == "92% of one month", (
+            "a Belgian client was told their holiday allowance is 8% of annual pay")
+    with _Market("DE"):
+        assert repo.pay_elements.get("PE-HOL") is None, (
+            "Germany, where this is not statutory at all, was handed another "
+            "market's rate rather than nothing")
+
+
+def test_a_benefit_s_national_facts_do_not_leak_between_markets():
+    repo = _repo_with_two_markets_of_library_rows()
+
+    class _Market:
+        def __init__(self, code): self.code = code
+        def __enter__(self):
+            import services.country_service as cs
+            self._real = cs.active_country
+            cs.active_country = lambda: self.code
+            return self
+        def __exit__(self, *_):
+            import services.country_service as cs
+            cs.active_country = self._real
+
+    with _Market("NL"):
+        assert repo.benefits_catalog["Pension"].statutory_nl == "Partly (sector funds)"
+    with _Market("BE"):
+        assert repo.benefits_catalog["Pension"].statutory_nl == "No"
+    with _Market("SE"):
+        assert len(repo.benefits_catalog) == 0, (
+            "a Swedish client read another market's catalogue")
+
+
+def test_one_rule_in_one_place_for_all_three_tables():
+    """Structural. Salary bands, pay elements and the benefits catalogue all
+    resolve country then EU then nothing, and they do it through the SAME
+    object — a rule enforced once and reimplemented twice is a rule with two
+    chances to drift apart."""
+    from core.repository import _MarketRows
+    repo = _repo_with_two_markets_of_library_rows()
+    for name in ("salary", "pay_elements", "benefits_catalog"):
+        assert isinstance(getattr(repo, name), _MarketRows), (
+            f"{name} resolves its market some other way")
