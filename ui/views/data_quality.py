@@ -101,11 +101,20 @@ def data_quality_page(catalog):
     # in the repo is not the master and cannot be trusted as a copy of it; this
     # button produces one from whatever the app is actually reading.
     _src_label = getattr(catalog, "active_source", None) or "the library"
-    # PARTNER ADMIN ONLY. The navigation list is unfiltered, so every signed-in
-    # account — a viewer at a client included — reaches this page, and until now
-    # reached this button with it. The library is the product; a client who
-    # exports it once does not need the product again. Their own roster,
-    # matches and reports keep their own exports.
+    # PARTNER ADMIN ONLY, and this is the ONE exception on the page.
+    #
+    # Every module is open to every signed-in account by design — the thirteen
+    # pages ARE the product, and gating them would be gating what the client
+    # pays for. So a viewer at a client legitimately reaches this page and
+    # should: the coverage, integrity and freshness of the library they are
+    # relying on is exactly the kind of thing they are entitled to see.
+    #
+    # SEEING IT AND TAKING IT ARE DIFFERENT THINGS, and that is the whole
+    # distinction. This one button hands over the reference set itself — 81
+    # roles, 45 salary bands, the grade ladder, the skills taxonomy — and a
+    # client who exports that once does not need the product again. Their own
+    # roster, matches and reports keep their own exports; the page keeps every
+    # other thing on it.
     try:
         from services import auth_service as _auth
     except ImportError:                                   # pragma: no cover

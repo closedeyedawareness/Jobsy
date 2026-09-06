@@ -368,10 +368,13 @@ def test_no_user_facing_string_hard_codes_the_product_name(path):
 def test_only_the_partner_admin_may_export_the_library(role, may):
     """81 roles, 45 salary bands, a grade ladder and 571 role-to-skill links.
 
-    A client who exports that once does not need the product again. Until 6
-    September 2026 the navigation list was unfiltered, so every signed-in
-    account reached the Data Quality page, and the export button sat on it with
-    no check at all.
+    A client who exports that once does not need the product again.
+
+    Every module is open to every signed-in account BY DESIGN — the pages are
+    the product. So a client reaching the Data Quality page is correct and stays
+    correct; what was wrong until 6 September 2026 is that the export button sat
+    on that open page with no check at all. Seeing the library's coverage and
+    taking the library are different acts, and only the second one is gated.
 
     Narrower than `is_admin()` deliberately: that helper includes client_admin,
     which is the customer's own administrator and the role this exists to stop.
