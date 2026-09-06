@@ -173,12 +173,30 @@ dimension belongs on the table; where it belongs on a row it is already there.
 
 ---
 
-## 4. The arguable ones — for the owner, not for us
+## 4. The arguable ones — ANSWERED 6 September 2026
 
-Each of these is a decision with a defensible answer in both directions. None is
-in migration 0015.
+Each of these had a defensible answer in both directions. None was in migration
+0015, which recorded them as open on the objects themselves. **0016 carries the
+answers**, and the table comments now state them rather than the questions.
 
-### 4.1 Job profiles — universal in content, national in level?
+| §   | Question | Answer |
+|-----|----------|--------|
+| 4.1 | Job profiles | **(c) split** — content universal, positioning country-scoped |
+| 4.2 | Competency levels | **the product's own five stay** — and the question was wrongly put |
+| 4.3 | Seniority levels | **same shape as 4.1**, because it is the same question |
+| 4.4 | Career paths | **not a question** — the national licence gate is simply real |
+| 4.5 | `pay_elements` | additive column taken in 0015; the rates split remains declinable |
+
+One thing to notice about how 4.2 went, because it generalises: the answer came
+back "EQF", and then reading the five actual rows showed the QUESTION had been
+wrong. It had been framed as five rungs against eight — one axis at two
+resolutions, where the only cost is a lossy inverse. The rows say otherwise.
+They describe how well somebody performs a skill; the EQF describes the learning
+outcomes of a qualification. A question that hides a category difference inside
+a granularity difference will get a confident answer to the wrong thing, and the
+answer will look fine.
+
+### 4.1 Job profiles — ANSWERED: (c), split
 
 `job_profiles` holds a description, key responsibilities, required skills,
 specialisms, a management level and typical tools, keyed one-to-one against
@@ -201,10 +219,12 @@ Three options, and the choice is a product decision:
 - **(c)** split — the descriptive fields stay universal, `management_level`
   moves to a small country-scoped table keyed `(country, job_id)`.
 
-(c) is the one that matches the tier logic. It is also the one that costs a
-table and a join, and it should not be chosen by an agent on a Sunday.
+(c) is the one that matches the tier logic, and it is the one taken. It costs a
+table and a join. Built in 0016 as `job_profile_positioning`, keyed
+`(org_id, country, job_id)`, with `job_profiles.management_level` still live and
+still read until the five conditions in 0016 §3 hold.
 
-### 4.2 Competency levels — against EQF, or the product's own?
+### 4.2 Competency levels — ANSWERED: the product's own, and the question was wrong
 
 `competency_levels` holds five rows. The packs already carry a real anchor:
 `eu.py` describes **EQF**, eight levels, with the observation that every member
@@ -223,10 +243,25 @@ this as reversible will quietly promote or demote people at level 4."*
 
 So the question is not "is EQF better". It is: does the product want to own a
 five-level scale it controls, or route through an eight-level public one and
-accept a lossy inverse it must never traverse? Both are defensible. Only one has
-been thought about, and it is the current one.
+accept a lossy inverse it must never traverse?
 
-### 4.3 Seniority levels — the rung beneath a grade that knows its market
+**AND THAT FRAMING WAS ITSELF WRONG.** It presents the two as one axis at two
+resolutions, where the only cost is the inverse. The five rows say otherwise —
+"applies the skill with support in straightforward situations", "coaches
+others", "recognised authority". That is how well somebody PERFORMS a skill. The
+EQF describes the learning outcomes of a QUALIFICATION: what a diploma attests
+to in knowledge, skills, responsibility and autonomy. Two axes.
+
+**The answer is that the five stay.** They work, and they measure something the
+EQF does not. The consequence is now on the table itself: a proficiency rating
+here is not a qualification level and must never be rendered as one — anchoring
+it to an EQF number would put a credential claim on a performance rating.
+
+Where the EQF anchor DOES belong is the qualification axis, which the packs
+already hold and `bridge()` already routes. That is a separate build and nobody
+has asked for it.
+
+### 4.3 Seniority levels — ANSWERED: split, same shape as 4.1
 
 The brief flagged this and the measurement bears it out. `seniority_levels` has
 no country column; `job_grades` does. And the join between them is stated in the
@@ -251,19 +286,22 @@ The counter-argument is real: L1..L5 and "Starter/Developing/Senior/Manager" are
 the product's own naming, not any country's, and duplicating five rows per market
 to change one text field is the drift 0012 warned about.
 
-The resolution probably splits the table — the rung names stay universal, the
+The resolution splits the table — the rung names stay universal, the
 `grade_range`/`maps_to_level` binding becomes country-conditioned — which is the
-same shape as 4.1(c). **Not migrated.** It is a schema split, not an additive
-column, and it needs the owner's answer to 4.1 first because it is the same
-question.
+same shape as 4.1(c). **Migrated in 0016** as `seniority_grade_binding`, keyed
+`(org_id, country, l_code)`, once 4.1 was answered, because it is the same
+question and answering it twice would have been a way to answer it two ways.
 
-### 4.4 Career paths
+### 4.4 Career paths — NOT A QUESTION
 
-Which role follows which is mostly universal. It is not entirely: progression
+Raised as arguable; it is not. Which role follows which is mostly universal. It is not entirely: progression
 into some roles is gated by a national licence or qualification — Germany's
 Meister route, regulated professions generally — and a ladder that ignores that
 tells a German employee a step exists that does not. Low urgency, but it is a
-real difference and it should be on the record rather than assumed away.
+real difference and it should be on the record rather than assumed away. It is
+not a tier decision at all: nobody has to choose whether a Meister requirement
+exists. It exists. The only question is where it gets modelled, and that is
+engineering rather than product. Recorded on the table.
 
 ### 4.5 `pay_elements` — a column, or a rates table?
 
