@@ -133,29 +133,32 @@ SPECS: list[TableSpec] = [
     # sort_order, not "order": see 0004 — the reserved word collided with
     # PostgREST's own ordering parameter.
     TableSpec("Levels", "levels", ("level",), {"Level": "level", "Order": "sort_order"}),
-    TableSpec("PayElements", "pay_elements", ("element_id",), {
-        "ElementID": "element_id", "Name": "name", "Category": "category", "Basis": "basis",
+    TableSpec("PayElements", "pay_elements", ("country", "element_id"), {
+        "Country": "country", "ElementID": "element_id", "Name": "name", "Category": "category", "Basis": "basis",
         "TypicalValue": "typical_value", "StatutoryNL": "statutory_nl", "Taxable": "taxable",
-        "Description": "description"}),
+        "Description": "description"},
+        defaults={"country": "NL"}),
     TableSpec("Categories", "categories", ("category",), {
         "Category": "category", "Function": "function", "Description": "description"}),
     TableSpec("Employees", "employees", ("employee_id",), {
         "EmployeeID": "employee_id", "Name": "name", "CurrentTitle": "current_title",
         "Department": "department"}),
-    TableSpec("SalaryBands", "salary_bands", ("function", "level"), {
-        "Function": "function", "Level": "level", "Grade": "grade", "Min": "min",
-        "P25": "p25", "P50": "p50", "P75": "p75", "Max": "max", "Currency": "currency"}),
+    TableSpec("SalaryBands", "salary_bands", ("country", "function", "level"), {
+        "Country": "country", "Function": "function", "Level": "level", "Grade": "grade", "Min": "min",
+        "P25": "p25", "P50": "p50", "P75": "p75", "Max": "max", "Currency": "currency"},
+        defaults={"country": "NL"}),
     TableSpec("CompetencyLevels", "competency_levels", ("level",), {
         "Level": "level", "Name": "name", "Description": "description"}),
-    TableSpec("JobGrades", "job_grades", ("grade",), {
-        "Grade": "grade", "GradeLabel": "grade_label", "CareerBand": "career_band",
+    TableSpec("JobGrades", "job_grades", ("country", "grade"), {
+        "Country": "country", "Grade": "grade", "GradeLabel": "grade_label", "CareerBand": "career_band",
         "LevelBand": "level_band", "HayMin": "hay_min", "HayMax": "hay_max",
         "PayMin": "pay_min", "PayP25": "pay_p25", "PayP50": "pay_p50",
         "PayP75": "pay_p75", "PayMax": "pay_max", "Scope": "scope",
         "Complexity": "complexity", "Autonomy": "autonomy", "Impact": "impact",
         "Leadership": "leadership", "SpanOfControl": "span_of_control",
         "DecisionRights": "decision_rights", "Responsibilities": "responsibilities",
-        "Authority": "authority"}),
+        "Authority": "authority"},
+        defaults={"country": "NL"}),
     TableSpec("SeniorityLevels", "seniority_levels", ("l_code",), {
         "LCode": "l_code", "LName": "l_name", "MapsToLevel": "maps_to_level",
         "GradeRange": "grade_range", "Definition": "definition", "Grades": "grades"}),
@@ -172,12 +175,14 @@ SPECS: list[TableSpec] = [
     TableSpec("SkillProficiency", "skill_proficiency", ("category", "level"), {
         "Category": "category", "Level": "level", "LevelName": "level_name",
         "Anchor": "anchor"}),
-    TableSpec("BenefitsCatalog", "benefits_catalog", ("benefit_id",), {
-        "BenefitID": "benefit_id", "Category": "category", "Basis": "basis", "Unit": "unit",
+    TableSpec("BenefitsCatalog", "benefits_catalog", ("country", "benefit_id"), {
+        "Country": "country", "BenefitID": "benefit_id", "Category": "category", "Basis": "basis", "Unit": "unit",
         "TypicalValueDescription": "typical_value_description", "StatutoryNL": "statutory_nl",
-        "Taxable": "taxable", "Description": "description"}),
-    TableSpec("LevelBenefitsFactors", "level_benefits_factors", ("level", "category"), {
-        "Level": "level", "Category": "category", "Factor": "factor"}),
+        "Taxable": "taxable", "Description": "description"},
+        defaults={"country": "NL"}),
+    TableSpec("LevelBenefitsFactors", "level_benefits_factors", ("country", "level", "category"), {
+        "Country": "country", "Level": "level", "Category": "category", "Factor": "factor"},
+        defaults={"country": "NL"}),
 
     # Reference jobs / skills.
     TableSpec("JobProfiles", "job_profiles", ("job_id",), {
@@ -213,8 +218,9 @@ SPECS: list[TableSpec] = [
         "JobID": "job_id", "ManagementLevel": "management_level", "Country": "country"},
         repo_key="jobpositioning", prefers_sheet="JobProfilePositioning",
         defaults={"country": "NL"}),
-    TableSpec("TitleMapping", "title_mapping", ("existing_title",), {
-        "ExistingTitle": "existing_title", "JobID": "job_id"}),
+    TableSpec("TitleMapping", "title_mapping", ("country", "existing_title"), {
+        "Country": "country", "ExistingTitle": "existing_title", "JobID": "job_id"},
+        defaults={"country": "NL"}),
     TableSpec("CareerPaths", "career_paths", ("job_id",), {
         "JobID": "job_id", "NextJobID": "next_job_id", "NextRole": "next_role"},
         status_column="path_status"),
@@ -223,20 +229,26 @@ SPECS: list[TableSpec] = [
         "SkillType": "skill_type"}),
 
     # References salary_bands on (function, level) — must follow it.
-    TableSpec("PayMix", "pay_mix", ("function", "level"), {
-        "Function": "function", "Level": "level",
+    TableSpec("PayMix", "pay_mix", ("country", "function", "level"), {
+        "Country": "country", "Function": "function", "Level": "level",
         "TargetVariablePct": "target_variable_pct",
         "ThirteenthMonthPct": "thirteenth_month_pct",
-        "LTIEligible": "lti_eligible", "Notes": "notes"}),
+        "LTIEligible": "lti_eligible", "Notes": "notes"},
+        defaults={"country": "NL"}),
 
     # Reference industries.
-    TableSpec("IndustrySalaryFactors", "industry_salary_factors", ("industry_id", "function"), {
-        "IndustryID": "industry_id", "Function": "function", "Factor": "factor"}),
+    TableSpec("IndustrySalaryFactors", "industry_salary_factors", ("country", "industry_id", "function"), {
+        "Country": "country", "IndustryID": "industry_id", "Function": "function", "Factor": "factor"},
+        defaults={"country": "NL"}),
     TableSpec("IndustrySkills", "industry_skills", ("industry_id", "skill_id"), {
         "IndustryID": "industry_id", "SkillID": "skill_id", "SkillName": "skill_name",
         "Category": "category", "Definition": "definition", "DefaultLevel": "default_level"}),
+    # NOT keyed on country, unlike its neighbours. The unique here is
+    # (org_id, obs_id) — a SURROGATE — so country varies freely underneath it
+    # and adding it to the conflict target makes PostgREST refuse with 42P10.
+    # Migration 0015 says so in as many words and I widened it anyway.
     TableSpec("BenefitsObservations", "benefits_observations", ("obs_id",), {
-        "ObsID": "obs_id", "IndustryID": "industry_id", "Category": "category",
+        "Country": "country", "ObsID": "obs_id", "IndustryID": "industry_id", "Category": "category",
         "Value": "value", "Unit": "unit", "Currency": "currency"}),
 ]
 
@@ -481,11 +493,39 @@ def _resolve_credentials() -> tuple[str | None, str | None]:
     # right source for the URL and the wrong kind of key for writing, which is
     # exactly why `_require_writable_key` sits at the call site and warns. Env
     # vars are checked first above for that reason; this is the last resort.
+    # THE SECRETS FILE HOLDS A WRITABLE KEY TOO, and until 6 September 2026
+    # nothing looked for it. `st.secrets["SUPABASE_KEY"]` is `sb_secret_...` —
+    # it was sitting there the whole time while this function returned the
+    # publishable one and every script import died at `_require_writable_key`
+    # with "use the secret key", which the machine already had.
+    #
+    # Same shape as the persistence_service import above and worth naming as a
+    # pattern rather than a second accident: BOTH were credential paths that
+    # could not reach a credential that existed. Neither showed up in the app,
+    # because the app reads as the signed-in user and never comes here.
+    #
+    # Read explicitly by name rather than through `_read_secrets`, which is
+    # auth's helper and deliberately returns the PUBLISHABLE key — right for
+    # signing somebody in, wrong for writing the library. `_require_writable_key`
+    # at the call site still decides whether what comes back can write.
+    secret = None
+    try:
+        import streamlit as st
+        for name in ("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_KEY", "SUPABASE_KEY"):
+            candidate = st.secrets.get(name)
+            if candidate and str(candidate).startswith(("sb_secret_", "service_role", "eyJ")):
+                secret = str(candidate)
+                break
+    except Exception:
+        pass
+
     try:
         from services.auth_service import _read_secrets
     except ImportError:  # pragma: no cover
         from jobsy.services.auth_service import _read_secrets
     s_url, s_key = _read_secrets()
+    if secret:
+        return url or s_url, key or secret
     return url or s_url, key or s_key
 
 

@@ -318,3 +318,100 @@ def test_a_fallback_export_says_it_is_a_fallback():
     assert "not a snapshot of the master" in src, (
         "the fallback export no longer says it is a fallback, so a copy of a "
         "possibly stale workbook is indistinguishable from a read of the database")
+
+
+# ── the importer's conflict target versus the database's actual uniques ────
+
+#: The real unique constraint behind each table the importer upserts into,
+#: read from pg_constraint on 6 September 2026. Recorded here rather than
+#: queried, so this test runs without credentials — the gate that only fires
+#: where a database is reachable is the gate that was not there when it was
+#: needed (see tests/test_sheet_map_coverage.py for the same lesson).
+ACTUAL_UNIQUES = {
+    "jobs": ("org_id", "job_id"),
+    "skills": ("org_id", "skill_id"),
+    "industries": ("org_id", "industry_id"),
+    "levels": ("org_id", "level"),
+    "pay_elements": ("org_id", "country", "element_id"),
+    "categories": ("org_id", "category"),
+    "employees": ("org_id", "employee_id"),
+    "salary_bands": ("org_id", "country", "function", "level"),
+    "competency_levels": ("org_id", "level"),
+    "job_grades": ("org_id", "country", "grade"),
+    "seniority_levels": ("org_id", "l_code"),
+    "seniority_grade_binding": ("org_id", "country", "l_code"),
+    "skill_proficiency": ("org_id", "category", "level"),
+    "benefits_catalog": ("org_id", "country", "benefit_id"),
+    "level_benefits_factors": ("org_id", "country", "level", "category"),
+    "job_profiles": ("org_id", "job_id"),
+    "job_profile_positioning": ("org_id", "country", "job_id"),
+    "title_mapping": ("org_id", "country", "existing_title"),
+    "career_paths": ("org_id", "job_id"),
+    "role_skill_map": ("org_id", "job_id", "skill_id"),
+    "pay_mix": ("org_id", "country", "function", "level"),
+    "industry_salary_factors": ("org_id", "country", "industry_id", "function"),
+    "industry_skills": ("org_id", "industry_id", "skill_id"),
+    "benefits_observations": ("org_id", "obs_id"),
+}
+
+
+def test_every_conflict_target_matches_a_real_unique_constraint():
+    """The defect the first foreign workbook found, and nothing else could.
+
+    `import_library` builds its ON CONFLICT target as ("org_id",) + spec.key.
+    Migrations 0012 and 0015 widened eight uniques to include `country` and the
+    spec keys were never widened with them, so PostgREST refused every write
+    with 42P10 — "no unique or exclusion constraint matching the ON CONFLICT
+    specification".
+
+    It had never fired because no write-mode import had run since. Every test
+    in this file exercises build_rows, which is pure; the upsert is the one step
+    fixtures never reach.
+
+    Note benefits_observations, which is keyed on a SURROGATE (org_id, obs_id)
+    and must NOT carry country. I widened it anyway on the first pass, having
+    read the comment in 0015 that says so, and PostgREST refused that too.
+    """
+    from services.library_import_service import SPECS
+
+    wrong = []
+    for spec in SPECS:
+        target = ("org_id",) + tuple(spec.key)
+        actual = ACTUAL_UNIQUES.get(spec.table)
+        assert actual, f"{spec.table} has no recorded unique — add it above"
+        if set(target) != set(actual):
+            wrong.append(f"{spec.table}: sends {','.join(target)}, "
+                         f"constraint is {','.join(actual)}")
+    assert not wrong, (
+        "these upserts would be refused with 42P10:\n  " + "\n  ".join(wrong))
+
+
+def test_a_country_scoped_spec_maps_the_country_column_and_defaults_it():
+    """The SECOND defect, and the one that would have been silent.
+
+    Nine specs read a sheet that HAS a Country column and did not map it, so
+    `country` was never set on the row and the database default 'NL' applied.
+    A Belgian workbook would have written 45 Belgian salary bands AS DUTCH, on
+    top of the Dutch ones.
+
+    The ON CONFLICT mismatch above is what stopped it. Had the target been right
+    and the mapping still missing, the import would have succeeded and quietly
+    replaced the Dutch library with Belgian numbers under a Dutch label. Two
+    bugs cancelling out by luck is not a safety property.
+
+    The default is required as well as the mapping: the workbook committed to
+    this repo predates the country dimension on several sheets, so without it
+    every row from those sheets would fall out of the key and be dropped.
+    """
+    from services.library_import_service import SPECS
+
+    problems = []
+    for spec in SPECS:
+        if "country" not in spec.key:
+            continue
+        if "country" not in spec.columns.values():
+            problems.append(f"{spec.table}: keyed on country, does not map a Country column")
+        if spec.defaults.get("country") != "NL":
+            problems.append(f"{spec.table}: keyed on country with no NL default — "
+                            "a sheet without the column would silently drop every row")
+    assert not problems, "\n  ".join(problems)
