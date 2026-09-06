@@ -659,7 +659,12 @@ def _currency_notes(countries: tuple) -> list[str]:
         "but a different quantity. Every absolute figure above — medians, quartile "
         "bands, the pay distribution Art. 9(1) asks for — assumes one unit, and a "
         "salary column carries no unit to check. Analyse each currency separately, "
-        "or supply the roster already converted at a rate and date you can state."]
+        "or supply the roster already converted at a rate and date you can state — "
+        "AND RECORD WHICH BASIS YOU USED, below. This tool still does not convert; "
+        "recording the basis is not applying it. What it does is let a reader in "
+        "2028 tell which of three questions your figures answer, because an "
+        "exchange rate, purchasing power parity and a labour-cost index give three "
+        "different numbers and only the basis says which one this is."]
 
 
 # -- gender codes: read the market, do not assume the Netherlands ------------

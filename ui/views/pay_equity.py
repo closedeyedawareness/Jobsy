@@ -49,6 +49,104 @@ def _is_dutch_client() -> bool:
 _GENDER_CHOICE = "_gender_code_choice"
 
 
+def _pay_basis_panel(countries) -> None:
+    """Where a mixed-currency roster stops being a warning and becomes a choice.
+
+    The currency note above tells a reader to supply figures "at a rate and date
+    you can state" — and until now gave them nowhere to state it. This is that
+    place, and it sits on this screen rather than the crossing panel because
+    this is where somebody is holding an actual roster in two currencies.
+
+    IT DOES NOT CONVERT ANYTHING. The product's refusal stands: the employer
+    converts, or analyses each currency separately, and this records which of
+    three questions their numbers answer. The moment a recorded basis starts
+    being applied by the engine, the refusal has been dissolved by the feature
+    meant to complete it, and the resulting figure would carry this product's
+    authority rather than the employer's judgement.
+    """
+    try:
+        from services import auth_service
+        from services import determination_service as det
+    except ImportError:                                   # pragma: no cover
+        from jobsy.services import auth_service                    # type: ignore
+        from jobsy.services import determination_service as det    # type: ignore
+
+    org_id = auth_service.active_org_id()
+    if not org_id or len(countries or ()) < 2:
+        return
+
+    with st.expander("Record the basis your figures are compared on", expanded=False):
+        existing = det.recorded(auth_service.db(), org_id, det.PAY_COMPARISON_BASIS)
+        if existing:
+            for row in existing[:3]:
+                sc = row.get("scope") or {}
+                st.markdown(
+                    f"- **{row.get('chosen','?')}** · recorded "
+                    f"{str(row.get('effective_from') or '')[:10]}"
+                    + (f" by {row['created_by']}" if row.get("created_by") else "")
+                    + f" · review due {str(row.get('review_due') or '—')[:10]}")
+                st.caption(" ".join(row.get("permitted_uses") or []))
+        else:
+            st.caption("Nothing recorded. Analysing each currency separately is a "
+                       "legitimate answer and needs no record.")
+
+        # The QUESTION each basis answers is the label, not the method name.
+        # "PPP" tells a reader nothing; "what can this salary buy where the
+        # person lives" is the thing they are actually choosing between.
+        labels = {key: f"{lab} — {q}" for key, lab, q in det.PAY_BASES}
+        with st.form("_pay_basis_form", clear_on_submit=True):
+            basis = st.radio("Which question are your figures answering?",
+                             list(labels), format_func=lambda k: labels[k],
+                             index=None, key="_pb_basis")
+            c1, c2 = st.columns(2)
+            with c1:
+                rate = st.text_input("Rate, if you converted", key="_pb_rate",
+                                     placeholder="1 EUR = 4,28 PLN")
+            with c2:
+                rate_date = st.date_input("As at", value=None, key="_pb_date")
+            src = st.text_input("Where the rate or index came from", key="_pb_src",
+                                placeholder="ECB reference rate")
+            why = st.text_area("Why this basis, in your terms", key="_pb_why")
+            submitted = st.form_submit_button("Record this basis")
+
+        if not submitted:
+            return
+        if not basis:
+            st.warning("Choose a basis. A figure with no stated basis is the "
+                       "thing this note exists to warn about.")
+            return
+        if basis == "fx" and not rate_date:
+            # An FX rate without its date is not a weaker record, it is a
+            # meaningless one: the same rate is right on one day and wrong the
+            # next, and nothing later can tell which day was meant.
+            st.warning("An exchange rate needs its date. Without one the figure "
+                       "cannot be checked or reproduced.")
+            return
+
+        who = ""
+        try:
+            who = (auth_service.current_user() or {}).get("email") or ""
+        except Exception:
+            pass
+        refusal = ""
+        try:
+            from services import country_packs as cp
+            refusal = cp.bridge(countries[0], countries[1], cp.PAY).get("refusal") or ""
+        except Exception:
+            pass
+
+        determination = det.pay_comparison_basis(
+            countries=countries, basis=basis, rate=(rate or "").strip(),
+            rate_date=rate_date, source=(src or "").strip(),
+            refusal=refusal, actor=who, reason=(why or "").strip())
+        _id, err = det.record(auth_service.db(), org_id, determination, actor=who)
+        if err:
+            st.error(f"Not recorded: {err}")
+        else:
+            st.success("Recorded. The figures are unchanged — this says what they mean.")
+            st.rerun()
+
+
 def _gender_override(gender_col: str) -> dict:
     """The labels a reader supplied for a column this market cannot decide."""
     chosen = st.session_state.get(_GENDER_CHOICE, {}).get(gender_col)
@@ -402,6 +500,15 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
 
     for note in r.notes:
         st.caption("· " + note)
+
+    # Directly under the currency note, because that note now ends by telling
+    # the reader to record their basis and this is the "below" it refers to.
+    # Derived from the file itself rather than from the session's market: the
+    # warning is about what is IN the roster, and so is the decision.
+    if country_col and country_col in df.columns:
+        _seen = tuple(sorted({str(v).strip().upper()
+                              for v in df[country_col].dropna() if str(v).strip()}))
+        _pay_basis_panel(_seen)
 
     # ── shift-toeslag & generatiepact reasoning ─────────────────────────
     try:

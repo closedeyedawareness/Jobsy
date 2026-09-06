@@ -297,3 +297,91 @@ def test_a_read_failure_decorates_nothing_rather_than_breaking_the_page():
         def table(self, _): raise RuntimeError("gone")
     assert det.recorded(_Boom(), "org-1", det.CROSS_COUNTRY_EQUIVALENCE) == []
     assert det.recorded(None, "org-1", det.CROSS_COUNTRY_EQUIVALENCE) == []
+
+
+# ── pay: three questions, not three routes to one number ─────────────────
+
+def test_each_basis_records_which_question_it_answers():
+    """The content of this determination IS the question.
+
+    bridge() refuses pay because an FX rate, purchasing power parity and a
+    labour-cost index are not three routes to one number — they are three
+    numbers answering three questions. A basis recorded without its question is
+    a rate with no meaning attached.
+    """
+    from datetime import date
+    seen = set()
+    for key, label, question in det.PAY_BASES:
+        d = det.pay_comparison_basis(countries=("NL", "PL"), basis=key,
+                                     rate_date=date(2026, 9, 1))
+        permitted = " ".join(d.permitted_uses)
+        assert question in permitted, f"{key} does not say what it answers"
+        seen.add(question)
+        # And the other two questions are explicitly out of bounds.
+        assert any("other two questions" in u for u in d.excluded_uses)
+    assert len(seen) == 3, "two bases claim to answer the same question"
+
+
+def test_an_unknown_basis_is_refused_rather_than_stored():
+    """A determination whose basis nobody can interpret is worse than none: it
+    looks like an answer in a dossier and cannot be read back."""
+    with pytest.raises(ValueError, match="Unknown comparison basis"):
+        det.pay_comparison_basis(countries=("NL",), basis="whatever")
+
+
+def test_an_exchange_rate_is_reviewed_in_a_month_and_an_index_in_a_year():
+    """Not a preference — the two age at completely different speeds.
+
+    A grade equivalence rests on institutions that move with collective
+    agreements. An exchange rate can move several percent in a fortnight, and a
+    gap computed on a stale one is wrong by exactly that much with nothing on
+    screen to say so. Reusing the equivalence interval here would have been
+    consistent and wrong.
+    """
+    from datetime import date
+    taken = date(2026, 9, 1)
+    fx = det.pay_comparison_basis(countries=("NL", "PL"), basis="fx",
+                                  rate="1 EUR = 4,28 PLN", rate_date=taken)
+    ppp = det.pay_comparison_basis(countries=("NL", "PL"), basis="ppp")
+
+    assert det.FX_REVIEW_MONTHS == 1
+    # Measured from the DATE OF THE RATE, not from today: a rate supplied late
+    # is already old, and dating its review from now would hide that.
+    assert fx.review_due == det._add_months(taken, 1)
+    assert ppp.review_due == det._add_months(date.today(), det.REVIEW_MONTHS)
+
+
+def test_the_rate_and_its_date_are_both_in_the_recorded_answer():
+    """The same rate is right on one day and wrong the next. A rate without its
+    date cannot be checked or reproduced."""
+    from datetime import date
+    d = det.pay_comparison_basis(countries=("NL", "PL"), basis="fx",
+                                 rate="1 EUR = 4,28 PLN", rate_date=date(2026, 9, 1),
+                                 source="ECB reference rate")
+    assert "4,28" in d.chosen and "2026-09-01" in d.chosen
+    assert any(e.kind == "rate_source" and "ECB" in e.reference for e in d.evidence)
+
+
+def test_recording_a_basis_is_not_applying_one():
+    """THE LINE THIS SLICE MUST NOT CROSS.
+
+    The product does not convert. The employer converts, or analyses each
+    currency separately; this records which of three questions their numbers
+    answer. If the engine ever multiplies by a recorded rate, the refusal has
+    been dissolved by the feature meant to complete it — and the figure would
+    carry this product's authority instead of the employer's judgement.
+
+    Structural, because the failure would look like a helpful improvement.
+    """
+    import inspect
+    from services import determination_service as m
+
+    src = inspect.getsource(m)
+    for arithmetic in ("float(rate", "* rate", "rate *", "/ rate", "Decimal(rate"):
+        assert arithmetic not in src, (
+            f"determination_service does arithmetic on a rate ({arithmetic!r}); "
+            "recording a basis has become applying one")
+
+    # And the record says so in its own words, so a reader is not left to infer it.
+    d = det.pay_comparison_basis(countries=("NL", "PL"), basis="fx")
+    assert any("different basis" in u for u in d.excluded_uses)

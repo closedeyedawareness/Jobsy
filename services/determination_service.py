@@ -43,7 +43,8 @@ from typing import Any, Optional
 __all__ = ["Determination", "Evidence", "Participant", "GENDER_CODE_MAPPING",
            "CROSS_COUNTRY_EQUIVALENCE", "PAY_COMPARISON_BASIS", "TITLE_TO_ROLE",
            "gender_code_determination", "cross_country_equivalence",
-           "record", "recorded", "EQUIVALENCE_USES", "REVIEW_MONTHS"]
+           "pay_comparison_basis", "record", "recorded",
+           "EQUIVALENCE_USES", "REVIEW_MONTHS", "PAY_BASES", "FX_REVIEW_MONTHS"]
 
 #: What an employer might want a cross-country equivalence to be good FOR.
 #:
@@ -68,6 +69,31 @@ EQUIVALENCE_USES = (
 #: the money in it is the market's. An equivalence rests on TWO such ladders and
 #: cannot be sounder than the shorter-lived of them.
 REVIEW_MONTHS = 12
+
+#: The three ways two salaries in different currencies can be compared, and the
+#: DIFFERENT QUESTION each one answers.
+#:
+#: `bridge()` refuses PAY on exactly this ground: these are not three routes to
+#: one number, they are three numbers answering three questions. Recording which
+#: question was asked is the whole content of this determination — a basis
+#: without its question is a rate with no meaning attached.
+PAY_BASES = (
+    ("fx", "Exchange rate on a stated date",
+     "What would this salary be worth today if converted and taken home?"),
+    ("ppp", "Purchasing power parity",
+     "What can this salary buy where the person actually lives?"),
+    ("lci", "Labour-cost index",
+     "What does this person cost the employer, relative to that market?"),
+)
+
+#: An exchange rate is a fact about ONE DAY.
+#:
+#: 1 month, not 12, and the difference is not a preference. A grade equivalence
+#: rests on institutions that move with collective agreements; an FX rate can
+#: move several percent in a fortnight, and a pay gap computed on a stale one is
+#: wrong by exactly that much with nothing on screen to say so. Purchasing power
+#: parity and labour-cost indices are annual publications and keep REVIEW_MONTHS.
+FX_REVIEW_MONTHS = 1
 
 TABLE = "employer_determination"
 
@@ -333,6 +359,113 @@ def cross_country_equivalence(*, source_country: str, target_country: str,
             capacity="Set an internal equivalence for their own organisation",
         ),) if actor else (),
     )
+
+
+def pay_comparison_basis(*, countries, basis: str, rate: str = "",
+                         rate_date: Optional[date] = None, source: str = "",
+                         refusal: str = "", population: Optional[int] = None,
+                         actor: str = "", reason: str = "") -> Determination:
+    """The employer's answer to a question this product will not choose for them.
+
+    `bridge()` refuses PAY, and the refusal is not squeamishness: an FX rate on a
+    stated day, purchasing power parity and a labour-cost index answer THREE
+    DIFFERENT QUESTIONS and produce three different numbers. "Convert to euro" is
+    not a technical step with one right answer; it is a choice about what is
+    being asked.
+
+    ── WHAT THIS DOES NOT DO, AND MUST NEVER START DOING ────────────────────
+
+    RECORDING A BASIS IS NOT APPLYING ONE. This product still does not convert.
+    The employer converts, or supplies the roster already in one unit, and this
+    records which basis they used so a reader in 2028 can tell what the number
+    they are looking at actually means. The moment the engine starts converting
+    on the strength of a recorded basis, the refusal has been dissolved by the
+    feature meant to complete it — and the number would carry this product's
+    authority instead of the employer's judgement.
+
+    `rate` and `rate_date` are therefore DESCRIPTIVE. Nothing multiplies by them.
+
+    ── WHY THE REVIEW DATE IS DIFFERENT HERE ────────────────────────────────
+
+    A grade equivalence rests on institutions that move with collective
+    agreements, so 12 months. An exchange rate is a fact about one day and can
+    move several percent in a fortnight, so an FX determination is reviewed in
+    ONE month. Reusing the equivalence interval here would have been consistent
+    and wrong.
+    """
+    codes = tuple(str(c).upper() for c in (countries or ()))
+    label, question = "", ""
+    for key, lab, q in PAY_BASES:
+        if key == basis:
+            label, question = lab, q
+    if not label:
+        raise ValueError(
+            f"Unknown comparison basis {basis!r}. Known: "
+            + ", ".join(k for k, _, _ in PAY_BASES))
+
+    is_fx = basis == "fx"
+    stated = ""
+    if is_fx:
+        stated = f" at {rate}" if rate else ""
+        stated += f" as at {rate_date.isoformat()}" if rate_date else ""
+
+    return Determination(
+        determination_type=PAY_COMPARISON_BASIS,
+        countries=codes,
+        scope={"basis": basis, "rate": rate,
+               "rate_date": rate_date.isoformat() if rate_date else "",
+               "source": source},
+        population_at_decision=population,
+        question=(
+            f"On what basis are pay figures across {', '.join(codes)} being "
+            f"compared, and therefore what question do the resulting numbers "
+            f"answer?"),
+        system_proposed=(
+            refusal or
+            "None. Pay cannot be bridged without an explicit basis: an exchange "
+            "rate on a stated day, purchasing power parity and a labour-cost "
+            "index answer three different questions and produce three different "
+            "numbers."),
+        options=tuple({"option": lab, "answers": q} for _, lab, q in PAY_BASES),
+        chosen=f"{label}{stated}",
+        permitted_uses=(f"Comparisons that ask: {question}",),
+        excluded_uses=(
+            "Any comparison asking one of the other two questions",
+            "Any figure produced on a different basis or a different date",
+            "Any assertion that this is the correct or only basis",
+            "Any other employer",),
+        rationale={
+            "business_purpose": reason or f"Compare pay across {', '.join(codes)}.",
+            "criteria": f"The employer selected {label} because the question "
+                        f"being asked is: {question}",
+            "residual_uncertainty": (
+                "An exchange rate is a fact about a single day and moves; the "
+                "figures are only as current as the rate."
+                if is_fx else
+                "Purchasing power and labour-cost indices are published "
+                "periodically and lag the market they describe."),
+        },
+        review_trigger=("A materially different exchange rate, or any re-run of "
+                        "this analysis" if is_fx else
+                        "A new publication of the index used"),
+        review_due=_add_months(rate_date or date.today(),
+                               FX_REVIEW_MONTHS if is_fx else REVIEW_MONTHS),
+        evidence=(Evidence(
+            kind="engine_refusal",
+            reference="country_packs.bridge(pay)",
+            hardness="WET",
+            excerpt=(refusal or "Pay cannot be bridged without an explicit basis."),
+        ),) + ((Evidence(
+            kind="rate_source", reference=source, hardness="CONVENTIE",
+            excerpt=f"{label}: {rate}"
+                    + (f" as at {rate_date.isoformat()}" if rate_date else ""),
+        ),) if source else ()),
+        participants=(Participant(
+            person=actor or "unknown", action="decided",
+            capacity="Chose the basis on which their own pay figures are compared",
+        ),) if actor else (),
+    )
+
 
 
 def recorded(client, org_id: str, determination_type: str, *,
