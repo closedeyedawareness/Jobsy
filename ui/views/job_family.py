@@ -29,6 +29,92 @@ def _family_frames(catalog):
     return out
 
 
+
+def _vacancy_panel(catalog, roles) -> None:
+    """Draft a vacancy for one of the roles on this grid.
+
+    Placed here rather than on a page of its own because this is where somebody
+    is already looking at a role, its level and its band — which is exactly the
+    material a notice has to carry.
+
+    NOTHING IS PUBLISHED. The draft is composed from the role's own fields, the
+    employer edits it, and BOTH texts are kept. That pairing is what makes the
+    terms' "you decide what is published" verifiable instead of asserted, and it
+    is the whole reason the feature could be built at all — see
+    docs/terms-clauses.md clause 2.
+    """
+    try:
+        from services import auth_service, country_packs as cp, country_service
+        from services import vacancy_service as vac
+        from services import determination_service  # noqa: F401  (shared posture)
+    except ImportError:                                   # pragma: no cover
+        return
+
+    if not roles:
+        return
+    with st.expander("Draft a vacancy for one of these roles", expanded=False):
+        st.caption(
+            "Composed from the role itself — no model writes this. The pay range "
+            "and the collective agreement are carried in because Directive (EU) "
+            "2023/970 art. 5 entitles an applicant to them before interview. "
+            "Nothing is published from here.")
+
+        by_title = {r.standard_title: r.job_id for r in roles}
+        chosen = st.selectbox("Role", list(by_title), key="_vac_role")
+        market = country_service.active_country()
+        d = vac.draft(catalog.repository, by_title[chosen], country=market,
+                      pack=cp.for_country(market))
+        if d is None:
+            return
+
+        # The requirements first, because they are the reason this screen is
+        # different from a text box. Unmet is stated, never blocking: art. 5(1)
+        # expressly lets the employer supply the pay before the interview
+        # instead of in the notice.
+        for r in d.requirements:
+            mark = "✓" if r.met else "○"
+            st.markdown(f"{mark} **art. {r.article}** — {r.what}")
+            if not r.met and r.detail:
+                st.caption(r.detail)
+
+        for q in d.questions:
+            st.caption(f"Worth a second look — “{q.phrase}” in the {q.where}: {q.why}")
+
+        edited = st.text_area("Draft — edit freely, this is your text",
+                              value=d.text, height=380, key="_vac_text")
+
+        if st.button("Save as approved", key="_vac_save"):
+            org_id = auth_service.active_org_id()
+            if not org_id:
+                st.warning("Sign in to save.")
+                return
+            who = ""
+            try:
+                who = (auth_service.current_user() or {}).get("email") or ""
+            except Exception:
+                pass
+            client = auth_service.db()
+            try:
+                client.table("vacancy_draft").insert({
+                    "org_id": org_id, "job_id": d.job_id, "country": d.country,
+                    # Never the edited text. What the software proposed has to
+                    # survive the employer changing it, or the pair proves
+                    # nothing.
+                    "generated_text": d.text,
+                    "approved_text": edited,
+                    "approved_by": who,
+                    "approved_at": "now()",
+                    "requirements": [dict(article=r.article, what=r.what,
+                                          met=r.met, detail=r.detail)
+                                     for r in d.requirements],
+                    "questions": [dict(where=q.where, phrase=q.phrase, why=q.why)
+                                  for q in d.questions],
+                    "created_by": who,
+                }).execute()
+                st.success("Saved. Both the draft and your version are kept.")
+            except Exception as exc:                       # noqa: BLE001
+                st.error(f"Not saved: {exc}")
+
 def job_family_page(catalog):
     """Leveling grid + pay range for a job family (function), Mercer/Hay style."""
     import pandas as _pd
@@ -237,3 +323,9 @@ def job_family_page(catalog):
             labelColor="#B9A6DD", titleColor="#B9A6DD", gridColor="#FFFFFF14", domainColor="#FFFFFF30")
         st.altair_chart(chart, use_container_width=True)
         st.caption("● median (P50)   ▲ P75   ▼ P25   │ min–max band")
+
+    # Draft a vacancy for one of the roles on this grid. Last on the page: the
+    # grid is the reason somebody is here, and this is what they may want next.
+    _roles = [catalog.repository.jobs[j] for j in fam["JobID"]
+              if j in catalog.repository.jobs]
+    _vacancy_panel(catalog, _roles)

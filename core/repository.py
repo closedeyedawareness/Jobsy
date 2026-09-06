@@ -362,6 +362,31 @@ class Repository:
                 typical_tools=_split(row, "TypicalTools", "typical_tools"),
             )
 
+    def salary_for(self, function: str, level: str, country: str):
+        """The band for ONE NAMED MARKET, not the one the session is looking at.
+
+        `self.salary` resolves through the session's active market, which is
+        right for a screen and wrong for anything that names its own country.
+        The vacancy composer is the first such caller and it got this wrong the
+        first time: it accepted a `country` argument, looked the band up through
+        the session view anyway, and put the Dutch HR/Senior band of 58.000 to
+        82.000 into a SPANISH advertisement whose real range is 33.100 to
+        46.700.
+
+        That is the defect `_MarketRows` exists to prevent, walked back in
+        through a parameter that was accepted and not honoured — the same shape
+        as the pay-equity `country_col` that sat unused for weeks.
+
+        Same resolution as the view: country, then the EU baseline, then
+        NOTHING. Never another market's rows.
+        """
+        market = (country or "").strip().upper()
+        key = (function, level)
+        by_country = self._salary_by_country
+        if market in by_country and key in by_country[market]:
+            return by_country[market][key]
+        return by_country.get("EU", {}).get(key)
+
     def salary_markets(self) -> tuple[str, ...]:
         """Every market this library actually holds bands for.
 
