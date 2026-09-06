@@ -154,10 +154,41 @@ sits in two tiers at once, that is said below rather than rounded away.
 | `skills` | The strongest case in the schema. A skill definition is a description of a human capability. |
 | `skill_proficiency` | The anchors that describe what level 3 of a category looks like. Behavioural, not legal. |
 | `role_skill_map` | Which skills a role needs. Caveat in §4.7 about regulated professions. |
-| `industry_skills` | Sector-typical skills. The *list* is universal; only its pricing moves, and pricing lives in `industry_salary_factors`. |
+| `industry_skills` | Sector-typical PRACTICE, and now only that: Agile at scale, omnichannel operations, utilisation management. The regulatory half moved out in 0019 — see below. |
 | `levels` | Junior/Medior/Senior/Lead. The product's own four-rung scale. |
 | `categories` | The function taxonomy. |
 | `industries` | 0012's reasoning verbatim: the sector list is universal, only its factors move. |
+
+### `industry_skills` — RECLASSIFIED 6 September 2026, by the data
+
+This row said the list was universal and only its pricing moved. That was true
+of the table as measured, and stopped being true the moment four foreign packs
+were imported into it. The fourteen NL seed rows were never one kind of thing:
+
+- *Agile at scale*, *equity & ESOP literacy*, *omnichannel operations*,
+  *utilisation & billability*, *WMS/TMS systems* — practice, and universal.
+- *Wwft*, *AFM/DNB*, *NZa & Wkkgz*, *CAO Metalektro*, *HSE/VCA*, *CAO Rijk*,
+  *Aanbestedingswet*, *CAO Ziekenhuizen*, *CAO Beroepsgoederenvervoer* — Dutch
+  law and Dutch collective agreements, and national by construction.
+
+The imports made the mixture impossible to miss: a query for `IND-FIN` returned
+Wwft, Witwaswet, GwG, Ley 10/2010 and LCB-FT together, under whichever flag the
+session happened to be flying. That is 0012's failure mode exactly — wrong data
+renders like right data.
+
+A country column was tried first (`industry_skills_add_country`) and was the
+wrong instrument: it would have made every universal row carry a country it does
+not have. **0019 splits instead**, the same answer as §4.1 and §4.3, and for the
+same reason — the table was doing two jobs.
+
+The cut validates itself. Before it, NL had 14 rows against 9 for each other
+market; after it, every market has exactly 9 regulatory skills and the universal
+table holds the 5 that were never national. The asymmetry was the mixture.
+
+One consequence worth stating: the four foreign packs cover 5 industries against
+NL's 8. The three they do not reach — `IND-TECH`, `IND-RET`, `IND-PSV` — are
+precisely the ones whose NL rows were practice rather than law. Nothing is
+missing there; there was never anything national to find.
 
 `career_paths` was in this list in an earlier draft and has been moved to §4.4.
 The test in `tests/test_country_tiers.py` is what caught the inconsistency: the

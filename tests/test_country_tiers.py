@@ -63,6 +63,11 @@ COUNTRY_CONDITIONED = {
     # grading instrument; what an L-code BINDS TO points into job_grades, which
     # is itself keyed by country.
     "job_profile_positioning", "seniority_grade_binding",
+    # added by 0019, same shape and for the same reason: industry_skills was
+    # doing two jobs. What a sector typically NEEDS is universal; what it is
+    # legally REQUIRED to know is the country, and the two lived in one table
+    # until the four foreign packs arrived and made the mixture visible.
+    "industry_regulatory_skills",
 }
 
 #: Tables that are the same everywhere. A country column on any of these is the

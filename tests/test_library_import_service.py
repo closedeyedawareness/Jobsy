@@ -126,7 +126,9 @@ def test_specs_are_in_dependency_order():
     """A table may only be written after every table it references."""
     parents = {"job_profiles": ["jobs"], "title_mapping": ["jobs"], "career_paths": ["jobs"],
                "role_skill_map": ["jobs", "skills"], "industry_salary_factors": ["industries"],
-               "industry_skills": ["industries"], "benefits_observations": ["industries"],
+               "industry_skills": ["industries"],
+               "industry_regulatory_skills": ["industries"],
+               "benefits_observations": ["industries"],
                "pay_mix": ["salary_bands"]}
     order = [s.table for s in SPECS]
     for child, needed in parents.items():
@@ -351,6 +353,11 @@ ACTUAL_UNIQUES = {
     "pay_mix": ("org_id", "country", "function", "level"),
     "industry_salary_factors": ("org_id", "country", "industry_id", "function"),
     "industry_skills": ("org_id", "industry_id", "skill_id"),
+    # 0019: keyed ON country, unlike its universal sibling above. The same
+    # industry carries a different legal obligation per market, so without
+    # country in the conflict target an import collapses five regimes onto
+    # one row.
+    "industry_regulatory_skills": ("org_id", "country", "industry_id", "skill_id"),
     "benefits_observations": ("org_id", "obs_id"),
 }
 
