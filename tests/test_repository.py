@@ -236,3 +236,73 @@ def test_a_leading_fragment_is_kept_rather_than_dropped():
     }
     repo = Repository(data, validate=False)
     assert repo.profiles["J-1"].key_responsibilities == ("and then this", "Manage that")
+
+
+# ── one title, two markets ───────────────────────────────────────────────────
+
+@pytest.mark.xfail(strict=True, reason=(
+    "title_mapping has no country dimension: two markets collapse into one "
+    "entry, last row wins. Written red on purpose — the fix moves client "
+    "numbers, so it is Elmar's decision, not a refactor."))
+def test_a_title_mapped_in_two_markets_keeps_both():
+    """The same existing title maps to a DIFFERENT role in two markets.
+
+    `title_mapping` is `dict[normalized title -> job_id]` with no country in
+    the key, while the database keys the same fact on
+    `org_id, country, existing_title`. The loader deliberately keeps rows from
+    every market — its dedupe key carries country — so with two markets loaded,
+    one market's mapping silently overwrites the other's, and `find_job` can
+    answer a Dutch question with a Spanish role.
+
+    This is the same shape as the three country bugs already found: a country
+    accepted somewhere and not honoured. Here it is not even accepted.
+    """
+    repo = _repo(
+        jobs=pd.DataFrame([
+            {"JobID": "J-NL", "StandardTitle": "Controller NL",
+             "Function": "Finance", "Level": "Senior"},
+            {"JobID": "J-ES", "StandardTitle": "Controller ES",
+             "Function": "Finance", "Level": "Senior"},
+        ]),
+        titles=pd.DataFrame([
+            {"ExistingTitle": "Financieel Controller", "JobID": "J-NL", "country": "NL"},
+            {"ExistingTitle": "Financieel Controller", "JobID": "J-ES", "country": "ES"},
+        ]),
+    )
+    with _Market("NL"):
+        assert repo.find_job("Financieel Controller").job_id == "J-NL"
+    with _Market("ES"):
+        assert repo.find_job("Financieel Controller").job_id == "J-ES"
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "plan_write_back accepts `country` and never reads it, so an approval for "
+    "one market is judged against another market's mapping and skipped."))
+def test_an_approval_is_judged_against_its_own_market():
+    """Measured, not argued: with NL->J-NL and ES->J-ES both loaded, approving
+    the title for J-ES is answered identically for country="NL" and "ES" —
+    `('Financieel Controller', 'already mapped to that role')` both times.
+
+    The reviewer sees "already mapped", nothing is written, and the approval is
+    gone. The database would have accepted it: its key carries country.
+    """
+    from services.review_service import Approval, plan_write_back
+
+    repo = _repo(
+        jobs=pd.DataFrame([
+            {"JobID": "J-NL", "StandardTitle": "Controller NL",
+             "Function": "Finance", "Level": "Senior"},
+            {"JobID": "J-ES", "StandardTitle": "Controller ES",
+             "Function": "Finance", "Level": "Senior"},
+        ]),
+        titles=pd.DataFrame([
+            {"ExistingTitle": "Financieel Controller", "JobID": "J-NL", "country": "NL"},
+            {"ExistingTitle": "Financieel Controller", "JobID": "J-ES", "country": "ES"},
+        ]),
+    )
+    approval = Approval(existing_title="Financieel Controller", job_id="J-ES")
+    plan_nl = plan_write_back([approval], repo, country="NL")
+    plan_es = plan_write_back([approval], repo, country="ES")
+    # NL has it on J-NL, so approving J-ES there is a remap, not a duplicate.
+    assert plan_nl.writes, f"NL approval was dropped: {plan_nl.skipped}"
+    assert not plan_es.writes, "ES already maps this title to J-ES"
