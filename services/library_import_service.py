@@ -90,6 +90,21 @@ class TableSpec:
     # read the same sheet, SHEET_MAP has one answer for it, and without this the
     # second frame would quietly overwrite the first under the same key.
     repo_key: str | None = None
+    # The sheet this spec would RATHER read, when the workbook has it.
+    #
+    # 0016 split two tables in the database while the workbook in a client's
+    # hands still carries both halves on one sheet. That left a choice that
+    # looked like it had to be made: either the export writes a sheet the
+    # import ignores — breaking the round-trip this file's docstring promises —
+    # or the dedicated sheet becomes mandatory and every workbook already issued
+    # stops importing its positioning.
+    #
+    # It does not have to be made. A spec names both: the dedicated sheet is
+    # preferred where it exists, the shared one is accepted where it does not.
+    # An old workbook keeps working and imports one market, which is what it can
+    # honestly say; a reissued one carries Country per row and imports several.
+    # Nobody has to be told to migrate on a particular day.
+    prefers_sheet: str | None = None
     # Values for database columns the workbook has no heading for. Only
     # `country` needs one today: job_profile_positioning and
     # seniority_grade_binding are NOT NULL on it and the workbook predates the
@@ -152,7 +167,8 @@ SPECS: list[TableSpec] = [
     TableSpec("SeniorityLevels", "seniority_grade_binding", ("country", "l_code"), {
         "LCode": "l_code", "MapsToLevel": "maps_to_level", "GradeRange": "grade_range",
         "Grades": "grades", "Country": "country"},
-        repo_key="senioritybinding", defaults={"country": "NL"}),
+        repo_key="senioritybinding", prefers_sheet="SeniorityGradeBinding",
+        defaults={"country": "NL"}),
     TableSpec("SkillProficiency", "skill_proficiency", ("category", "level"), {
         "Category": "category", "Level": "level", "LevelName": "level_name",
         "Anchor": "anchor"}),
@@ -175,9 +191,10 @@ SPECS: list[TableSpec] = [
     # an import that updated one side only is precisely what 0016 §3(e) is
     # looking for. When that column is dropped, drop it from the spec above.
     #
-    # WHAT THIS DOES NOT DO: one workbook still imports ONE market. Sharing the
-    # JobProfiles sheet with the universal spec above, whose key is job_id
-    # alone, means two rows for the same job in two markets are a repeated
+    # WHAT THIS DOES NOT DO WHEN IT FALLS BACK: a workbook that carries only
+    # the shared JobProfiles sheet still imports ONE market, because that sheet's
+    # universal spec is keyed on job_id alone and two rows for the same job in
+    # two markets are a repeated
     # natural key there and build_rows refuses to choose between them. A
     # Belgian client's own workbook (every row Belgian, Country column or the
     # 'NL' default corrected once) imports correctly; a single workbook holding
@@ -194,7 +211,8 @@ SPECS: list[TableSpec] = [
     # sheet of their own in SHEET_MAP first.
     TableSpec("JobProfiles", "job_profile_positioning", ("country", "job_id"), {
         "JobID": "job_id", "ManagementLevel": "management_level", "Country": "country"},
-        repo_key="jobpositioning", defaults={"country": "NL"}),
+        repo_key="jobpositioning", prefers_sheet="JobProfilePositioning",
+        defaults={"country": "NL"}),
     TableSpec("TitleMapping", "title_mapping", ("existing_title",), {
         "ExistingTitle": "existing_title", "JobID": "job_id"}),
     TableSpec("CareerPaths", "career_paths", ("job_id",), {
@@ -284,13 +302,25 @@ def build_rows(book: dict[str, pd.DataFrame], *, org_id: str,
     report = ImportReport(source=source)
     out: dict[str, list[dict]] = {}
 
-    known = {s.sheet for s in SPECS}
+    # Both names count as known, or a workbook carrying the dedicated sheet
+    # would have it reported as skipped while it was in fact being read.
+    known = {s.sheet for s in SPECS} | {s.prefers_sheet for s in SPECS if s.prefers_sheet}
     report.skipped_sheets = sorted(set(book) - known)
 
     for spec in SPECS:
-        df = book.get(spec.sheet)
+        # Preferred sheet if the workbook has it, else the shared one it splits
+        # from. Which one was used is recorded: a reader looking at a positioning
+        # figure should be able to find out whether it came from a sheet that can
+        # express a market or from one that cannot.
+        sheet = spec.sheet
+        if spec.prefers_sheet and spec.prefers_sheet in book:
+            sheet = spec.prefers_sheet
+            report.notes.append(
+                f"{spec.table} read from its own sheet '{sheet}' rather than "
+                f"'{spec.sheet}' — this workbook can carry more than one market")
+        df = book.get(sheet)
         if df is None:
-            report.notes.append(f"sheet '{spec.sheet}' missing — {spec.table} not imported")
+            report.notes.append(f"sheet '{sheet}' missing — {spec.table} not imported")
             continue
 
         rows, dropped = [], 0

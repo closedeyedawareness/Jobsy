@@ -47,6 +47,20 @@ SHEET_MAP = {
     # invisible to Data Quality, absent from the export, outside the parity gate.
     "PayMix":      "paymix",
     "PayElements": "payelements",
+    # Added 2026-09-06, and the reason is the one three lines above verbatim.
+    # 0016 split these two out of JobProfiles and SeniorityLevels; until now
+    # neither was in this map, so the library EXPORT and the Data Quality
+    # freshness scorecard — which both walk it — could not see them. It cost
+    # nothing while ManagementLevel still rode along on the JobProfiles sheet,
+    # and on the day 0016 §3 drops the old columns an export would have lost
+    # the positioning claim in silence. That is the same shape as PayMix: not a
+    # wrong number, an absent one, which is the harder kind to notice.
+    #
+    # The import prefers these sheets and falls back to the shared ones, so a
+    # workbook already in a client's hands keeps importing — see
+    # TableSpec.prefers_sheet.
+    "JobProfilePositioning": "jobpositioning",
+    "SeniorityGradeBinding": "senioritybinding",
 }
 
 

@@ -57,6 +57,13 @@ _COMPARISON_KEYS = {
     "skillproficiency": ["Category", "Level"], "benefitscatalog": ["BenefitID"],
     "benefitsobservations": ["ObsID"], "levelbenefitsfactors": ["Level", "Category"],
     "paymix": ["Function", "Level"], "payelements": ["ElementID"],
+    # 0016's two split-out tables. Keyed on COUNTRY FIRST, because that is the
+    # half the split exists for: sorting on job_id alone would put a Dutch and a
+    # Belgian row for one job in an order the comparison cannot rely on, and the
+    # mismatch it then reported would be about ordering rather than about
+    # values.
+    "jobpositioning": ["Country", "JobID"],
+    "senioritybinding": ["Country", "LCode"],
 }
 
 
@@ -135,12 +142,13 @@ NOT_COMPARED = {
 }
 
 
-def test_every_loaded_sheet_is_either_compared_or_excluded_on_purpose():
-    """A sheet added to SHEET_MAP and not to the comparison below would be
-    loaded by the app and checked by nothing — the same silence that let PayMix
-    and PayElements sit outside the library for two months."""
-    uncovered = set(SHEET_MAP.values()) - set(_COMPARISON_KEYS) - set(NOT_COMPARED)
-    assert not uncovered, f"not compared and not excluded on purpose: {sorted(uncovered)}"
+# The coverage guard that used to live here now lives in
+# tests/test_sheet_map_coverage.py. It compares two dicts and needs no
+# database, and sitting under this module's skipif meant it never ran outside a
+# credentialled environment — so on 6 September 2026 two sheets were added to
+# SHEET_MAP and the guard written to catch exactly that was skipped with the
+# rest and said nothing. A guard that only runs where the thing it guards is
+# already known to be fine is not a guard.
 
 
 def test_values_match_row_for_row(frames):

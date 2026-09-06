@@ -8,6 +8,7 @@ from ui.shared import *  # noqa: F401,F403
 # graph cannot see is a dependency nobody can find. The rest of what this
 # module uses is chrome (theme tokens, helpers) and stays with the star.
 from services.architecture_report_service import ArchitectureReportService
+from services import country_service
 
 
 def architecture_report_page(catalog):
@@ -56,11 +57,28 @@ def architecture_report_page(catalog):
     if st.button("Generate Architecture Report", type="primary", use_container_width=True):
         with st.spinner("Analysing organisation and generating report…"):
             try:
+                # The market, which this call did not carry. The service was
+                # built to write money the way each market writes it — zloty,
+                # krona, krone and koruna go AFTER the number — and every
+                # report was nonetheless produced in euro, because the one
+                # caller never passed a symbol. A Polish client's board pack
+                # said "€" over Polish salaries.
+                #
+                # `country` matters for a second reason: the benefits sheet
+                # benchmarks against observations, and those are keyed by market.
+                # Without it the comparison is drawn from the deployment default.
+                # NOT named `_market`: ui/shared.py re-exports that name, and a local
+                # variable shadowing it would hide a real dependency from the
+                # import graph. The guard in tests/test_view_dependencies.py
+                # caught the collision.
+                _client_market = country_service.active_country()
                 svc = ArchitectureReportService(
                     catalog=catalog,
                     results=results,
                     df_employees=df_input,
                     org_label=org_label,
+                    currency=country_service.symbol_for(_client_market),
+                    country=_client_market,
                 )
                 report_bytes = svc.generate()
                 import re
