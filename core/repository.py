@@ -133,6 +133,12 @@ class _MarketRows(Mapping):
     def __getitem__(self, key):
         return self._view()[key]
 
+    def get(self, key, default=None):
+        # The callers that reach for a market row mostly want "or nothing",
+        # not an exception. Without this they write dict(rows).get(...) and
+        # rebuild the merged view on every lookup.
+        return self._view().get(key, default)
+
     def __iter__(self):
         return iter(self._view())
 
@@ -187,6 +193,11 @@ class Repository:
         self.industries: dict[str, Industry] = {}
         self.industry_factors: dict[tuple, float] = {}
         self.industry_skills: dict[str, list[IndustrySkill]] = {}
+        # Split from industry_skills 2026-09-06: the universal list stayed put,
+        # the national half moved to its own table and so needs the market
+        # resolution every other country-conditioned collection already gets.
+        self._regulatory_skills_by_country: dict[str, dict[str, list[IndustrySkill]]] = {}
+        self.industry_regulatory_skills = _MarketRows(self._regulatory_skills_by_country)
         self.seniority_levels: dict[str, SeniorityLevel] = {}
         # {category: {level:int -> {"name": str, "anchor": str}}}
         self.skill_proficiency: dict[str, dict[int, dict]] = {}
@@ -252,6 +263,9 @@ class Repository:
         self._build_industries(_get(data, "industries", "Industries"))
         self._build_industry_factors(_get(data, "industrysalaryfactors", "IndustrySalaryFactors"))
         self._build_industry_skills(_get(data, "industryskills", "IndustrySkills"))
+        self._build_industry_regulatory_skills(_get(
+            data, "industryregulatoryskills", "IndustryRegulatorySkills",
+            "industry_regulatory_skills"))
         self._build_seniority_bindings(
             _get(data, "senioritybinding", "SeniorityGradeBinding", "seniority_grade_binding"),
             _get(data, "senioritylevels", "SeniorityLevels"))
@@ -336,11 +350,47 @@ class Repository:
         # time, which is why models.JobProfile points at job_positioning for
         # anything that has to survive a market change.
         positioning = dict(self.job_positioning)
+        def _rejoin(parts):
+            """Put back together what the semicolon split apart.
+
+            The workbook uses ";" to separate list items AND the authors used it
+            inside items — "Advise on senior hiring; succession planning; and
+            critical role coverage" is ONE responsibility written with
+            semicolons where commas were meant. Split naively it becomes three
+            bullets, one of which reads "and critical role coverage".
+
+            That was invisible while these fields were only read on internal
+            screens. It stopped being invisible when the vacancy composer began
+            putting them in text an employer publishes.
+
+            THE RULE IS THE SAME ONE THAT FOUND THEM: a real item begins with a
+            capital and a verb — Manage, Advise, Lead, Report. A continuation
+            begins lowercase, or with "and"/"or". Measured across the live
+            library on 6 September 2026: 295 fragments, every one of them
+            matching that shape, in a library whose 81 profiles were written by
+            the same hand.
+
+            Deliberately conservative. A fragment with nothing before it is kept
+            as it is rather than dropped — a first item starting lowercase is
+            odd, not wrong, and losing content is worse than a scruffy bullet.
+            """
+            out: list[str] = []
+            for part in parts:
+                first = part[:1]
+                low = part.lower()
+                continuation = (first.islower()
+                                or low.startswith(("and ", "or ", "en ", "of ")))
+                if continuation and out:
+                    out[-1] = f"{out[-1]}; {part}"
+                else:
+                    out.append(part)
+            return tuple(out)
+
         def _split(row, *names):
             raw = _val(row, *names) or ""
             if not raw or str(raw).lower() in ("nan", "none", ""):
                 return ()
-            return tuple(s.strip() for s in str(raw).split(";") if s.strip())
+            return _rejoin([s.strip() for s in str(raw).split(";") if s.strip()])
         for row in df.itertuples(index=False):
             job_id = _val(row, "JobID", "job_id")
             if not job_id:
@@ -695,6 +745,29 @@ class Repository:
                 default_level=int(_num(row, "DefaultLevel", "default_level") or 3),
             ))
 
+    def _build_industry_regulatory_skills(self, df) -> None:
+        """industry_regulatory_skills, per market.
+
+        Keyed by country then industry, so a Belgian query cannot reach a Dutch
+        row. The country falls back to NL only when the column is absent, which
+        is what the pre-split export looks like.
+        """
+        if df is None: return
+        for row in df.itertuples(index=False):
+            iid = _val(row, "IndustryID", "industry_id")
+            sid = _val(row, "SkillID", "skill_id")
+            if not iid or not sid: continue
+            ctry = (_val(row, "Country", "country") or "NL").strip().upper()
+            self._regulatory_skills_by_country.setdefault(ctry, {})                 .setdefault(iid, []).append(IndustrySkill(
+                    industry_id=iid,
+                    skill_id=sid,
+                    skill_name=_val(row, "SkillName", "skill_name") or "",
+                    category=_val(row, "Category", "category") or "",
+                    definition=_val(row, "Definition", "definition") or "",
+                    default_level=int(_num(row, "DefaultLevel", "default_level") or 3),
+                    country=ctry,
+                ))
+
     def _build_seniority_bindings(self, df, levels_df=None) -> None:
         """seniority_grade_binding, per market — 0016 §2.
 
@@ -878,6 +951,9 @@ class Repository:
             "job_grades": len(self.job_grades),
             "industries": len(self.industries),
             "industry_skills": sum(len(v) for v in self.industry_skills.values()),
+            "industry_regulatory_skills": sum(
+                len(v) for per_ctry in self._regulatory_skills_by_country.values()
+                for v in per_ctry.values()),
             "benefit_categories": len(self.benefits_catalog),
             "benefit_observations": sum(len(v) for v in self.benefit_observations.values()),
         }

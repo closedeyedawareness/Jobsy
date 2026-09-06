@@ -176,3 +176,63 @@ def test_the_seniority_binding_is_national_and_the_naming_is_not():
         assert repo.seniority_binding_for("L3") is None
         assert repo.seniority_levels["L3"].l_name == "Senior", (
             "the naming is universal and must survive a market with no binding")
+
+
+# ── the semicolon that was both a separator and part of a sentence ────────
+
+def test_a_list_item_written_with_semicolons_is_not_split_into_fragments():
+    """"Advise on senior hiring; succession planning; and critical role
+    coverage" is ONE responsibility.
+
+    The workbook uses ";" to separate items and the authors used it inside them
+    too. Split naively that becomes three bullets, one of which reads "and
+    critical role coverage" — measured across the live library on 6 September
+    2026 as 295 such fragments across 81 profiles.
+
+    It was invisible while these fields were only read on internal screens. It
+    stopped being invisible when the vacancy composer began putting them into
+    text an employer publishes.
+
+    The rule is the one that found them: a real item opens with a capital and a
+    verb, a continuation opens lowercase or with "and"/"or".
+    """
+    import pandas as pd
+    from core.repository import Repository
+
+    profiles = pd.DataFrame([{
+        "JobID": "J-1",
+        "Description": "d",
+        "KeyResponsibilities": ("Advise on senior hiring; succession planning; "
+                                "and critical role coverage; "
+                                "Manage complex employee relations cases"),
+    }])
+    data = {
+        "jobs": pd.DataFrame([{"JobID": "J-1", "StandardTitle": "T",
+                               "Function": "HR", "Level": "Senior"}]),
+        "titles": pd.DataFrame(columns=["ExistingTitle", "JobID"]),
+        "profiles": profiles,
+    }
+    repo = Repository(data, validate=False)
+    items = repo.profiles["J-1"].key_responsibilities
+
+    assert len(items) == 2, items
+    assert items[0] == ("Advise on senior hiring; succession planning; "
+                        "and critical role coverage")
+    assert items[1] == "Manage complex employee relations cases"
+
+
+def test_a_leading_fragment_is_kept_rather_than_dropped():
+    """Conservative on purpose: a first item starting lowercase is odd, not
+    wrong, and losing content is worse than a scruffy bullet."""
+    import pandas as pd
+    from core.repository import Repository
+
+    data = {
+        "jobs": pd.DataFrame([{"JobID": "J-1", "StandardTitle": "T",
+                               "Function": "HR", "Level": "Senior"}]),
+        "titles": pd.DataFrame(columns=["ExistingTitle", "JobID"]),
+        "profiles": pd.DataFrame([{"JobID": "J-1", "Description": "d",
+                                   "KeyResponsibilities": "and then this; Manage that"}]),
+    }
+    repo = Repository(data, validate=False)
+    assert repo.profiles["J-1"].key_responsibilities == ("and then this", "Manage that")

@@ -234,6 +234,12 @@ class IndustrySkill:
     category: str = ""
     definition: str = ""
     default_level: int = 3
+    #: Empty for the universal rows in industry_skills; set for the national
+    #: ones in industry_regulatory_skills. A regulatory skill IS its country --
+    #: Wwft is Dutch, GwG is German, PC 111/209 is Belgian -- so this is not
+    #: decoration: a row carrying a country must never render under another
+    #: market's flag, which is the failure 0012 named.
+    country: str = ""
 
 
 @dataclass(frozen=True)

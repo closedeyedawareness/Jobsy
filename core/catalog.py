@@ -310,7 +310,15 @@ class Catalog:
         return self.repository.industry_factors.get((industry_id, function), 1.0)
 
     def get_industry_skills(self, industry_id: str):
-        return self.repository.industry_skills.get(industry_id, [])
+        """Sector-typical practice plus what this market legally requires.
+
+        Two tables since the 2026-09-06 split, one answer here, so no caller had
+        to learn about it. The regulatory half resolves through _MarketRows, so
+        a Belgian session gets PC 111/209 and never Wwft.
+        """
+        universal = self.repository.industry_skills.get(industry_id, [])
+        regulatory = self.repository.industry_regulatory_skills.get(industry_id, [])
+        return list(universal) + list(regulatory)
 
     def l_level_for(self, level: str) -> tuple:
         """Map a base level (Junior/Medior/Senior/Lead) to (L-code, L-name)."""

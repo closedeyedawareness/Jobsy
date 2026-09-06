@@ -240,9 +240,21 @@ SPECS: list[TableSpec] = [
     TableSpec("IndustrySalaryFactors", "industry_salary_factors", ("country", "industry_id", "function"), {
         "Country": "country", "IndustryID": "industry_id", "Function": "function", "Factor": "factor"},
         defaults={"country": "NL"}),
+    # Universal: sector-typical practice, no country. Deliberately still keyed
+    # without one -- adding it here would recreate the column the 2026-09-06
+    # split removed.
     TableSpec("IndustrySkills", "industry_skills", ("industry_id", "skill_id"), {
         "IndustryID": "industry_id", "SkillID": "skill_id", "SkillName": "skill_name",
         "Category": "category", "Definition": "definition", "DefaultLevel": "default_level"}),
+    # National: what the sector is legally required to know. Keyed ON country,
+    # because the same industry carries a different obligation per market and
+    # without it an import would collapse five regimes onto one row.
+    TableSpec("IndustryRegulatorySkills", "industry_regulatory_skills",
+        ("country", "industry_id", "skill_id"), {
+        "Country": "country", "IndustryID": "industry_id", "SkillID": "skill_id",
+        "SkillName": "skill_name", "Category": "category",
+        "Definition": "definition", "DefaultLevel": "default_level"},
+        defaults={"country": "NL"}),
     # NOT keyed on country, unlike its neighbours. The unique here is
     # (org_id, obs_id) — a SURROGATE — so country varies freely underneath it
     # and adding it to the conflict target makes PostgREST refuse with 42P10.
