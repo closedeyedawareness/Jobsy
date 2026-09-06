@@ -61,6 +61,16 @@ SHEET_MAP = {
     # TableSpec.prefers_sheet.
     "JobProfilePositioning": "jobpositioning",
     "SeniorityGradeBinding": "senioritybinding",
+    # Added 2026-09-06 for the same reason again, and this time the gap was
+    # measurable: 0019 split industry_skills, 0023 gave the new table a review
+    # interval, and this map did not know it existed. The freshness scorecard
+    # therefore listed it and the export could not write it — the two halves of
+    # governance disagreeing about whether a table is there.
+    #
+    # A workbook in a client's hands still has all fifty rows on IndustrySkills.
+    # The import reads this sheet when the workbook has it and falls back to
+    # splitting the shared one by is_regulatory_skill_id().
+    "IndustryRegulatorySkills": "industryregulatoryskills",
 }
 
 

@@ -64,6 +64,13 @@ _COMPARISON_KEYS = {
     # values.
     "jobpositioning": ["Country", "JobID"],
     "senioritybinding": ["Country", "LCode"],
+    # 0019's split-out table, added 2026-09-06 when SHEET_MAP finally learned
+    # it exists. Country first for the same reason as the two above, and here
+    # the reason is the whole point of the table: IND-FIN carries Wwft in the
+    # Netherlands, GwG in Germany and Ley 10/2010 in Spain, so a sort on
+    # (IndustryID, SkillID) alone leaves five regimes in an order the
+    # comparison cannot depend on.
+    "industryregulatoryskills": ["Country", "IndustryID", "SkillID"],
 }
 
 

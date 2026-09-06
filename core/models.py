@@ -226,6 +226,35 @@ class IndustrySalaryFactor:
     factor: float = 1.0
 
 
+#: The nine NL seed rows that cite Dutch law or a Dutch collective agreement.
+#: Named by id and not matched on text: a skill_name is prose, and a LIKE over
+#: prose is how the wrong row moves. Same list as migration 0019.
+_NL_REGULATORY_SKILL_IDS = frozenset({
+    "SK-IND-01", "SK-IND-02", "SK-IND-03", "SK-IND-04", "SK-IND-07",
+    "SK-IND-08", "SK-IND-09", "SK-IND-10", "SK-IND-14",
+})
+
+
+def is_regulatory_skill_id(skill_id: str) -> bool:
+    """Does this industry skill belong to a country rather than to practice?
+
+    0019 split industry_skills in two. The database was split by this exact
+    rule; a workbook already in a client's hands still carries both halves on
+    one IndustrySkills sheet, and both the import and the Excel reader have to
+    make the same cut. One function, so they cannot drift: two copies of a
+    classification rule is how the halves quietly diverge.
+
+    Country packs are SK-IND-XX-nn and national by construction. The nine NL
+    rows are named because their ids carry no marker.
+    """
+    sid = (skill_id or "").strip().upper()
+    if sid in _NL_REGULATORY_SKILL_IDS:
+        return True
+    parts = sid.split("-")
+    return (len(parts) == 4 and parts[0] == "SK" and parts[1] == "IND"
+            and len(parts[2]) == 2 and parts[2].isalpha())
+
+
 @dataclass(frozen=True)
 class IndustrySkill:
     industry_id: str

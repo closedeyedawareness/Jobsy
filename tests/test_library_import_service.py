@@ -422,3 +422,82 @@ def test_a_country_scoped_spec_maps_the_country_column_and_defaults_it():
             problems.append(f"{spec.table}: keyed on country with no NL default — "
                             "a sheet without the column would silently drop every row")
     assert not problems, "\n  ".join(problems)
+
+
+# ── one sheet, two tables, split by row ───────────────────────────────────
+#
+# Migration 0019 split industry_skills in the database. A workbook already in a
+# client's hands still holds both halves on one IndustrySkills sheet, so the
+# import has to make the same cut the migration made — and make it the same
+# way, or the two disagree about which rows are national and nobody finds out
+# until a Spanish client is shown Wwft.
+
+_OLD_SHEET = [
+    # national by what they cite -- the nine NL rows named in 0019
+    {"IndustryID": "IND-FIN", "SkillID": "SK-IND-01", "SkillName": "Wwft"},
+    {"IndustryID": "IND-FIN", "SkillID": "SK-IND-02", "SkillName": "AFM/DNB"},
+    # national by construction -- a country pack
+    {"IndustryID": "IND-FIN", "SkillID": "SK-IND-DE-01", "SkillName": "GwG"},
+    {"IndustryID": "IND-FIN", "SkillID": "SK-IND-ES-01", "SkillName": "Ley 10/2010"},
+    # practice, and it travels
+    {"IndustryID": "IND-TECH", "SkillID": "SK-IND-05", "SkillName": "Agile at scale"},
+    {"IndustryID": "IND-RET", "SkillID": "SK-IND-06", "SkillName": "Omnichannel ops"},
+]
+
+
+def test_an_old_workbook_splits_the_shared_sheet_the_way_the_migration_did():
+    """The failure this filter exists to prevent, asserted from both sides.
+
+    Without it both specs read all six rows and write them to both tables,
+    restoring the mixture 0019 removed — under a table comment saying it was
+    removed. So the test checks the halves are complementary, not merely that
+    each got something.
+    """
+    payload, _ = _rows(_book(IndustrySkills=_OLD_SHEET))
+
+    universal = {r["skill_id"] for r in payload["industry_skills"]}
+    regulatory = {r["skill_id"] for r in payload["industry_regulatory_skills"]}
+
+    assert universal == {"SK-IND-05", "SK-IND-06"}
+    assert regulatory == {"SK-IND-01", "SK-IND-02", "SK-IND-DE-01", "SK-IND-ES-01"}
+    assert not universal & regulatory, "a row written to both tables is the mixture back"
+    assert universal | regulatory == {r["SkillID"] for r in _OLD_SHEET}, \
+        "a row claimed by neither half is a row the import silently loses"
+
+
+def test_the_old_workbook_cannot_say_which_market_so_every_row_reads_dutch():
+    """An honest limit, not a guess. The sheet has no Country column, and 0019
+    measured every pre-existing row as Dutch before moving it. The German and
+    Spanish ids are the interesting case: they are national by construction but
+    this workbook cannot say WHOSE, so `defaults` answers and a reissued
+    workbook with a Country column overrides it per row."""
+    payload, _ = _rows(_book(IndustrySkills=_OLD_SHEET))
+    assert {r["country"] for r in payload["industry_regulatory_skills"]} == {"NL"}
+    assert all("country" not in r for r in payload["industry_skills"]), \
+        "the universal half must not acquire the column 0019 dropped"
+
+
+def test_a_reissued_workbook_is_preferred_and_carries_its_own_markets():
+    payload, report = _rows(_book(
+        IndustrySkills=[
+            {"IndustryID": "IND-TECH", "SkillID": "SK-IND-05", "SkillName": "Agile at scale"}],
+        IndustryRegulatorySkills=[
+            {"Country": "NL", "IndustryID": "IND-FIN", "SkillID": "SK-IND-01",
+             "SkillName": "Wwft"},
+            {"Country": "DE", "IndustryID": "IND-FIN", "SkillID": "SK-IND-DE-01",
+             "SkillName": "GwG"}]))
+
+    assert {r["country"] for r in payload["industry_regulatory_skills"]} == {"NL", "DE"}
+    assert [r["skill_id"] for r in payload["industry_skills"]] == ["SK-IND-05"]
+    assert any("industry_regulatory_skills read from its own sheet" in n
+               for n in report.notes), "which sheet answered is part of the record"
+
+
+def test_the_dedicated_sheet_is_not_reported_as_skipped():
+    """It was, before SHEET_MAP knew the name: read by the import and listed as
+    ignored in the same run."""
+    _, report = _rows(_book(
+        IndustrySkills=[{"IndustryID": "IND-TECH", "SkillID": "SK-IND-05"}],
+        IndustryRegulatorySkills=[{"Country": "DE", "IndustryID": "IND-FIN",
+                                   "SkillID": "SK-IND-DE-01"}]))
+    assert "IndustryRegulatorySkills" not in report.skipped_sheets

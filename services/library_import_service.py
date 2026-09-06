@@ -52,9 +52,11 @@ import pandas as pd
 try:
     from core.validator import Validator
     from core.catalog import SHEET_MAP
+    from core.models import is_regulatory_skill_id
 except ImportError:  # pragma: no cover - package-relative fallback
     from jobsy.core.validator import Validator
     from jobsy.core.catalog import SHEET_MAP
+    from jobsy.core.models import is_regulatory_skill_id
 
 
 DEFAULT_WORKBOOK = "jobsy_reference_library.xlsx"
@@ -113,6 +115,27 @@ class TableSpec:
     # copying it — not a guess, and it applies only where the sheet says
     # nothing. A reissued workbook with a Country column overrides it per row.
     defaults: dict[str, str] = field(default_factory=dict)
+    # Which of a shared sheet's ROWS belong to this table.
+    #
+    # `prefers_sheet` above answers 0016's problem, where one sheet held two
+    # tables' COLUMNS: every row went to both, carrying different fields. 0019
+    # split industry_skills the other way. There the sheet holds two tables'
+    # ROWS -- fifty of them, nine per market regulatory and five universal, the
+    # same seven headings on all of them. Preference alone would write all
+    # fifty into both tables and restore the mixture 0019 removed, under a
+    # comment saying it had been removed.
+    #
+    # So a spec may also say which rows are its own. Given the fully mapped row
+    # dict, it returns True to keep it. Both halves of a shared sheet name a
+    # filter; the two are complementary by construction, and a row no filter
+    # claims is a row the workbook can name and the database cannot hold, which
+    # is worth reporting rather than dropping in silence.
+    #
+    # It is applied to the preferred sheet too. That sheet already holds only
+    # this table's rows, so the predicate passes them all -- and if it ever does
+    # not, the sheet and the database disagree about what the table IS, which is
+    # exactly the moment somebody should hear about it.
+    row_filter: object = None
 
 
 # Order matters: a table may only appear after everything it references.
@@ -245,16 +268,20 @@ SPECS: list[TableSpec] = [
     # split removed.
     TableSpec("IndustrySkills", "industry_skills", ("industry_id", "skill_id"), {
         "IndustryID": "industry_id", "SkillID": "skill_id", "SkillName": "skill_name",
-        "Category": "category", "Definition": "definition", "DefaultLevel": "default_level"}),
+        "Category": "category", "Definition": "definition", "DefaultLevel": "default_level"},
+        row_filter=lambda row: not is_regulatory_skill_id(row.get("skill_id"))),
     # National: what the sector is legally required to know. Keyed ON country,
     # because the same industry carries a different obligation per market and
     # without it an import would collapse five regimes onto one row.
-    TableSpec("IndustryRegulatorySkills", "industry_regulatory_skills",
+    TableSpec("IndustrySkills", "industry_regulatory_skills",
         ("country", "industry_id", "skill_id"), {
         "Country": "country", "IndustryID": "industry_id", "SkillID": "skill_id",
         "SkillName": "skill_name", "Category": "category",
         "Definition": "definition", "DefaultLevel": "default_level"},
-        defaults={"country": "NL"}),
+        defaults={"country": "NL"},
+        repo_key="industryregulatoryskills",
+        prefers_sheet="IndustryRegulatorySkills",
+        row_filter=lambda row: is_regulatory_skill_id(row.get("skill_id"))),
     # NOT keyed on country, unlike its neighbours. The unique here is
     # (org_id, obs_id) — a SURROGATE — so country varies freely underneath it
     # and adding it to the conflict target makes PostgREST refuse with 42P10.
@@ -347,7 +374,7 @@ def build_rows(book: dict[str, pd.DataFrame], *, org_id: str,
             report.notes.append(f"sheet '{sheet}' missing — {spec.table} not imported")
             continue
 
-        rows, dropped = [], 0
+        rows, dropped, filtered = [], 0, 0
         for _, src in df.iterrows():
             row: dict = {"org_id": org_id}
             if revision_id:
@@ -363,6 +390,12 @@ def build_rows(book: dict[str, pd.DataFrame], *, org_id: str,
             for db_col, value in spec.defaults.items():
                 if row.get(db_col) in (None, ""):
                     row[db_col] = value
+            # Not this table's row. Counted apart from `dropped`: a dropped row
+            # is malformed and nobody wanted it, a filtered row is well-formed
+            # and went to the other half of a split sheet.
+            if spec.row_filter is not None and not spec.row_filter(row):
+                filtered += 1
+                continue
             for wb_col, db_col in GOVERNANCE.items():
                 if wb_col not in df.columns:
                     continue
