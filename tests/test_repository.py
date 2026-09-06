@@ -306,3 +306,33 @@ def test_an_approval_is_judged_against_its_own_market():
     # NL has it on J-NL, so approving J-ES there is a remap, not a duplicate.
     assert plan_nl.writes, f"NL approval was dropped: {plan_nl.skipped}"
     assert not plan_es.writes, "ES already maps this title to J-ES"
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "A row without a country becomes NL. That was measured true in 0012, when "
+    "every row in the library was Dutch; five markets now hold real data. The "
+    "fix changes which bucket data lands in, so it is Elmar's call."))
+def test_a_workbook_without_a_country_column_belongs_to_its_own_market():
+    """A Belgian client uploads their own workbook. It has no Country column.
+
+    Seven `_build_*` methods resolve `(row country or "NL")`, so every row lands
+    in the NL bucket. Measured: the buckets after loading are `['NL']`, and with
+    the market set to BE `get_salary` returns None — the client sees none of
+    their own bands.
+
+    The empty answer is the safe half and matches the doctrine: a band that is
+    empty rather than wrong. The unsafe half is invisible. The same rows ARE
+    visible to a Dutch session in that organisation, as Dutch bands, at Belgian
+    amounts — the inverse of the vacancy bug that put a Dutch band in a Spanish
+    advert.
+
+    "Missing country means Dutch" is an assumption that was true once and has
+    not been re-measured since foreign data arrived.
+    """
+    bands = pd.DataFrame([{"Function": "Finance", "Level": "Senior",
+                           "Min": 40000, "Max": 55000, "Currency": "EUR"}])
+    repo = _repo(salary=bands)
+    with _Market("BE"):
+        band = repo.get_salary("Finance", "Senior")
+        assert band is not None, "the client's own bands are invisible to them"
+        assert band.min == 40000
