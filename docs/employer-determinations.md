@@ -311,11 +311,27 @@ behind.
    judgement layer with a `system_proposed` column is *evidence of human
    oversight* and may help — but the classification is counsel's call, in either
    direction, and must not be assumed here.
-2. **Retention.** A determination must outlive the roster it was made about, or
-   it cannot be defended in 2028. That sits against migration 0010's
-   minimisation and deletion rules and the two have to be reconciled
-   deliberately: the reasoning is arguably not personal data, the population
-   snapshot is.
+2. ~~**Retention.**~~ **DECIDED 6 September 2026, by Elmar.** The retention
+   period follows the applicable directive rather than a number this product
+   invents, and PH-LiveOps signals when renewal is due — the same mechanism
+   migration 0017 already uses for the reference library, so there is one place
+   that says "this needs looking at again" rather than two.
+
+   Two things that decision does **not** yet settle, and neither may be guessed:
+
+   * **Which period, from which instrument.** "Per the directive" is the right
+     principle and not yet a number. The Pay Transparency Directive, the
+     national limitation period for a pay claim, and GDPR storage limitation are
+     three different clocks and the longest one governs how long a determination
+     must remain defensible. Until that is sourced it is ONBEVESTIGD, exactly as
+     any other legal claim in this product would be, and it must not be written
+     into `library_review_policy` as though it were known.
+   * **The tension with migration 0010.** Minimisation and deletion apply to the
+     roster; a determination has to outlive it. The reasoning, the criteria and
+     the participants are arguably not personal data. The population snapshot
+     is. The likely shape is that a determination keeps its reasoning
+     indefinitely and its population figure as a COUNT rather than a set of
+     people — but that is a design step, not a consequence of this decision.
 3. **First slice.** `gender_code_mapping` is the cheapest and proves the shape;
    `cross_country_equivalence` is the one that carries commercial weight because
    it turns the spine's refusal from a dead end into the beginning of a
