@@ -409,3 +409,102 @@ def test_the_refusal_does_not_depend_on_the_active_market(monkeypatch):
     assert _detect_fte_pair(cols) == ("Licznik_wymiaru_etatu", "Mianownik_wymiaru_etatu")
     exacts, contains = _CALLSITE["fte"]
     assert _smart_detect(cols, exacts, contains) is None
+
+
+# ── the fraction is computed, not only refused ───────────────────────────────
+
+def _polish_frame():
+    """Twelve people, half-timers on half the gross, everyone on one rate.
+
+    The shape is the point: there is no FTE column at all, only a numerator and
+    a denominator, which is what Poland's payroll systems export.
+    """
+    import pandas as pd
+
+    rows = []
+    for i in range(12):
+        woman = i % 2 == 0
+        half = woman and i % 4 == 0          # part-time skews female
+        rows.append({
+            "Nazwisko": f"P{i:02d}",
+            "Plec": "K" if woman else "M",
+            "Funkcja": "Finance", "Poziom": "Senior",
+            "Wynagrodzenie": 30000 if half else 60000,
+            "Licznik_wymiaru_etatu": 1,
+            "Mianownik_wymiaru_etatu": 2 if half else 1,
+        })
+    return pd.DataFrame(rows)
+
+
+def test_the_fraction_becomes_a_real_fte_column():
+    from ui.shared import FTE_RATIO_COLUMN, materialise_fte_ratio
+
+    out, col = materialise_fte_ratio(_polish_frame())
+    assert col == FTE_RATIO_COLUMN
+    assert list(out[col])[:4] == [0.5, 1.0, 1.0, 1.0]
+
+
+def test_computing_it_removes_a_gap_that_was_not_there(monkeypatch):
+    """The number this moves, measured rather than asserted.
+
+    Everyone here is on the same rate; the half-timers simply earn half of it.
+    Read without pro-rating, their raw pay stands beside everybody else's
+    full-time figure and the analysis reports a **25,0%** gap that does not
+    exist — in the direction that triggers a reporting duty. With the fraction
+    computed it is **0,0%**.
+
+    Approved by Elmar on 6 September 2026 in full knowledge that it changes
+    client numbers. This test exists so the size of that change stays visible.
+    """
+    from services.pay_equity_service import analyze_gender_pay_gap
+    from ui.shared import materialise_fte_ratio
+
+    _use_market(monkeypatch, "PL")
+    df = _polish_frame()
+
+    def gap(frame, fte_col):
+        return analyze_gender_pay_gap(
+            frame, function_col="Funkcja", level_col="Poziom",
+            gender_col="Plec", salary_col="Wynagrodzenie", fte_col=fte_col)
+
+    before = gap(df, None)
+    after_df, col = materialise_fte_ratio(df)
+    after = gap(after_df, col)
+
+    assert before.mean_gap_pct == 25.0 and before.fte_normalised is False
+    assert after.mean_gap_pct == 0.0 and after.fte_normalised is True
+
+
+def test_a_zero_denominator_stays_empty_rather_than_full_time():
+    """Filling in 1 would call a part-timer full-time — the exact failure the
+    refusal was built to prevent. Unknown must stay unknown; the service
+    already names those rows."""
+    import pandas as pd
+
+    from ui.shared import materialise_fte_ratio
+
+    df = pd.DataFrame([
+        {"Nazwisko": "A", "Licznik_wymiaru_etatu": 1, "Mianownik_wymiaru_etatu": 2},
+        {"Nazwisko": "B", "Licznik_wymiaru_etatu": 1, "Mianownik_wymiaru_etatu": 0},
+        {"Nazwisko": "C", "Licznik_wymiaru_etatu": 1, "Mianownik_wymiaru_etatu": None},
+    ])
+    out, col = materialise_fte_ratio(df)
+    values = list(out[col])
+    assert values[0] == 0.5
+    assert pd.isna(values[1]) and pd.isna(values[2])
+
+
+def test_a_real_fte_column_in_the_file_wins():
+    """The client's own number outranks one we derived. Two FTE columns would
+    make the choice arbitrary, and arbitrary is how the wrong one gets picked."""
+    import pandas as pd
+
+    from ui.shared import materialise_fte_ratio
+
+    df = pd.DataFrame([
+        {"Nazwisko": "A", "Wymiar etatu": 0.5,
+         "Licznik_wymiaru_etatu": 1, "Mianownik_wymiaru_etatu": 2},
+    ])
+    out, col = materialise_fte_ratio(df)
+    assert col is None
+    assert "FTE (computed)" not in out.columns

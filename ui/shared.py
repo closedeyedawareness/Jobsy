@@ -563,6 +563,100 @@ def _detect_fte_pair(cols):
     return None
 
 
+def _alle_pakket_woorden(concept):
+    """One concept's column words across EVERY loaded pack, lowercased.
+
+    `_pack_vocabulary` answers for the active market, which is right when the
+    question is "what does this market call it". It is wrong when the question
+    is "does this file already carry one", because the file does not know which
+    market the session is set to.
+    """
+    try:
+        try:
+            from services import country_packs
+        except ImportError:
+            from jobsy.services import country_packs
+        packs = country_packs.load()
+    except Exception:
+        return set()
+    out = set()
+    for pack in (packs or {}).values():
+        for term in (getattr(pack, "vocabulary", {}) or {}).get(concept, ()) or ():
+            t = str(term).strip().lower()
+            if t:
+                out.add(t)
+    return out
+
+
+#: The name the computed fraction gets. It carries "FTE" on purpose so the
+#: existing detector finds it, and "(computed)" so a reader looking at the
+#: column picker can see it was not in their file.
+FTE_RATIO_COLUMN = "FTE (computed)"
+
+
+def materialise_fte_ratio(df):
+    """Turn a numerator/denominator pair into a real FTE column.
+
+    Returns ``(df, column_name_or_None)``. The frame is copied only when
+    something is added, so the common case costs nothing.
+
+    Until 6 September 2026 the pair was only REFUSED: neither half was offered
+    as the FTE column and the analysis fell through to its no-FTE path, which
+    said so on screen. That was honest and it was also the end of the road —
+    Polish payroll exports hold no FTE number at all, so a Polish part-timer
+    could not be pro-rated at all, and part-time work skews female. Elmar
+    approved computing it on 6 September 2026, knowing it moves client numbers.
+
+    Three refusals stay in place, because a wrong fraction is worse than none:
+
+    * no pair, or a pair whose halves are not numeric — nothing is added;
+    * a denominator that is zero, blank or negative leaves that row EMPTY
+      rather than 1. The service already treats a missing FTE as unknown and
+      names those rows; filling in 1 would quietly call a part-timer full-time,
+      which is the failure this whole path exists to prevent;
+    * a file that already carries a real FTE column keeps it. Two FTE columns
+      would make the choice arbitrary, and the client's own number outranks
+      one we derived.
+    """
+    try:
+        import pandas as pd
+    except Exception:
+        return df, None
+    if df is None or getattr(df, "empty", True):
+        return df, None
+
+    cols = list(df.columns)
+    pair = _detect_fte_pair(cols)
+    if not pair:
+        return df, None
+    if FTE_RATIO_COLUMN in cols:
+        return df, FTE_RATIO_COLUMN
+
+    # Look for an existing FTE column across EVERY pack's vocabulary, not just
+    # the active market's. The first version of this guard used
+    # `_smart_detect`, which resolves the vocabulary from the session market —
+    # so a Polish file carrying a real `Wymiar etatu` was not recognised while
+    # the market was set to NL, and the derived column was added beside it.
+    # Same argument as `_pack_fte_pairs`: a column name is a fact about the
+    # file. A test caught it; nothing else would have.
+    rest = [str(c).strip().lower() for c in cols if c not in pair]
+    woorden = {"fte", "parttime", "part-time", "part time", "werkuren", "deeltijd",
+               "contract hours", "parttimefactor", "deeltijdfactor"}
+    woorden |= _alle_pakket_woorden("fte")
+    if any(w and w in c for c in rest for w in woorden):
+        return df, None
+
+    num = pd.to_numeric(df[pair[0]], errors="coerce")
+    den = pd.to_numeric(df[pair[1]], errors="coerce")
+    if num.notna().sum() == 0 or den.notna().sum() == 0:
+        return df, None
+
+    ratio = num.where(den > 0) / den.where(den > 0)
+    out = df.copy()
+    out[FTE_RATIO_COLUMN] = ratio
+    return out, FTE_RATIO_COLUMN
+
+
 
 def market_panel(kind: str) -> None:
     """What this market changes about the page the reader is on.

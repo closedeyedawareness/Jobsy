@@ -725,6 +725,19 @@ def pay_equity_page(catalog, service):
     if df is None or df.empty:
         st.warning("No usable data."); return
 
+    # A working-time FRACTION becomes a real column here, before anything looks
+    # at the headers, so every detector downstream sees one FTE column instead
+    # of two integers it must not touch. Polish payroll exports hold no FTE
+    # number at all — 1 and 2 for a half-timer — and until 6 September 2026 the
+    # only answer was to refuse, which left Polish part-timers unpro-ratable and
+    # their raw pay standing beside everyone else's full-time figure.
+    df, _fte_ratio_col = materialise_fte_ratio(df)
+    if _fte_ratio_col:
+        st.info(
+            f"Working time in this file is a fraction across two columns, so "
+            f"**{_fte_ratio_col}** was computed from them. Rows with a missing "
+            f"or zero denominator are left empty rather than assumed full-time.")
+
     cols = list(df.columns)
     # ── Option A: leveled-grid path — client already provides Function + Level ──
     # If both are present we can run the band-free structural gender pay gap
