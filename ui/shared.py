@@ -565,6 +565,158 @@ def market_panel(kind: str) -> None:
         st.caption(market_notes.market_caveat())
 
 
+#: How each slot state is drawn. THREE MARKS, NEVER TWO. "Not answered" and
+#: "held and empty" are different statements about a market — nobody has looked,
+#: against we looked and there is nothing — and drawing both as an absent tick
+#: is how that difference gets destroyed at the last step, after the packs, the
+#: dataclass and `capability_gaps()` all took care to keep it.
+_COVERAGE_MARK = {
+    "answered":       ("✓", "teal"),
+    "held and empty": ("–", "muted"),
+    "not answered":   ("○", "danger"),
+}
+
+
+def _coverage_market_body(report) -> None:
+    """One market's coverage inside an open expander."""
+    st.caption(f"Pack status: {report['status']} · {report['claims']} claims held. "
+               + ("The directive baseline, not a market anyone works in: a covered "
+                  "market's pack falls back to it, and a market no pack exists for is "
+                  "never lent it." if report["baseline"] else ""))
+
+    rows = ""
+    for slot in report["slots"]:
+        mark, tone = _COVERAGE_MARK.get(slot["state"], ("?", "muted"))
+        count = (f'{slot["claims"]} claim{"" if slot["claims"] == 1 else "s"}'
+                 if slot["state"] == "answered" else slot["state"])
+        rows += (
+            f'<div style="display:flex;align-items:baseline;gap:10px;margin:4px 0;font-size:13px">'
+            f'<span style="color:{C[tone]};font-weight:700;flex:0 0 14px">{mark}</span>'
+            f'<span style="flex:0 0 210px;color:{C["ink"]}">{slot["label"]}</span>'
+            f'<span style="flex:0 0 120px;font-family:{FONT_MONO};font-size:11px;'
+            f'color:{C[tone]};text-transform:uppercase;letter-spacing:.06em">{count}</span>'
+            f'<span style="color:{C["muted"]};font-size:12px">{slot["question"]}</span></div>')
+    st.markdown(rows, unsafe_allow_html=True)
+
+    # Counts, never a proportion. A "% verified" would let a reader stop at the
+    # number, and one unverified sentence about a filing duty outweighs six
+    # about custom — which is precisely what an average hides.
+    tone_for = {"WET": "teal", "UITLEG": "ink", "CONVENTIE": "amber",
+                "ONBEVESTIGD": "danger"}
+    chips = "".join(
+        f'<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;'
+        f'border-radius:999px;border:1px solid {C["line"]};font-family:{FONT_MONO};'
+        f'font-size:11px;color:{C[tone_for.get(h, "muted")]}">{n} {h}</span>'
+        for h, n in sorted(report["hardness"].items(), key=lambda kv: -kv[1]))
+    if chips:
+        st.markdown(f'<div style="margin:8px 0 4px">{chips}</div>', unsafe_allow_html=True)
+
+    for line in report["unverified"]:
+        st.markdown(f'<div style="color:{C["danger"]};font-size:13px;margin:3px 0">{line}</div>',
+                    unsafe_allow_html=True)
+    for line in report["stale"]:
+        st.markdown(f'<div style="color:{C["danger"]};font-size:13px;margin:3px 0">{line}</div>',
+                    unsafe_allow_html=True)
+    for line in report["on_clock"]:
+        st.caption(line)
+    if report["routes"]:
+        st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                    f'text-transform:uppercase;color:{C["muted"]};margin:10px 0 4px">'
+                    f'Crossings out of this market</div>', unsafe_allow_html=True)
+        for line in report["routes"]:
+            st.markdown(f"- {line}")
+
+
+def market_coverage_panel() -> None:
+    """What this tool holds about each market, and what it does not.
+
+    PLACED ON THE DATA QUALITY PAGE, above every one of that page's own
+    computations, and both halves of that were decided rather than defaulted.
+
+    On this page because it is the one screen in the product whose subject is
+    already what the tool does not know: it says which sheets nobody has
+    updated, which fields are unfilled and which library rows fail validation.
+    Market knowledge is the same question asked of a different body of work, and
+    somebody reading a freshness table is in the frame of mind to plan coverage
+    rather than discover it. The alternative — a page of its own — is a page
+    nobody visits, and the failure this closes is precisely that a function
+    existed and nothing called it.
+
+    Above the page's own computations because everything below this line needs a
+    loaded catalog and can raise; market coverage needs nothing but the packs.
+    A panel about gaps that disappears whenever the library is in a bad state is
+    unavailable exactly when somebody is looking for what is missing.
+
+    Collapsed per market, in the register `market_panel` set: most of what is
+    here is the shape of a market rather than a fault to fix, and a wall of open
+    detail on a page somebody opens for a different reason is read once.
+    """
+    try:
+        from services import market_notes
+        from services import country_packs
+    except ImportError:                                   # pragma: no cover
+        from jobsy.services import market_notes           # type: ignore
+        from jobsy.services import country_packs           # type: ignore
+
+    held = sorted(country_packs.load())
+    if not held:
+        return
+
+    try:
+        from services import country_service as _market
+        active = (_market.active_country() or "").strip().upper()
+    except Exception:                                     # pragma: no cover
+        active = ""
+
+    st.markdown(f'<div style="font-family:{FONT_MONO};font-size:11px;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{C["muted"]};margin:18px 0 6px">'
+                f'Market coverage</div>', unsafe_allow_html=True)
+    st.caption(
+        "What is held about each market this tool speaks about, per capability. "
+        "There is no coverage score here on purpose: a percentage invites you to "
+        "trust it and stop reading, and what is missing is not interchangeable — "
+        "one unanswered reporting duty is a filing somebody misses, five unanswered "
+        "conventions are context. Three states, and two of them are not the same: "
+        f"**not answered** — {market_notes.slot_state_meaning('not answered')} "
+        f"**Held and empty** — {market_notes.slot_state_meaning('held and empty')}")
+
+    order, seen = [], set()
+    for code in ([active] + [c for c in held if c != country_packs.BASELINE] + [country_packs.BASELINE]):
+        if code in held and code not in seen:
+            seen.add(code)
+            order.append(code)
+
+    for code in order:
+        report = market_notes.market_coverage(code)
+        if report is None:                                # pragma: no cover
+            continue
+        missing = [s["label"] for s in report["slots"] if s["state"] == "not answered"]
+        # The title says WHICH capability is unanswered rather than how many, so
+        # a reader scanning collapsed rows learns the thing they could act on
+        # without opening anything.
+        tail = ("no answer held for " + "; ".join(missing) if missing
+                else "every capability answered")
+        flag = " · active market" if code == active else ""
+        with st.expander(f"{report['name']} — {tail}{flag}", expanded=False):
+            _coverage_market_body(report)
+
+    # A market the registry offers but no pack covers. Named as holding nothing,
+    # never handed the EU baseline: several member states are stricter than the
+    # directive, so an inherited table would understate a duty that already
+    # exists — the one error worse than admitting the market is not covered.
+    try:
+        from services import country_service as _registry
+        offered = [row.get("code") for row in _registry.live_countries()]
+    except Exception:                                     # pragma: no cover
+        offered = []
+    uncovered = market_notes.uncovered_markets(offered)
+    if uncovered:
+        st.caption("Offered as a market and not covered here: " + ", ".join(uncovered)
+                   + ". Nothing is held about them and nothing is inherited on their "
+                   "behalf — several member states are stricter than the directive, so "
+                   "lending them the baseline would understate a duty that already exists.")
+
+
 def _smart_detect(cols, exacts, contains, concept=None):
     """Pick a column by case-insensitive exact match first, then substring.
 

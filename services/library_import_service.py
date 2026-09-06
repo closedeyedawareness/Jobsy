@@ -83,6 +83,21 @@ class TableSpec:
     # 0002: CareerPaths says 'Terminal' to mean top-of-ladder, not a lifecycle
     # state, so its Status is routed here and governance status stays 'active'.
     status_column: str | None = None
+    # Where core/db_loader files this table's frame. Normally SHEET_MAP answers
+    # that from the sheet name, and normally one sheet is one table — but 0016
+    # split job_profiles and seniority_levels in the database while the WORKBOOK
+    # IN A CLIENT'S HANDS still holds both halves on one sheet. Two specs then
+    # read the same sheet, SHEET_MAP has one answer for it, and without this the
+    # second frame would quietly overwrite the first under the same key.
+    repo_key: str | None = None
+    # Values for database columns the workbook has no heading for. Only
+    # `country` needs one today: job_profile_positioning and
+    # seniority_grade_binding are NOT NULL on it and the workbook predates the
+    # dimension, so the import would fail at the constraint. 'NL' is a
+    # statement of fact — 0016 measured every existing row as Dutch before
+    # copying it — not a guess, and it applies only where the sheet says
+    # nothing. A reissued workbook with a Country column overrides it per row.
+    defaults: dict[str, str] = field(default_factory=dict)
 
 
 # Order matters: a table may only appear after everything it references.
@@ -129,6 +144,15 @@ SPECS: list[TableSpec] = [
     TableSpec("SeniorityLevels", "seniority_levels", ("l_code",), {
         "LCode": "l_code", "LName": "l_name", "MapsToLevel": "maps_to_level",
         "GradeRange": "grade_range", "Definition": "definition", "Grades": "grades"}),
+    # The binding half of the sheet above — 0016 §2. It reads the SAME three
+    # headings, and the spec above still writes them to seniority_levels: while
+    # both columns are live, an import that fed only one of them would leave the
+    # other stale and 0016 §3(e) would then report a divergence that nobody
+    # caused. Both are written until the old columns are dropped.
+    TableSpec("SeniorityLevels", "seniority_grade_binding", ("country", "l_code"), {
+        "LCode": "l_code", "MapsToLevel": "maps_to_level", "GradeRange": "grade_range",
+        "Grades": "grades", "Country": "country"},
+        repo_key="senioritybinding", defaults={"country": "NL"}),
     TableSpec("SkillProficiency", "skill_proficiency", ("category", "level"), {
         "Category": "category", "Level": "level", "LevelName": "level_name",
         "Anchor": "anchor"}),
@@ -145,6 +169,32 @@ SPECS: list[TableSpec] = [
         "KeyResponsibilities": "key_responsibilities", "RequiredSkills": "required_skills",
         "Specialisms": "specialisms", "ManagementLevel": "management_level",
         "TypicalTools": "typical_tools"}),
+    # The positioning half of the sheet above — 0016 §1. ManagementLevel is
+    # routed to both tables on purpose, for the reason given at
+    # seniority_grade_binding: the old column is still live and still read, and
+    # an import that updated one side only is precisely what 0016 §3(e) is
+    # looking for. When that column is dropped, drop it from the spec above.
+    #
+    # WHAT THIS DOES NOT DO: one workbook still imports ONE market. Sharing the
+    # JobProfiles sheet with the universal spec above, whose key is job_id
+    # alone, means two rows for the same job in two markets are a repeated
+    # natural key there and build_rows refuses to choose between them. A
+    # Belgian client's own workbook (every row Belgian, Country column or the
+    # 'NL' default corrected once) imports correctly; a single workbook holding
+    # several markets' positioning needs a sheet of its own, which is a
+    # workbook change, not a code change.
+    #
+    # AND ONE THING THAT MUST HAPPEN BEFORE THE OLD COLUMN GOES. Neither new
+    # table is in core.catalog.SHEET_MAP, so the library EXPORT
+    # (services/library_export_service.sheets()) and the Data Quality scorecard,
+    # which both walk SHEET_MAP, cannot see them. That costs nothing today —
+    # ManagementLevel still rides on the JobProfiles sheet and this spec writes
+    # both halves — but on the day 0016 §3 drops the old columns, an export
+    # would silently lose the positioning claim altogether. Give both tables a
+    # sheet of their own in SHEET_MAP first.
+    TableSpec("JobProfiles", "job_profile_positioning", ("country", "job_id"), {
+        "JobID": "job_id", "ManagementLevel": "management_level", "Country": "country"},
+        repo_key="jobpositioning", defaults={"country": "NL"}),
     TableSpec("TitleMapping", "title_mapping", ("existing_title",), {
         "ExistingTitle": "existing_title", "JobID": "job_id"}),
     TableSpec("CareerPaths", "career_paths", ("job_id",), {
@@ -251,6 +301,14 @@ def build_rows(book: dict[str, pd.DataFrame], *, org_id: str,
             for wb_col, db_col in spec.columns.items():
                 if wb_col in df.columns:
                     row[db_col] = _clean(src[wb_col])
+            # After the sheet, never over it: a heading the workbook does have
+            # wins even when the cell is blank-and-therefore-None only if the
+            # column is nullable — and the two that use defaults are NOT NULL,
+            # so a blank Country in a reissued workbook falls back here rather
+            # than failing the insert.
+            for db_col, value in spec.defaults.items():
+                if row.get(db_col) in (None, ""):
+                    row[db_col] = value
             for wb_col, db_col in GOVERNANCE.items():
                 if wb_col not in df.columns:
                     continue

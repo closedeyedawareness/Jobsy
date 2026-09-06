@@ -1022,7 +1022,12 @@ def test_the_spine_hands_back_a_route_and_never_a_converted_code():
     """
     result = cp.bridge("FR", "ES", cp.OCCUPATION)
     assert result["ok"] is True, result.get("refusal")
-    assert set(result) == {"ok", "spine", "hardness", "route", "refusal"}
+    # `absence` joined the shape when the packs learned to distinguish a market
+    # nobody has mapped from one where no authoritative correspondence exists.
+    # It is empty on a successful route and stays in the shape rather than
+    # appearing only on failures, so a caller may read it without a guard.
+    assert set(result) == {"ok", "spine", "hardness", "route", "refusal", "absence"}
+    assert result["absence"] == {}
     for hop in result["route"]:
         assert "scheme" in hop and "hardness" in hop
         assert "value" not in hop and "code" not in hop, (

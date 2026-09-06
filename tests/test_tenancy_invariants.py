@@ -298,13 +298,36 @@ def _ui_sources():
     to follow the code it is about.
     """
     ui = ROOT / "ui"
-    return [ui / "app.py", ui / "shared.py"] + sorted((ui / "views").glob("*.py"))
+    sources = [ui / "app.py", ui / "shared.py"] + sorted((ui / "views").glob("*.py"))
+
+    # AND THE SERVICES, because a user-facing string is not defined by which
+    # directory it lives in. This test scanned ui/ alone until 6 September 2026,
+    # and three real leaks were sitting outside its reach the whole time: an
+    # action line in the architecture REPORT ("Use the Jobsy Skills Assessment
+    # template"), two Dutch sentences in the CAO crosswalk note that render on
+    # the pay-equity screen, and one in the market notes. A reseller's client
+    # would have read the vendor's name in a document the reseller put their own
+    # logo on — which is the entire failure white-labelling exists to prevent,
+    # arriving through the one path nobody was watching.
+    #
+    # The lesson is not "add services/". It is that a guard scoped to a
+    # DIRECTORY guards a directory, and this invariant is about a property of
+    # strings. Scoped to where strings are built, it follows the code.
+    sources += sorted((ROOT / "services").glob("*.py"))
+    sources += sorted((ROOT / "services" / "country_packs").glob("*.py"))
+    return sources
 
 
 @pytest.mark.parametrize("path", _ui_sources(), ids=lambda p: p.name)
 def test_no_user_facing_string_hard_codes_the_product_name(path):
-    """F-2. Every remaining "Jobsy" in the UI must be a comment, a docstring, or
-    the single fallback in _brand_name() — never something a user reads."""
+    """F-2. Every remaining "Jobsy" in a user-facing string must be a comment, a
+    docstring, or the single fallback in _brand_name() — never something a user
+    reads.
+
+    Covers ui/ AND services/: a note built in a service and rendered on a screen
+    is exactly as visible as one written in the view, and for a while three of
+    them were. See `_ui_sources` for what was found outside the old scope.
+    """
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 

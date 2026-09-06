@@ -350,13 +350,27 @@ than here. Noted so the classification is not read as stronger than it is.
 
 ---
 
-## 5. What happens today when a Belgian client asks for a salary band
+## 5. What happened when a Belgian client asked for a salary band — FIXED 6 September 2026
 
-**The question the brief asks — silence, a wrong answer, or an error — has a
-worse answer than any of the three: it is both silence and a wrong answer, on
+> **This section is in the past tense as of 6 September 2026 and is kept because
+> the reasoning is the record of why the fix has the shape it has.** Bands are
+> now stored per market and read through `_MarketRows`, a Mapping that resolves
+> **country, then the 'EU' baseline, then NOTHING — never another market's
+> rows**. `_fetch_all` orders by `id` before paging. `tests/test_country_tiers.py`
+> holds both. The same object now also serves `pay_elements` and
+> `benefits_catalog`, which migration 0015 gave a country column and which had
+> the identical defect one layer down; a fourth reimplementation of this rule is
+> a fourth chance to drift, so there is a structural test asserting all three go
+> through the one object.
+>
+> Read on for what the defect was. The shape recurs, and it recurred twice in
+> one day inside this one file.
+
+**The question the brief asked — silence, a wrong answer, or an error — had a
+worse answer than any of the three: it was both silence and a wrong answer, on
 the same screen, at the same time.**
 
-Follow the read path.
+Follow the read path as it stood.
 
 **The sidebar tells the truth.** `country_service.has_reference_data()` queries
 `salary_bands` for the active country and then for `EU`, mirroring
@@ -393,9 +407,11 @@ The database can hold both — `UNIQUE (org_id, country, function, level)` — b
 the in-memory repository cannot. A Dutch and a Belgian band for
 Engineering/Medior are one dictionary entry, and the survivor is whichever row
 `_fetch_all` happened to return last. `_fetch_all` pages with `.range()` and
-**never calls `.order()`**, so that is unspecified Postgres row order: not merely
-wrong, but wrong differently on different days and possibly different between two
-pages of the same read. The band count on the dashboard would also silently stop
+**never called `.order()`**, so that was unspecified Postgres row order: not
+merely wrong, but wrong differently on different days and possibly different
+between two pages of the same read. (Both halves of this are now closed — the
+ordering and the folding — but note which one was easier to see. The missing
+`.order()` is a line of code; the fold was a design that looked finished.) The band count on the dashboard would also silently stop
 matching the row count in the table.
 
 `db_loader._merge_by_precedence` does the right thing — it adds `country` to the

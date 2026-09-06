@@ -503,7 +503,7 @@ def _reporting_duty_notes(countries: tuple, headcount: int) -> list[str]:
     for country in resolved:
         pack = cp.for_country(country)
         if pack is None:
-            out.append(f"No pay-reporting duty is stated for {country}: Jobsy holds no "
+            out.append(f"No pay-reporting duty is stated for {country}: this tool holds no "
                        "country pack for that market yet. This is a gap in the tool, not "
                        "an absence of obligation — check the national rules directly.")
             continue
@@ -650,7 +650,7 @@ def _currency_notes(countries: tuple) -> list[str]:
     shown = "; ".join(f"{cur}: {', '.join(sorted(cs))}"
                       for cur, cs in sorted(by_cur.items()))
     return [
-        f"CURRENCY: this workforce spans more than one currency ({shown}). Jobsy "
+        f"CURRENCY: this workforce spans more than one currency ({shown}). This tool "
         "deliberately does not convert — a Polish salary shown in euro is a different "
         "claim from the same figure in its own market, and it needs a rate as of a "
         "date, shown rather than hidden. That policy is right for DISPLAY and it "
@@ -1250,6 +1250,7 @@ def analyze_variable_pay_exposure(
     gender_col: str,
     salary_col: str,
     fte_col: str | None = None,
+    country_col: str | None = None,
     male_label: str = "M",
     female_label: str = "F",
     salary_already_fte: bool = False,
@@ -1266,7 +1267,12 @@ def analyze_variable_pay_exposure(
     """
     notes: list[str] = []
 
-    d = df[[c for c in {function_col, level_col, gender_col, salary_col, fte_col} if c]].copy()
+    # country_col joins the subset, or the parameter above would be accepted,
+    # dropped one line later, and silently do nothing — a signature that
+    # promises per-market normalisation and delivers the session's. The gap
+    # analysis subsets the same way and already includes it.
+    d = df[[c for c in {function_col, level_col, gender_col, salary_col,
+                        fte_col, country_col} if c]].copy()
     d["_sal"] = pd.to_numeric(d[salary_col], errors="coerce")
     if not salary_already_fte and fte_col:
         fte = pd.to_numeric(d[fte_col], errors="coerce")
@@ -1284,14 +1290,20 @@ def analyze_variable_pay_exposure(
     # populations, with nothing on the screen saying so.
     m_lab = male_label.strip().upper()[:1]
     f_lab = female_label.strip().upper()[:1]
-    # No country column is threaded through here, so this resolves on the active
-    # market alone. That is a real limit and worth naming rather than hiding: on
-    # a roster spanning several countries the gap analysis reads each row with
-    # its own market's pack and this one reads them all with the session's. The
-    # two therefore still diverge on a MIXED roster, though no longer on a
-    # single-market one, which was the common case and the whole defect. Closing
-    # it fully means giving this function the country column too.
-    _cls, _ = _gender_classes(d[gender_col], None)
+    # The country column, threaded through at last. It was missing here while
+    # `analyze_gender_pay_gap` had it, and the consequence was narrow but real:
+    # on a roster spanning several markets the gap analysis read each row with
+    # ITS OWN market's pack and this one read every row with the session's. Two
+    # figures on one screen, computed over differently-normalised populations,
+    # with nothing on the screen saying so.
+    #
+    # DEFAULTED TO None, so every existing caller behaves exactly as before and
+    # a single-market roster — the common case, and the one the earlier fix
+    # already closed — is unaffected either way. Pass it and a mixed roster
+    # resolves per market too.
+    _cls, _ = _gender_classes(
+        d[gender_col],
+        d[country_col] if (country_col and country_col in d.columns) else None)
     # An unknown keeps its own first letter, so it stays outside both labels,
     # exactly as the old fold left it.
     _fallback = d[gender_col].astype(str).str.strip().str.upper().str[:1]

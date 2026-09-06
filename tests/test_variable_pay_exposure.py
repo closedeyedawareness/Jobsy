@@ -139,3 +139,100 @@ def test_the_typed_pay_mix_gives_the_same_answer_as_the_frame():
 def test_an_empty_typed_pay_mix_says_what_is_missing():
     with pytest.raises(ValueError, match="Function and Level"):
         _run(_grid(2, 2, 2, 2), {})
+
+
+# ── the mixed roster, which the two analyses used to disagree about ───────
+
+def _mixed_nl_es_roster():
+    """One roster, two markets, and a letter that means opposite things.
+
+    `M` is *mujer* in a Spanish H/M file and `man` in a Dutch M/V one. A single
+    normalisation over both rows therefore has to be wrong about one of them,
+    and the direction of the error is a reversal rather than a blur: the Spanish
+    women are counted as men and the Spanish men vanish.
+    """
+    import pandas as pd
+    return pd.DataFrame([
+        {"Function": "Finance", "Level": "Senior", "Gender": "M",
+         "Salary": 70000, "FTE": 1.0, "Country": "NL"},   # Dutch M = man
+        {"Function": "Finance", "Level": "Senior", "Gender": "V",
+         "Salary": 60000, "FTE": 1.0, "Country": "NL"},   # Dutch V = vrouw
+        {"Function": "Finance", "Level": "Senior", "Gender": "H",
+         "Salary": 70000, "FTE": 1.0, "Country": "ES"},   # hombre = man
+        {"Function": "Finance", "Level": "Senior", "Gender": "M",
+         "Salary": 60000, "FTE": 1.0, "Country": "ES"},   # mujer = WOMAN
+    ])
+
+
+def test_a_mixed_roster_is_read_market_by_market_once_the_country_is_passed():
+    """The last gap between the two figures that share a screen.
+
+    `analyze_gender_pay_gap` learned to read each row with its own market's
+    pack; this function did not, because no country column was threaded into
+    it. On a single-market roster that made no difference — which is why the
+    earlier fix looked finished — but on a mixed one the exposure figure and the
+    gap figure were computed over differently-normalised populations, with
+    nothing on the screen saying so.
+
+    The contrast IS the harm, and it is measured here rather than described.
+    Given the same four rows:
+
+        without a country   ['male', 'female', '', 'male']
+        with a country      refuses
+
+    Read under the session's Dutch pack, the Spanish `M` — *mujer*, a woman —
+    is counted as a man, and the Spanish `H` — *hombre*, a man — resolves to
+    nothing at all and is dropped. One woman becomes a man and one man
+    disappears, in a variable-pay exposure analysis whose entire output is a
+    comparison between the sexes.
+
+    Read per market, the Spanish rows raise instead: `M` is genuinely
+    undecidable in that market's payroll exports, and this file gives no way to
+    tell which convention produced it. A refusal is the correct answer and a
+    plausible number is not.
+    """
+    import pandas as pd
+    import pytest
+    from services.pay_equity_service import (_gender_classes, FEMALE, MALE,
+                                             AmbiguousGenderCodes)
+
+    df = _mixed_nl_es_roster()
+
+    # Without the country column: silently wrong, in the direction that matters.
+    blind = list(_gender_classes(df["Gender"], None)[0])
+    assert blind[2] != MALE, "the Spanish hombre used to survive; this test is stale"
+    assert blind[3] == MALE, (
+        "the Spanish mujer used to be counted as a man — if that no longer "
+        "happens the defect this guards is gone and the test should be reread")
+
+    # With it: the Spanish half is read with the Spanish pack, which refuses.
+    with pytest.raises(AmbiguousGenderCodes) as refusal:
+        _gender_classes(df["Gender"], df["Country"])
+    assert "ES" in str(refusal.value), (
+        "the refusal does not name the market it came from, so a reader cannot "
+        "tell which half of their roster is the problem")
+
+    # And the Dutch half on its own still resolves, so this is a per-market
+    # refusal and not a whole-file one.
+    dutch = df[df["Country"] == "NL"]
+    assert list(_gender_classes(dutch["Gender"], dutch["Country"])[0]) == [MALE, FEMALE]
+
+
+def test_the_country_column_survives_the_column_subset():
+    """A parameter that is accepted and then dropped is worse than one that is
+    absent: the signature promises per-market normalisation and the function
+    quietly delivers the session's.
+
+    The subset inside the function keeps only the columns it was told about, so
+    country_col has to be in that set. It is asserted separately because the
+    failure is silent — the analysis still returns a perfectly plausible number.
+    """
+    import inspect
+    from services import pay_equity_service as pes
+
+    src = inspect.getsource(pes.analyze_variable_pay_exposure)
+    subset = next(line for line in src.splitlines() if "d = df[[" in line
+                  or (line.strip().startswith("d = df[[")))
+    following = src[src.index("d = df[["):]
+    assert "country_col" in following.split("]].copy()")[0], (
+        "country_col is accepted by the signature but filtered out before use")

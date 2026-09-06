@@ -82,7 +82,6 @@ def _dq_freshness(catalog):
 
 def data_quality_page(catalog):
     """Live data-quality scorecard for the reference library."""
-    repo = catalog.repository
     st.markdown(
         f'<div style="font-family:{FONT_SERIF};font-size:28px;font-weight:600;'
         f'letter-spacing:-0.02em;margin-bottom:4px">Data Quality</div>'
@@ -91,6 +90,13 @@ def data_quality_page(catalog):
         f'Run it after every edit to catch gaps before they reach users.</p>',
         unsafe_allow_html=True,
     )
+    # Above every computation below, all of which need a loaded catalog and can
+    # raise. What this tool does not know about a market must not be the thing
+    # that disappears when the library is in a bad state.
+    market_coverage_panel()
+
+    repo = catalog.repository
+
     # Export the library as a workbook snapshot. Since the cutover the workbook
     # in the repo is not the master and cannot be trusted as a copy of it; this
     # button produces one from whatever the app is actually reading.

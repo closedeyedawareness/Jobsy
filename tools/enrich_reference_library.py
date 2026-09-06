@@ -116,6 +116,15 @@ for r in range(2, jg_ws.max_row + 1):
         jg_ws.cell(r, SPAN, SPAN_FILL[g])
 
 # 1c. JobProfiles.ManagementLevel: fill blanks (IC vs People Manager from the role title).
+#
+# WHAT THIS HEADING NOW FEEDS. Migration 0016 split the positioning claim out of
+# job_profiles into job_profile_positioning, keyed (org_id, country, job_id), and
+# library_import_service routes this same column into it. So a value written here
+# is imported as a claim against the DUTCH grading instrument — that is what the
+# import's country default says, and it is true of this workbook, whose 81 rows
+# were all measured as Dutch on 2026-09-06. If this script is ever pointed at
+# another market's workbook, the fill rule below (English manager words in the
+# job title) is the first thing that stops being right.
 jp_ws = wb["JobProfiles"]
 ph = headers(jp_ws)
 PJID, PML = ph["JobID"], ph["ManagementLevel"]

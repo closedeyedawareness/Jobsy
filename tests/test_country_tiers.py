@@ -57,6 +57,12 @@ COUNTRY_CONDITIONED = {
     "employees",
     # added by 0015
     "pay_elements", "benefits_catalog",
+    # added by 0016. These two are country-conditioned by construction rather
+    # than by a column bolted on later: each IS the national half of a table
+    # that stayed universal. Where a role SITS is a claim against a national
+    # grading instrument; what an L-code BINDS TO points into job_grades, which
+    # is itself keyed by country.
+    "job_profile_positioning", "seniority_grade_binding",
 }
 
 #: Tables that are the same everywhere. A country column on any of these is the
@@ -64,6 +70,15 @@ COUNTRY_CONDITIONED = {
 UNIVERSAL = {
     "jobs", "skills", "skill_proficiency", "role_skill_map", "industry_skills",
     "levels", "categories", "industries",
+    # Decided by 0016 on 2026-09-06, which is why they are no longer in
+    # ARGUABLE below. job_profiles and seniority_levels are universal AS TO
+    # WHAT THEY NOW HOLD — the national halves moved out to their own tables
+    # rather than staying here under a country column, which is what makes
+    # "no country column on this table" the right assertion for them.
+    # competency_levels keeps the product's own five-level behavioural scale;
+    # career_paths keeps its sequence, with national licence gates modelled
+    # where licences are modelled and not as a per-country copy of the ladder.
+    "job_profiles", "seniority_levels", "competency_levels", "career_paths",
 }
 
 #: Genuinely open — docs/country-data-tiers.md §4. Neither list may claim them.
@@ -71,9 +86,12 @@ UNIVERSAL = {
 #: means a decision was taken, and the decision has to land in this file and in
 #: the doc at the same time. The test asserts the DECISION IS RECORDED, not
 #: which way it went.
-ARGUABLE = {
-    "job_profiles", "competency_levels", "seniority_levels", "career_paths",
-}
+#:
+#: EMPTY SINCE 0016. All four §4 questions were answered on 2026-09-06 and the
+#: tables moved into the lists above. The set stays here rather than being
+#: deleted: the next open question needs somewhere to be recorded, and an
+#: empty parametrize is a test that passes by having nothing to say.
+ARGUABLE: set[str] = set()
 
 #: Tenancy, history and the country registry itself. No market dimension.
 PLATFORM = {
@@ -174,10 +192,11 @@ def test_universal_tables_have_no_country_column(table):
 def test_arguable_tables_carry_their_open_question(table):
     """An open decision has to be visible where the table is.
 
-    These four are genuinely undecided (doc §4.1-§4.4). A reader running \\d+ on
-    one of them must find out that it is undecided, otherwise the absence of a
-    country column reads as a settled answer — which is how an open question
-    becomes a silent default.
+    A reader running \\d+ on such a table must find out that it is undecided,
+    otherwise the absence of a country column reads as a settled answer — which
+    is how an open question becomes a silent default. ARGUABLE is empty since
+    0016 answered the last of §4, so this currently guards nothing and is kept
+    for the next open question rather than deleted.
     """
     sql = _sql()
     commented = re.search(
@@ -187,6 +206,66 @@ def test_arguable_tables_carry_their_open_question(table):
         f"Migration 0015 records these; if the decision has since been TAKEN, move "
         f"the table into COUNTRY_CONDITIONED or UNIVERSAL here and replace the "
         f"comment with the reasoning rather than deleting it.")
+
+
+@pytest.mark.parametrize("table", ["job_profiles", "seniority_levels",
+                                   "competency_levels", "career_paths"])
+def test_the_four_settled_questions_say_so_where_the_table_is(table):
+    """0015 asked four questions on the objects; 0016 answered all four.
+
+    The answer has to be the LAST word on the table, not merely present
+    somewhere: 0015's 'ARGUABLE...' comments are still in the migration history
+    and always will be, so a test that only searched for the new text would go
+    green on a schema where the open question is still what a reader sees. The
+    later comment wins in Postgres, and here the later one is the one that has
+    to exist.
+    """
+    sql = _sql()
+    decided = [m.start() for m in re.finditer(
+        rf"comment\s+on\s+table\s+{table}\s+is\s*\n?\s*'(?:UNIVERSAL|COUNTRY-CONDITIONED)",
+        sql, re.I)]
+    open_q = [m.start() for m in re.finditer(
+        rf"comment\s+on\s+table\s+{table}\s+is\s*\n?\s*'ARGUABLE", sql, re.I)]
+    assert decided, (
+        f"{table}'s tier decision was taken in 0016 and its table comment does not "
+        f"record it. The decision has to be readable from the object, or the next "
+        f"person re-opens a question that is closed.")
+    assert max(decided) > max(open_q or [-1]), (
+        f"{table}: the open question is stated AFTER the decision, so \\d+ still "
+        f"shows a reader that this is undecided.")
+
+
+@pytest.mark.parametrize("table,constraint", [
+    ("job_profile_positioning", "jpp_country_job_uniq"),
+    ("seniority_grade_binding", "sgb_country_lcode_uniq"),
+])
+def test_the_split_tables_are_keyed_by_country(table, constraint):
+    """The whole point of splitting them: a second market's row must fit.
+
+    level_benefits_factors is the cautionary case above — a country column with
+    a unique that does not mention it, so the dimension existed and could not
+    be used. These two are keyed on country from the first day."""
+    sql = _sql()
+    found = re.search(rf"{constraint}\s+unique\s*\([^)]*\bcountry\b[^)]*\)", sql, re.I | re.S)
+    assert found, (
+        f"{table}: {constraint} does not include country, so a Belgian row for a "
+        f"job the Dutch library already covers is rejected by the database.")
+
+
+def test_the_split_keeps_both_shapes_until_the_readers_have_moved():
+    """0016 adds two tables and drops NO column, exactly as 0015 did.
+
+    The conditions for the drop are listed in 0016 §3 and the last of them is a
+    runtime check — that no writer has updated one side and not the other. A
+    migration that drops the old columns before that check has been run turns a
+    reversible split into an irreversible one.
+    """
+    sql = _sql()
+    for column in ("management_level", "grade_range", "maps_to_level"):
+        assert not re.search(rf"drop\s+column\s+(?:if\s+exists\s+)?{column}\b", sql, re.I), (
+            f"a migration drops {column}. Before that is safe, all five conditions in "
+            f"0016 §3 must hold — including (e), which is a query against the live "
+            f"database and not something this file can see.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -507,13 +586,61 @@ def test_a_benefit_s_national_facts_do_not_leak_between_markets():
             "a Swedish client read another market's catalogue")
 
 
-def test_one_rule_in_one_place_for_all_three_tables():
-    """Structural. Salary bands, pay elements and the benefits catalogue all
-    resolve country then EU then nothing, and they do it through the SAME
-    object — a rule enforced once and reimplemented twice is a rule with two
-    chances to drift apart."""
+def test_one_rule_in_one_place_for_every_country_conditioned_map():
+    """Structural. Salary bands, pay elements, the benefits catalogue, job
+    positioning and the seniority-grade binding all resolve country then EU
+    then nothing, and they do it through the SAME object — a rule enforced once
+    and reimplemented four times is a rule with four chances to drift apart.
+
+    Extended from three to five when 0016 split job_profile_positioning and
+    seniority_grade_binding out, rather than given a test of its own: a second
+    place asserting the same rule is the same defect as a second place
+    implementing it.
+    """
     from core.repository import _MarketRows
     repo = _repo_with_two_markets_of_library_rows()
-    for name in ("salary", "pay_elements", "benefits_catalog"):
+    for name in ("salary", "pay_elements", "benefits_catalog",
+                 "job_positioning", "seniority_bindings"):
         assert isinstance(getattr(repo, name), _MarketRows), (
             f"{name} resolves its market some other way")
+
+
+def test_a_market_without_positioning_is_not_given_the_dutch_functiegroep():
+    """0016 §1's claim, held against the read path.
+
+    "Management level: Lead" is a rung in a national grading ladder — the
+    functiegroep set per CAO here, ERA in Germany, the conventions collectives
+    in France. Handed to a Belgian client it is not a close-enough default; it
+    is a statement about an instrument that client is not graded against.
+    """
+    import pandas as pd
+    from core.repository import Repository
+
+    repo = Repository({
+        "jobs": pd.DataFrame([{"JobID": "J-1", "StandardTitle": "Financial Controller",
+                               "Function": "Finance", "Level": "Senior"}]),
+        "titles": pd.DataFrame([{"ExistingTitle": "Controller", "JobID": "J-1"}]),
+        "profiles": pd.DataFrame([{"JobID": "J-1", "Description": "Owns the ledger."}]),
+        "jobpositioning": pd.DataFrame([
+            {"JobID": "J-1", "ManagementLevel": "People Manager", "Country": "NL"}]),
+    }, validate=False)
+
+    class _Market:
+        def __init__(self, code): self.code = code
+        def __enter__(self):
+            import services.country_service as cs
+            self._real = cs.active_country
+            cs.active_country = lambda: self.code
+            return self
+        def __exit__(self, *_):
+            import services.country_service as cs
+            cs.active_country = self._real
+
+    with _Market("NL"):
+        assert repo.management_level_for("J-1") == "People Manager"
+    with _Market("BE"):
+        assert repo.management_level_for("J-1") == ""
+        assert len(repo.job_positioning) == 0
+    # What the role DOES is universal and must survive the same switch — the
+    # split fails just as badly if it takes the description away with it.
+    assert repo.profiles["J-1"].description == "Owns the ledger."

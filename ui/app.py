@@ -241,13 +241,23 @@ def _skills_html(r):
                 f'text-transform:uppercase;color:{C["muted"]};margin-bottom:5px">Specialisms</div>'
                 f'<div style="display:flex;flex-wrap:wrap">{chips}</div></div>'
             )
-        # management level
-        if prof.management_level and str(prof.management_level).strip():
+        # Management level, read through the repository rather than off the
+        # profile. `prof.management_level` is a SNAPSHOT taken when the
+        # Repository was built; `management_level_for` is the live read that
+        # resolves country, then the EU baseline, then nothing. Both are right
+        # today, because the market comes from the org and the Repository was
+        # built for that org — but "right because two things happen to agree"
+        # is the state this whole split exists to leave behind, and the snapshot
+        # is the one that goes stale silently.
+        _repo = getattr(_get_active_catalog(), "repository", None)
+        _mgmt = getattr(_repo, "management_level_for", None)
+        _level = _mgmt(prof.job_id) if _mgmt else prof.management_level
+        if _level and str(_level).strip():
             parts.append(
                 f'<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
                 f'<span style="font-family:{FONT_MONO};font-size:9.5px;letter-spacing:.1em;'
                 f'text-transform:uppercase;color:{C["muted"]}">Management scope</span>'
-                f'{_chip(prof.management_level,C["violet"]+"1A",C["violet"])}</div>'
+                f'{_chip(_level,C["violet"]+"1A",C["violet"])}</div>'
             )
         # tools
         if prof.typical_tools:

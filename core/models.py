@@ -15,10 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-__all__ = ["Job", "JobProfile", "SalaryBand", "CareerStep", "Employee",
+__all__ = ["Job", "JobProfile", "JobPositioning", "SalaryBand", "CareerStep", "Employee",
            "Skill", "RoleSkillRequirement", "CompetencyLevel", "SkillAssessment",
            "BenefitCatalogItem", "BenefitObservation", "LevelBenefitFactor", "BenefitBand",
-           "PayMixEntry", "PayElement"]
+           "PayMixEntry", "PayElement", "SeniorityLevel", "SeniorityGradeBinding"]
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,22 @@ class Job:
 
 @dataclass(frozen=True)
 class JobProfile:
+    """What a role DOES. Universal — see migration 0016 §1.
+
+    `management_level` is the one field here that is NOT universal, and it no
+    longer comes from job_profiles: since 0016 it is read out of
+    job_profile_positioning for the market being looked at, resolved through
+    repository._MarketRows like every other national fact. It is kept ON this
+    record because a JobProfile is what the UI and the Art. 4 tooling are handed,
+    and moving the attribute would have meant editing call sites in ui/ to fix a
+    data question — but it is a SNAPSHOT taken when the Repository was built, and
+    a snapshot cannot follow a market change.
+
+    So: read it here when you already hold a profile and the market cannot have
+    moved under you. Read `repository.job_positioning` — a JobPositioning per
+    job_id, country then EU then nothing — when correctness across markets is the
+    point. The two agree by construction; only their staleness differs.
+    """
     job_id: str
     description: str = ""
     key_responsibilities: tuple[str, ...] = ()
@@ -52,6 +68,27 @@ class JobProfile:
     specialisms: tuple[str, ...] = ()
     management_level: str = ""
     typical_tools: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class JobPositioning:
+    """Where a role SITS, in ONE market. The country-carrying half of a profile.
+
+    Split out of job_profiles by migration 0016 §1, whose reasoning is worth
+    repeating where it is read: "management level: Lead" is a claim against a
+    national grading instrument — the functiegroep set per CAO in the
+    Netherlands, ERA in Germany, the conventions collectives in France — and the
+    same words assert a different rung across the border. What the role does
+    stays on JobProfile as one row for everybody; only this travels per market.
+
+    `country` is on the record, not merely the key it was filed under, so a
+    positioning claim that gets passed around can still say which ladder it is
+    about. A value that cannot name its market is the shape that let Dutch
+    numbers end up under a Belgian client's name.
+    """
+    job_id: str
+    management_level: str = ""
+    country: str = "NL"
 
 
 @dataclass(frozen=True)
@@ -201,12 +238,40 @@ class IndustrySkill:
 
 @dataclass(frozen=True)
 class SeniorityLevel:
+    """One rung of the product's own ladder. L1..L5 and their names are
+    UNIVERSAL — 0016 §2 — and belong to no country.
+
+    `maps_to_level`, `grade_range` and `grades` are not. They point into
+    job_grades, which is keyed (org_id, country, grade), so "L3 covers grades
+    7-10" is a claim about ONE national ladder. Since 0016 those three are read
+    from seniority_grade_binding for the market being looked at, the same way
+    JobProfile.management_level is, and with the same caveat: they are a
+    snapshot of the market at build time. `repository.seniority_bindings` is the
+    live read.
+    """
     l_code: str          # L1..L5
     l_name: str          # Starter, Developing, Senior, Manager, Rising Star
     maps_to_level: str   # Junior/Medior/Senior/Lead or "(designation)"
     grade_range: str = ""
     definition: str = ""
     grades: str = ""
+
+
+@dataclass(frozen=True)
+class SeniorityGradeBinding:
+    """What an L-code binds to, in ONE market — 0016 §2.
+
+    Held without a country, "L3 = grades 7-10" cannot say whose grades: the
+    Dutch ladder has fourteen rungs and there is no reason a Belgian one would.
+    `grades` ("Grade 7-10") travels with `grade_range` because it is the same
+    fact spelled out for a reader, and letting them separate would give the
+    screen and the export two answers.
+    """
+    l_code: str
+    grade_range: str = ""
+    maps_to_level: str = ""
+    grades: str = ""
+    country: str = "NL"
 
 
 @dataclass(frozen=True)

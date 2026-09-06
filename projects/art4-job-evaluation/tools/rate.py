@@ -156,7 +156,14 @@ def main() -> None:
                     "one. If this role requires a statutory licence, that knowledge is yours, "
                     "not the sheet's. Note it.")
         with st.expander("Responsibility evidence", expanded=True):
+            # "Management level" is a rung in a NATIONAL grading ladder since
+            # 0016 — the functiegroep here, ERA in Germany — so the sheet now
+            # carries the market it was read for and the bench shows it. A rater
+            # who cannot see which ladder a rung belongs to is being asked to
+            # judge against an instrument nobody named. Older sheets have no
+            # such column and simply show nothing, as they did before.
             for lab, key in (("Management level", "management_level"),
+                             ("Positioning market", "positioning_country"),
                              ("Key responsibilities", "key_responsibilities"),
                              ("Autonomy (grade)", "grade_autonomy"),
                              ("Span of control (grade)", "grade_span_of_control"),

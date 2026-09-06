@@ -94,7 +94,9 @@ def _ask_for_gender_mapping(df, gender_col: str, refusal) -> None:
     st.rerun()
 
 
-def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, salary_already_fte=False, catalog=None):
+def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None,
+                        tenure_col=None, age_col=None, country_col=None,
+                        salary_already_fte=False, catalog=None):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
     (Function + Level + Gender + Salary), with no job-title matching or bands.
@@ -130,6 +132,7 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
         r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
                                    gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
                                    tenure_col=tenure_col, age_col=age_col,
+                                   country_col=country_col,
                                    salary_already_fte=salary_already_fte,
                                    **_gender_override(gender_col))
     except AmbiguousGenderCodes as refusal:
@@ -424,9 +427,14 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
         except ImportError:
             from jobsy.services.pay_equity_service import analyze_variable_pay_exposure
         try:
+            # The SAME column to both, which is the whole point. These two
+            # figures sit on one screen; normalising them differently gives a
+            # gap and an exposure computed over different populations, with
+            # nothing on the screen saying so.
             _ex = analyze_variable_pay_exposure(
                 df, _paymix, function_col=function_col, level_col=level_col,
                 gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
+                country_col=country_col,
                 salary_already_fte=salary_already_fte)
         except Exception as _exc:
             _ex = None
@@ -598,6 +606,23 @@ def pay_equity_page(catalog, service):
             _lg_age = _smart_detect(cols, {"age", "leeftijd", "birthdate", "birth date", "dateofbirth",
                                           "date of birth", "geboortedatum"},
                                     ["age", "leeftijd", "birthdate", "geboortedatum"])
+            # THE COLUMN THAT WAS NEVER LOOKED FOR. `analyze_gender_pay_gap`
+            # has taken a `country_col` since the packs landed, and every
+            # screen in this product called it without one — so the per-market
+            # gender normalisation existed in the service and was unreachable
+            # from the interface. On a Dutch-only roster that changes nothing,
+            # which is why it survived; on a mixed one the whole roster was
+            # folded under the session's pack, and a Spanish `M` is *mujer*.
+            #
+            # Detected the same way as every other column, so a Polish `kraj`
+            # or a Spanish `pais` is found without anybody being told to rename
+            # it. None is a legitimate answer: a file with no country column is
+            # a single-market file, and the active market is then the right
+            # reading rather than a fallback.
+            _lg_country = _smart_detect(cols, {"country", "land", "kraj", "pais", "país",
+                                               "pays", "market", "markt", "location",
+                                               "werkland", "country code", "landcode"},
+                                        ["country", "land", "kraj", "pais", "pays", "markt"])
             _lg_sal = _smart_detect(cols, _salkeys, _salcont)
             # "FT salaris" (Dutch intake templates) means the column is ALREADY
             # full-time-equivalent. Dividing it by FTE again double-corrects --
@@ -613,7 +638,8 @@ def pay_equity_page(catalog, service):
             _already_fte = _sal_reading.startswith("Already")
             _render_leveled_gap(df, function_col=_fun_col, level_col=_lvl_col, gender_col=_lg_gender,
                                 salary_col=_lg_sal, fte_col=(None if _already_fte else _lg_fte),
-                                tenure_col=_lg_tenure, age_col=_lg_age, salary_already_fte=_already_fte,
+                                tenure_col=_lg_tenure, age_col=_lg_age, country_col=_lg_country,
+                                salary_already_fte=_already_fte,
                                 catalog=catalog)
             return
     title_col = _smart_detect(cols, {"jobtitle", "job title", "title", "currentrole", "current role",

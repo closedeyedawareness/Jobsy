@@ -34,6 +34,24 @@ Two things stay unverified and say so: the exclusion list behind the 92% double
 holiday pay, and the often-quoted "69 ORBA-evaluated reference functions" for
 PC 200, which no primary source would confirm.
 
+── The qualification join, closed on 2026-09-06 ─────────────────────────────
+
+This file said for a day that the EQF level is the only reliable join key
+between Flanders and Wallonia, and then held no qualification mapping to the
+EQF at all — the tool could not do the thing its own note called the only way
+to do it. Closing that meant opening both Belgian instruments and finding that
+NEITHER STATES THE CORRESPONDENCE. The Flemish decreet of 30 April 2009 does
+not mention the EQF anywhere; the francophone samenwerkingsakkoord of
+26 February 2015 says only that the CFC is "compatible avec le Cadre européen
+des Certifications". The level-by-level correspondence lives in the two EQF
+referencing reports, which are official and endorsed and are not law — so the
+mapping is a reference marked UITLEG with an empty table, not a WET table like
+the Dutch or French ones. The full reasoning is on the mapping itself.
+
+The same pass corrected this file: the German-speaking Community's QDG exists,
+eight levels, decree of 18 November 2013. The earlier note called it
+unconfirmed.
+
 DRAFT rather than LIVE, because LIVE means a person checked, and so far only an
 agent has.
 """
@@ -241,6 +259,19 @@ JOB_ARCHITECTURE = JobArchitecture(
 
 _VKS = "https://data-onderwijs.vlaanderen.be/edulex/document.aspx?docid=14111"
 _CFC = "https://cfc.cfwb.be/fr/"
+#: The two EQF referencing reports, both read in full on 2026-09-06. These are
+#: the documents that actually state the level-by-level correspondence — NOT the
+#: decreet and NOT the samenwerkingsakkoord, both of which were opened and
+#: neither of which says it. See the mapping note.
+_VKS_REFREPORT = ("https://europass.europa.eu/system/files/2024-01/"
+                  "REFERENCING%20REPORT%20BENL%20-%20UPDATE%202023.pdf")
+_CFC_REFREPORT = ("https://europass.europa.eu/system/files/2022-05/"
+                  "French-Speaking_Community_of_Belgium_Referencing_Report%5B1%5D.pdf")
+#: The samenwerkingsakkoord of 26 February 2015 itself, as published by the
+#: Communauté française. Read on 2026-09-06.
+_CFC_AKKOORD = "https://www.gallilex.cfwb.be/document/pdf/41289_000.pdf"
+_CFC_CADRE_LEGAL = "https://cfc.cfwb.be/fr/ressources/cadre-legal/"
+_REFCHECK = "2026-09-06"
 _STATBEL_ISCO = ("https://statbel.fgov.be/nl/over-statbel/methodologie/classificaties/"
                  "internationale-standaard-beroepen-classificatie-isco-08")
 _INDEX = "https://werk.belgie.be/nl/themas/verloning/automatische-loonindexering"
@@ -260,9 +291,16 @@ SKILLS = SkillsFramework(
              "qualification systems. Both run 1 to 8 and both are EQF-referenced, so THE "
              "EQF LEVEL IS THE ONLY RELIABLE JOIN KEY BETWEEN THE TWO REGIONS — which is "
              "the spine earning its keep inside a single country rather than between "
-             "countries. No official VKS-to-CFC crosswalk could be found. A third "
-             "framework for the German-speaking Community could not be confirmed either "
-             "way; it is absent from the European register, which is not proof."),
+             "countries. No official VKS-to-CFC crosswalk could be found, and the join is "
+             "now recorded as a mapping through the EQF rather than left as a sentence — "
+             "see mappings below for what each framework's referencing report actually "
+             "says and why it is UITLEG. "
+             "THERE ARE THREE FRAMEWORKS, NOT TWO. This note previously said a "
+             "German-speaking Community framework could not be confirmed either way. The "
+             "francophone referencing report confirms it on 2026-09-06: the QDG has eight "
+             "levels with its own descriptors, and its establishing decree was adopted by "
+             "the Parliament of the German-speaking Community on 18 November 2013. Small "
+             "community, real framework — and the pack's mapping does NOT cover it."),
     occupation_taxonomy=Claim(
         ("ISCO-08", "no national adaptation"), WET, _STATBEL_ISCO, _VERIFIED,
         note="Belgium uses ISCO-08 DIRECTLY for occupation — 435 four-digit codes, in use "
@@ -281,6 +319,78 @@ SKILLS = SkillsFramework(
                          note="An identity hop. The earlier guess in this pack said "
                               "Belgium probably used ISCO-08 directly and marked it "
                               "ONBEVESTIGD; that guess was right and is now sourced."),
+        ),
+        SpineMapping(
+            dimension=QUALIFICATION,
+            local_scheme="VKS (Vlaanderen) and CFC (Fédération Wallonie-Bruxelles)",
+            spine="EQF",
+            # EMPTY ON PURPOSE, and for a different reason than the occupation
+            # crosswalks. Those are withheld because somebody else's file may not
+            # be redistributed. This one is withheld because NO STATUTE STATES IT.
+            # Both Belgian instruments were opened on 2026-09-06 and neither
+            # carries the correspondence:
+            #
+            #   * the decreet van 30 april 2009 betreffende de kwalificatiestructuur
+            #     does not contain the string "Europ" at all. Art. 3 defines the
+            #     kwalificatiestructuur, art. 5 gives eight niveaus and art. 6
+            #     describes them — with no reference to the EQF anywhere.
+            #   * the samenwerkingsakkoord of 26 February 2015 mentions the CEC
+            #     twice and says only that the CFC is "un cadre à huit niveaux ...
+            #     compatible avec le Cadre européen des Certifications". Compatible
+            #     is not level-by-level. Its recitals point outward, to the
+            #     referencing report.
+            #
+            # The rule this package holds itself to is that a qualification TABLE
+            # may be carried only where a statute sets the correspondence out
+            # level by level, as the Dutch Besluit NLQF and the French décret do.
+            # Belgium does not, so Belgium gets a reference and not a table, and
+            # the hardness says UITLEG rather than WET. That distinction is the
+            # whole point: a client who needs the conversion must read the
+            # referencing report, not this file.
+            mapping={},
+            source=Claim(
+                "VKS 1-8 and CFC 1-8 each reference one-to-one to EQF 1-8",
+                UITLEG, _VKS_REFREPORT, _REFCHECK,
+                note="THE JOIN THIS PACK ALREADY SAID WAS THE ONLY ONE, now recorded. "
+                     "Qualifications are a Community competence, so a Belgian employer "
+                     "with sites in Flanders and Wallonia faces TWO frameworks and the EQF "
+                     "level is the only reliable key between them — and until now the pack "
+                     "held no way to reach the EQF at all. "
+                     "WHAT WAS READ. Flanders: the FQF-EQF referencing report, update 2023, "
+                     "Table 5 'Alignment of FQF and EQF levels', which sets out level 1 to "
+                     "level 1 through level 8 to level 8 and states that the alignment "
+                     "'as defined in the Flemish referencing report in 2011 and confirmed "
+                     "in its update in 2014, holds up until today'. Francophone: the "
+                     "French-Speaking Community of Belgium Referencing Report, criterion 2, "
+                     "which states that 'the eight levels of the VKS refer directly to the "
+                     "eight levels of the EQF. This is also the case for the CFC', and "
+                     "prints CFC, CEC, VKS and QDG side by side at 8 down to 1. The "
+                     "samenwerkingsakkoord records that the EQF Advisory Group approved the "
+                     "francophone report on 16 December 2013; the CFC's own cadre-legal page "
+                     "dates the report 22 November 2011. Those two dates are report and "
+                     "approval, not a contradiction, but neither was cross-checked against "
+                     "the EQF-AG minutes. "
+                     "WHY UITLEG AND NOT WET. Both correspondences live in referencing "
+                     "reports, which are official documents endorsed at EU level but are "
+                     "not law. The decreet and the samenwerkingsakkoord were both opened "
+                     "and neither states a level-by-level correspondence — see the comment "
+                     "above for exactly what each does say. Do not upgrade this to WET "
+                     "without a Belgian instrument that sets the levels out. "
+                     "BEST FIT, NOT EQUALITY. The Flemish report applies the EQF's own "
+                     "'best fit' principle and says in terms that 'a perfect fit between "
+                     "two sets of qualification levels is probably not possible and some "
+                     "judgement or approximation is necessary'. So a Belgian level 6 and a "
+                     "Dutch level 6 meeting at EQF 6 are comparable, not equal, and the "
+                     "hop must never be presented as a conversion of one person's "
+                     "qualification into another country's. "
+                     "THE THIRD FRAMEWORK IS REAL. This pack previously said a "
+                     "German-speaking Community framework could not be confirmed either "
+                     "way. The francophone report confirms it: the QDG has eight levels "
+                     "with its own descriptors and its establishing decree was adopted by "
+                     "the Parliament of the German-speaking Community on 18 November 2013. "
+                     "It is NOT covered by this mapping — whether the QDG has itself been "
+                     "formally referenced to the EQF was not verified, so a Belgian client "
+                     "with an Eupen site is outside what this hop can answer."),
         ),
     ),
 )
@@ -453,6 +563,12 @@ PACK = CountryPack(
         "unverified, and LIVE means a person checked rather than an agent.",
         "A Belgian export may mix Dutch and French column headers in one file, because "
         "language follows the establishment rather than the company.",
+        "STRUCTURAL: qualifications are a Community competence, so this market has THREE "
+        "frameworks — VKS in Flanders, CFC in the Fédération Wallonie-Bruxelles, QDG in "
+        "the German-speaking Community. The pack's EQF mapping covers the first two and "
+        "explicitly not the third, and it is a reference rather than a table because "
+        "neither Belgian instrument states the correspondence level by level; the "
+        "referencing reports do, and they are not law.",
         "The joint committee (paritair comite / commission paritaire) is the unit that "
         "sets pay, and one client can sit in several at once. Treat it as part of the "
         "client's structure, not as a single lookup key.",

@@ -220,7 +220,7 @@ def _translate_note(note: str) -> str:
     if note.startswith("Sign convention:"):
         return ("Tekenconventie: de cijfers in dit rapport zijn (vrouw - man) / man, d.w.z. positief = "
                 "vrouwen verdienen meer — conform de definitie van 'loonkloof' in het Nederlandse "
-                "wetsvoorstel. Het live Jobsy-scherm gebruikt dezelfde conventie.")
+                "wetsvoorstel. Het scherm gebruikt dezelfde conventie.")
     return note  # unrecognised note (e.g. a future engine change) -- keep it visible, in English
 
 
@@ -321,7 +321,7 @@ class PayEquityExportService:
         lang = lang or self.lang
         sign_note = ("Sign convention: figures in this report are (vrouw - man) / man, i.e. "
                      "positive = women paid more -- matching the NL wetsvoorstel's definition of "
-                     "'loonkloof'. The live Jobsy screen uses the same convention.")
+                     "'loonkloof'. The screen uses the same convention.")
         notes = [sign_note, *r.notes]
         return [_translate_note(n) for n in notes] if lang == "nl" else notes
 

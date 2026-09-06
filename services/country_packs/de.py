@@ -238,7 +238,7 @@ PERFORMANCE = PerformanceModel(
     constraints=(
         Claim("BetrVG §87(1) Nr. 6 — technische Einrichtungen", UITLEG, _BETRVG_URL,
               _VERIFIED,
-              note="THIS ONE IS ABOUT JOBSY ITSELF, NOT ABOUT THE CLIENT'S PAY POLICY, "
+              note="THIS ONE IS ABOUT THIS TOOL ITSELF, NOT ABOUT THE CLIENT'S PAY POLICY, "
                    "and it is the most commercially consequential line in any pack. "
                    "The provision gives the Betriebsrat co-determination over the "
                    "EINFUEHRUNG UND ANWENDUNG von technischen Einrichtungen, die dazu "
@@ -254,9 +254,9 @@ PERFORMANCE = PerformanceModel(
                    "potentially in scope. "
                    "So do NOT record this as 'relevant only if the system is meant to "
                    "monitor staff'. The safer statement, and the one this pack now makes: "
-                   "co-determination is LIKELY TO APPLY wherever Jobsy can technically "
+                   "co-determination is LIKELY TO APPLY wherever this tool can technically "
                    "process person-related data from which an employee's behaviour or "
-                   "performance could be followed or assessed. Jobsy holds per-person pay, "
+                   "performance could be followed or assessed. It holds per-person pay, "
                    "grade and rating-adjacent data, so on that reading a German rollout at "
                    "an employer with a works council is a matter for a "
                    "Betriebsvereinbarung, not an IT decision. That is a fact about SELLING "
@@ -373,6 +373,38 @@ SKILLS = SkillsFramework(
                               "redistributing anything."),
         ),
     ),
+    # ── the qualification hop is not missing; it does not exist ─────────────
+    #
+    # This is a DECLARED ABSENCE, and it rests entirely on the evidence already
+    # in this file — see `qualification_framework` twelve lines above. No new
+    # German research was done for it and none was needed: the DQR's status was
+    # settled the day it was marked UITLEG rather than WET, and this field only
+    # says out loud what that marker already implied.
+    no_correspondence={
+        QUALIFICATION: Claim(
+            "no statutory DQR-to-EQF correspondence exists to hold", UITLEG, _DQR,
+            _VERIFIED,
+            note="Germany is absent from the qualification spine and that is the CORRECT "
+                 "answer, not a backlog item. The DQR is a joint declaration by the BMBF, "
+                 "the BMWi and the two Länder conferences — not a statute — and its own "
+                 "pages say it has orientierenden Charakter and keine regulierende "
+                 "Funktion, and that the system of access rights does not change because "
+                 "of it. A DQR LEVEL CONFERS NO ENTITLEMENT. Nothing of statutory weight "
+                 "states that DQR level N is EQF level N, so there is no correspondence to "
+                 "record here at the standard every other qualification hop in this package "
+                 "is held to. "
+                 "WHAT THIS DOES NOT SAY. It does not say a German qualification cannot be "
+                 "compared to a Dutch one; it says THIS TOOL will not perform that "
+                 "comparison as though a legal correspondence backed it. It does not say "
+                 "the DQR is worthless — the official assignment list is real and useful, "
+                 "and the governing body explicitly disclaims placements found anywhere "
+                 "else. And it is not permanent: if Germany ever gives the DQR statutory "
+                 "footing, this field is the thing to delete, and the mapping that replaces "
+                 "it can cite the instrument that did it. "
+                 "Marked UITLEG because that is the weight of the evidence: the DQR's own "
+                 "official pages, read on " + _VERIFIED + ", not a statute saying no "
+                 "statute exists."),
+    },
 )
 
 # ── compensation ─────────────────────────────────────────────────────────────
@@ -513,6 +545,12 @@ PACK = CountryPack(
         "STRUCTURAL: BetrVG section 87(1) no. 10 gives the Betriebsrat co-determination "
         "over pay structuring. A German pay-structure recommendation is a proposal to a "
         "negotiation, not an instruction to an employer. Source: " + _BETRVG_URL,
+        "STRUCTURAL: Germany holds no qualification hop to the EQF and that is an ANSWER, "
+        "not a gap. The DQR is a joint declaration with orientierenden Charakter and keine "
+        "regulierende Funktion, and a DQR level confers no entitlement, so there is nothing "
+        "of statutory weight to map. The pack says so on skills.no_correspondence and "
+        "bridge() now reports it as a settled finding rather than a market nobody looked "
+        "at. Delete that field only when an instrument gives the DQR legal footing.",
         "STRUCTURAL: ERA is regional. One national group table would be a fiction, so the "
         "crosswalk holds no groups at all until CrosswalkSpec can key on a Tarifgebiet.",
         "DRAFT since 2026-09-05: sections 12, 21 and 22 were read against "

@@ -262,7 +262,7 @@ def _coverage_context(country: str) -> str:
              else f"the {_ordinal(place)} highest")
     top, bottom = ranking[0], ranking[-1]
     return (
-        f"That is {where} of the {len(ranking)} markets Jobsy holds "
+        f"That is {where} of the {len(ranking)} markets this tool holds "
         f"a figure for, which run from {_as_percentage(bottom[2])} ({bottom[1]}) to "
         f"{_as_percentage(top[2])} ({top[1]}). Those are separately sourced national "
         f"figures at differing evidential weight and not one harmonised series, so the "
@@ -591,3 +591,351 @@ def market_caveat() -> str:
         "how it is described, which is a question about your deployment and not about "
         "this screen. Confirm anything you act on with someone who can carry that advice."
     )
+
+
+# ── what this tool holds about a market, and what it does not ─────────────
+#
+# `capability_gaps()` was written with the slots and then called by nothing for
+# as long as it existed. Its whole subject is the difference between a slot
+# holding None ("nobody has answered this") and a slot holding an empty
+# structure ("we looked and there is nothing to say"), and a distinction that
+# reaches no screen is a distinction nobody has. The functions below are its
+# first caller, and they keep that difference in words rather than collapsing
+# both into a blank.
+
+#: The six capability slots, in the order a gap in them costs money. Reporting
+#: first: a duty missed is a filing missed, where every other slot changes how
+#: a number should be READ rather than whether something must be filed at all.
+_CAPABILITY_SLOTS = (
+    "reporting", "org_structure", "compensation",
+    "job_architecture", "skills", "performance",
+)
+
+#: What each slot answers, and what is lost on this product's screens without
+#: it. The second half is the part worth writing down: "skills: not answered"
+#: tells a reader nothing they can act on, where "no taxonomy a role is coded
+#: in" tells them which screen goes quiet and what to go and find.
+_SLOT_QUESTION = {
+    "reporting": ("Pay-reporting duty",
+                  "what must be filed, from when, and how often"),
+    "org_structure": ("What counts as the employer",
+                      "the unit every headcount threshold is counted in"),
+    "compensation": ("How pay is set",
+                     "whether a market comparison and a compa-ratio mean anything here"),
+    "job_architecture": ("What a level is",
+                         "the market's own grading unit, before this tool imposes one"),
+    "skills": ("What a skill is read against",
+               "the qualification and occupation taxonomies a role is coded in"),
+    "performance": ("What a talent grid is, legally",
+                    "whether a 9-box is a neutral instrument or a co-determined one"),
+    "pay_components": ("Statutory pay components",
+                       "the components that are law here rather than an employer's choice"),
+    "crosswalks": ("Collective-agreement crosswalk",
+                   "whether a grade may be positioned against a published scale at all"),
+    "vocabulary": ("Payroll column vocabulary",
+                   "the words a payroll export in this market actually uses"),
+}
+
+#: Hardness in three words, for a line that already carries a market name and
+#: cannot afford `_WEIGHT`'s full clause. Never used INSTEAD of `_WEIGHT` on a
+#: claim's own sentence — only to mark a route, which is not itself a claim.
+_WEIGHT_SHORT = {
+    cp.WET: "in law",
+    cp.UITLEG: "a reading",
+    cp.CONVENTIE: "practice",
+    cp.ONBEVESTIGD: "UNVERIFIED",
+}
+
+
+def _walk_claims(value) -> list:
+    """Every Claim anywhere inside one field, however deeply it is wrapped.
+
+    Walks dataclass fields generically rather than by name, and that is the
+    whole point rather than a convenience: this module and the packs are being
+    written at the same time, so a Belgian qualification mapping or a new field
+    saying "no authoritative correspondence exists" has to be counted by this
+    walk on the day it lands, not on the day somebody remembers to add its name
+    to a list in here. A hand-kept list of fields fails the same way a hand-kept
+    country register does — what it forgets is the thing nobody tested.
+    """
+    import dataclasses
+
+    if isinstance(value, cp.Claim):
+        return [value]
+    out: list = []
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        for f in dataclasses.fields(value):
+            out += _walk_claims(getattr(value, f.name, None))
+    elif isinstance(value, (tuple, list, set)):
+        for item in value:
+            out += _walk_claims(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            out += _walk_claims(item)
+    return out
+
+
+def _labelled_claims(pack) -> list:
+    """(where it lives, the claim) for every claim in a pack.
+
+    The label is what makes an UNVERIFIED or a STALE line actionable. "UNVERIFIED
+    — works councils are consulted in practice" leaves a reader hunting for which
+    part of the market that touches; the same sentence under "What a talent grid
+    is, legally" says which screen is affected and therefore who to ask.
+    """
+    import dataclasses
+
+    out: list = []
+    if pack is None or not dataclasses.is_dataclass(pack):
+        return out
+    for f in dataclasses.fields(pack):
+        label = _SLOT_QUESTION.get(f.name, (f.name.replace("_", " ").capitalize(), ""))[0]
+        for claim in _walk_claims(getattr(pack, f.name, None)):
+            out.append((label, claim))
+    return out
+
+
+#: What each of the three slot states MEANS, written once.
+#:
+#: A view needs these words as a legend and `coverage_notes` needs them as
+#: sentences, and the failure to avoid is two slightly different explanations of
+#: "held and empty" drifting apart until one of them is wrong. The distinction
+#: is the reason `capability_gaps()` exists at all; it does not get to be
+#: paraphrased.
+_STATE_MEANING = {
+    "not answered": ("Nobody has established this market's answer yet. That is a gap in "
+                     "this tool, not a finding that there is nothing to say."),
+    "held and empty": ("This market was looked at and nothing was recorded under it, "
+                       "which is an answer rather than a question nobody asked."),
+    "answered": "Claims are held, each with its source and its evidential weight.",
+}
+
+
+def slot_state_meaning(state: str) -> str:
+    """The one explanation of a slot state, for a caller that renders its own grid."""
+    return _STATE_MEANING.get(state, "")
+
+
+def _slot_states(pack, unanswered: dict) -> list:
+    """Each capability slot as one of three states, never as a blank.
+
+    THE THREE STATES ARE THE POINT, and two of them would render identically if
+    this returned booleans:
+
+      * NOT ANSWERED — the slot holds None. Nobody has established this market's
+        answer yet, and `capability_gaps()` is what says so.
+      * HELD AND EMPTY — the slot exists and carries no claims. That is a
+        recorded finding that there is nothing to say here: an answer, not a
+        to-do.
+      * ANSWERED — the slot carries claims, and how many is stated, so a reader
+        can tell one sentence from a researched slot.
+
+    A caller that draws the first two the same way has destroyed the distinction
+    the whole mechanism exists for, so the state travels as a word rather than
+    as the absence of one.
+
+    NO PACK REACHES THE MIDDLE STATE TODAY: every capability dataclass in the
+    package requires at least one Claim, so a slot that exists always carries
+    something. It is implemented anyway, because the day one of those fields
+    gains a default is the day an empty slot would otherwise start rendering as
+    a blank — which is the failure this function was written to prevent, arriving
+    through a change nobody would connect to it.
+    """
+    states = []
+    for name in _CAPABILITY_SLOTS:
+        label, question = _SLOT_QUESTION.get(name, (name, ""))
+        if name in unanswered:
+            states.append({"slot": name, "label": label, "question": question,
+                           "state": "not answered", "claims": 0})
+            continue
+        claims = _walk_claims(getattr(pack, name, None))
+        states.append({
+            "slot": name, "label": label, "question": question,
+            "state": "answered" if claims else "held and empty",
+            "claims": len(claims),
+        })
+    return states
+
+
+def _route_lines(country: str) -> list:
+    """Which markets this one's data can be read against, and where it cannot.
+
+    Every pair is put to `bridge()` and nothing is counted by hand. The two
+    dimensions answer very differently today — occupation reaches every other
+    market held, qualification under half of them — and an asymmetry like that
+    is exactly what gets typed into a sentence once and goes quietly wrong the
+    first time a pack gains a mapping.
+
+    THE REFUSAL IS CARRIED THROUGH VERBATIM rather than reduced to "no route".
+    It used to be that `bridge()` could not tell two absences apart — a market
+    nobody had mapped yet, and a market where no authoritative correspondence
+    exists to map — and carrying the prose was how that honesty survived to a
+    reader. IT CAN TELL THEM APART NOW: a pack may declare
+    `no_correspondence` for a dimension, and the result carries a structured
+    `absence` alongside the prose. Germany declares it for qualification, on the
+    evidence already in its own pack — the DQR is a joint declaration rather
+    than a statute, has orientierenden Charakter, and confers no entitlement.
+
+    The prose still goes through verbatim, for a different reason than before:
+    the structured key says WHICH KIND of absence, and the sentence says WHY,
+    and a reader deciding whether to trust a blank needs the second. Turning
+    that into a red cross on a grid would be inventing the answer it
+    refused to give.
+    """
+    packs = cp.load()
+    others = [c for c in sorted(packs) if c != country and c != cp.BASELINE]
+    out: list = []
+    for dimension, label in ((cp.OCCUPATION, "Occupation"),
+                             (cp.QUALIFICATION, "Qualification")):
+        spine = cp.SPINE.get(dimension)
+        reached: list = []
+        refused: dict = {}
+        for other in others:
+            result = cp.bridge(country, other, dimension)
+            name = packs[other].name
+            if result.get("ok"):
+                weight = _WEIGHT_SHORT.get(result.get("hardness"), "weight unstated")
+                reached.append(f"{name} ({weight})")
+            else:
+                refused.setdefault(result.get("refusal") or "No route.", []).append(name)
+        if reached:
+            out.append(f"{label} — reads against {', '.join(reached)} through {spine}. "
+                       f"Each route is two hops and is labelled with the weaker of them.")
+        for refusal, names in refused.items():
+            out.append(f"{label} — NO ROUTE to {', '.join(names)}. {refusal}")
+        if not reached and not refused:
+            out.append(f"{label} — no other market is held to read this one against.")
+    return out
+
+
+def market_coverage(country: Optional[str] = None) -> Optional[dict]:
+    """What this tool holds about one market, and what it does not.
+
+    Returns None for a market no pack exists for, which is the rule
+    `reporting_for()` already enforces one layer down: an uncovered market is
+    answered with silence and never with the EU baseline. Several member states
+    are stricter than the directive — France's Index Egapro starts at 50
+    employees — so lending a stranger the baseline understates a duty that
+    already exists, and understating a legal obligation is the worst answer
+    available.
+
+    DELIBERATELY NOT A SCORE. Nothing that comes back is a percentage, because
+    "Germany 71% covered" invites a reader to trust the 71% and stop reading,
+    and the missing 29% is not uniform: one unanswered reporting duty is a
+    filing somebody misses, five unanswered conventions are context. What is
+    returned is WHICH slots are unanswered, WHICH claims are unverified, WHICH
+    sit on a review clock and WHICH crossings exist — names a reader can act on
+    instead of an arithmetic they can trust and stop at.
+    """
+    pack = cp.for_country(country)
+    if pack is None:
+        return None
+    code = pack.country
+    unanswered = cp.capability_gaps(code)
+
+    labelled = _labelled_claims(pack)
+    mix: dict = {}
+    for _, claim in labelled:
+        mix[claim.hardness] = mix.get(claim.hardness, 0) + 1
+
+    unverified, stale, on_clock = [], [], []
+    for label, claim in labelled:
+        # `_line` returns None for a claim with no value and no words, and that
+        # claim is exactly the one that must not vanish here: an unverified or
+        # lapsed statement with nothing written in it is the emptiest thing in
+        # the pack, and silently dropping it would make it the invisible one.
+        if not claim.verified:
+            unverified.append(_line(claim, lead=f"{label} — ")
+                              or f"UNVERIFIED — {label} — held with no value and no "
+                                 f"words, so what was looked for is not recorded.")
+        if claim.needs_review():
+            stale.append(_line(claim, lead=f"{label} — ")
+                         or f"STALE — {label} — its review interval has lapsed and it "
+                            f"carries no words to re-check it against.")
+        elif getattr(claim, "review_after_months", None):
+            # A claim that has NOT lapsed but is on a clock. Shown because the
+            # useful moment to re-check "no implementing law has been published"
+            # is before it goes stale, not after — and because a reader who only
+            # ever sees STALE learns that this tool checks nothing until it is
+            # already late.
+            age = claim.months_old()
+            if age is not None:
+                left = claim.review_after_months - age
+                body = (claim.note or str(claim.value)).strip()
+                when = ("checked this month" if age == 0 else
+                        f"checked {age} month{'' if age == 1 else 's'} ago")
+                on_clock.append(
+                    f"{label} — {when}, due again in {left} "
+                    f"month{'' if left == 1 else 's'}: {body[:160]}")
+
+    return {
+        "country": code,
+        "name": pack.name,
+        "status": pack.status,
+        "baseline": code == cp.BASELINE,
+        "slots": _slot_states(pack, unanswered),
+        "claims": len(labelled),
+        "hardness": mix,
+        "unverified": unverified,
+        "stale": stale,
+        "on_clock": on_clock,
+        "routes": _route_lines(code),
+    }
+
+
+def coverage_notes(country: Optional[str] = None) -> list:
+    """One market's coverage as sentences, for anywhere a table will not do.
+
+    Same posture as every other note in this module: it returns strings and
+    knows nothing about Streamlit, so the sentences that carry the weight can be
+    tested without running the app. A market with no pack returns an empty list
+    — silence, rather than a heading standing over nothing.
+    """
+    report = market_coverage(country)
+    if report is None:
+        return []
+    out = [f"WHAT THIS TOOL HOLDS ABOUT {report['name'].upper()}."]
+    if report["baseline"]:
+        out.append("This is the directive baseline and not a market anyone works in. A "
+                   "covered market's pack falls back to it for reporting bands; a market "
+                   "no pack exists for is never lent it.")
+
+    for slot in report["slots"]:
+        state = slot["state"]
+        if state == "answered":
+            out.append(f"{slot['label']} — ANSWERED, {slot['claims']} claim"
+                       f"{'' if slot['claims'] == 1 else 's'} on {slot['question']}.")
+        else:
+            out.append(f"{slot['label']} — {state.upper()} ({slot['question']}). "
+                       + slot_state_meaning(state))
+
+    mix = ", ".join(f"{n} {h}" for h, n in sorted(report["hardness"].items(),
+                                                  key=lambda kv: -kv[1]))
+    if mix:
+        out.append(f"Evidence held: {mix}. Counts, not a proportion — a market carrying "
+                   f"one unverified sentence about a filing duty is in worse shape than "
+                   f"one carrying six about custom, and a ratio would hide that.")
+    out.extend(report["unverified"])
+    out.extend(report["stale"])
+    out.extend(report["on_clock"])
+    out.extend(report["routes"])
+    return out
+
+
+def uncovered_markets(codes) -> list:
+    """Of the markets a user may be offered, the ones no pack exists for.
+
+    Named so they can be shown as HOLDING NOTHING, which is a different screen
+    from being shown the directive. The country registry can offer a market
+    before anyone has researched it — that is how a market gets opened — and the
+    honest report of that state is that this tool says nothing here, not an
+    inherited table that reads like an answer.
+    """
+    held = cp.load()
+    seen, out = set(), []
+    for code in codes or ():
+        upper = str(code or "").strip().upper()
+        if upper and upper not in held and upper not in seen:
+            seen.add(upper)
+            out.append(upper)
+    return out

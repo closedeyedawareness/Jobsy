@@ -198,3 +198,79 @@ def test_a_legacy_jwt_key_works_but_is_called_out():
 def test_the_secret_key_passes_without_comment():
     from services.library_import_service import _require_writable_key
     assert _require_writable_key("sb_secret_abc123") == []
+
+
+# ── 0016: the split halves, imported from the workbook a client still holds ──
+#
+# The workbook has no positioning sheet and no Country column. Condition (c) of
+# migration 0016 §3 is that the headings it DOES have reach the new tables, so
+# that a client importing the library they were given does not silently leave
+# job_profile_positioning and seniority_grade_binding empty.
+
+def test_management_level_reaches_the_positioning_table():
+    payload, _ = _rows(_book(JobProfiles=[{
+        "JobID": "J-1", "Description": "Runs the thing",
+        "ManagementLevel": "People Manager"}]))
+    row = payload["job_profile_positioning"][0]
+    assert row["job_id"] == "J-1"
+    assert row["management_level"] == "People Manager"
+
+
+def test_the_old_column_is_still_written_while_it_is_still_read():
+    """Both halves, until 0016 §3 lets the old columns go.
+
+    Writing only the new table would leave job_profiles.management_level frozen
+    at whatever it last held, and 0016 §3(e) — the check for a writer that
+    updated one side and not the other — would then report a divergence this
+    importer caused rather than the one it is looking for.
+    """
+    payload, _ = _rows(_book(JobProfiles=[{
+        "JobID": "J-1", "Description": "d", "ManagementLevel": "People Manager"}]))
+    assert payload["job_profiles"][0]["management_level"] == "People Manager"
+
+
+def test_the_seniority_binding_takes_all_three_national_fields():
+    payload, _ = _rows(_book(SeniorityLevels=[{
+        "LCode": "L3", "LName": "Senior", "MapsToLevel": "Senior",
+        "GradeRange": "7-10", "Grades": "Grade 7-10", "Definition": "d"}]))
+    row = payload["seniority_grade_binding"][0]
+    assert (row["l_code"], row["maps_to_level"], row["grade_range"], row["grades"]) == \
+           ("L3", "Senior", "7-10", "Grade 7-10")
+    # L1..L5 and their names are the product's own — they stay universal.
+    assert "l_name" not in row and "definition" not in row
+
+
+def test_a_workbook_with_no_country_column_imports_as_dutch():
+    """Not a guess: 0016 measured every existing row as Dutch before copying it,
+    and both new tables are NOT NULL on country — so without this the import
+    fails at the constraint on the library every client already has."""
+    payload, _ = _rows(_book(JobProfiles=[{"JobID": "J-1", "ManagementLevel": "IC"}],
+                             SeniorityLevels=[{"LCode": "L1", "GradeRange": "1-3"}]))
+    assert payload["job_profile_positioning"][0]["country"] == "NL"
+    assert payload["seniority_grade_binding"][0]["country"] == "NL"
+
+
+def test_a_workbook_that_names_its_market_is_imported_as_that_market():
+    """The default is a floor, not a ceiling: a Country column on the sheet wins.
+
+    ONE market per workbook, and that is a real limit rather than an oversight.
+    The positioning spec reads the JobProfiles sheet, which the universal
+    job_profiles spec also reads on a key of job_id alone — so two rows for the
+    same job in two markets are a repeated natural key THERE, and build_rows
+    refuses it rather than choosing. Two markets on one sheet needs the workbook
+    reissued with a positioning sheet of its own; a Belgian client's own
+    workbook, whose rows are all Belgian, imports correctly today.
+    """
+    payload, _ = _rows(_book(JobProfiles=[
+        {"JobID": "J-1", "ManagementLevel": "Cadre", "Country": "BE"}]))
+    row = payload["job_profile_positioning"][0]
+    assert (row["country"], row["management_level"]) == ("BE", "Cadre")
+
+
+def test_the_positioning_keys_include_country_so_two_markets_are_two_rows():
+    """The spec key is what the upsert conflicts on. Without country in it the
+    Belgian row would overwrite the Dutch one — and the database's own unique
+    is (org_id, country, job_id), so the two would disagree."""
+    specs = {s.table: s for s in SPECS}
+    assert specs["job_profile_positioning"].key == ("country", "job_id")
+    assert specs["seniority_grade_binding"].key == ("country", "l_code")

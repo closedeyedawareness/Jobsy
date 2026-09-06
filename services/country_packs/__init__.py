@@ -341,10 +341,43 @@ class JobArchitecture:
 
 @dataclass(frozen=True)
 class SkillsFramework:
-    """Qualification and occupation taxonomies, which DO have a spine."""
+    """Qualification and occupation taxonomies, which DO have a spine.
+
+    ── TWO ABSENCES THAT USED TO LOOK IDENTICAL ─────────────────────────────
+
+    An empty `mappings` said one thing and meant two. A market nobody has
+    looked at yet and a market where NO AUTHORITATIVE CORRESPONDENCE EXISTS TO
+    HOLD produced the same empty tuple, so `bridge()` could only report the
+    absence and refuse to characterise it. That is honest and it is also
+    useless: the first is a backlog item, the second is a finished piece of
+    research, and a coverage number that counts them together is measuring the
+    wrong thing.
+
+    `no_correspondence` is where a pack states the second kind, keyed by
+    dimension, with the evidence attached like any other claim. Germany is the
+    case that forced it: the DQR is a joint declaration by the BMBF, the BMWi
+    and two Länder conferences, its own pages say it has orientierenden
+    Charakter and keine regulierende Funktion, and a DQR level confers no
+    entitlement. There is nothing of statutory weight to hold, so the German
+    qualification hop is not missing — it does not exist.
+
+    THE MARKER IS NOT A LICENCE TO STOP LOOKING, and it must never be used as
+    a tidier way of writing "we did not find one". A pack declaring it is
+    asserting something positive about the state of the world, so the claim it
+    carries is subject to the same rule as every other: cite what was read, and
+    if the evidence is a dated search rather than a settled fact, mark it
+    ONBEVESTIGD and give it a review interval. A dimension may not both declare
+    an absence and hold a mapping — `validate()` refuses that, because a pack
+    saying "there is no correspondence" beside a route through one is a pack
+    the reader cannot weigh.
+    """
     qualification_framework: Claim          # the national framework, EQF-referenced
     occupation_taxonomy: Claim              # the national ISCO derivative
     mappings: tuple[SpineMapping, ...] = ()
+    #: dimension -> the claim that no authoritative correspondence exists to map
+    #: this market to that dimension's spine. See the class docstring: this is a
+    #: RESEARCH FINDING, not a placeholder for one.
+    no_correspondence: dict[str, Claim] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -478,9 +511,19 @@ class CountryPack:
                             out.append(item)
                         elif isinstance(item, SpineMapping) and not item.source.verified:
                             out.append(item.source)
+                elif isinstance(v, dict):
+                    # `skills.no_correspondence` lives here. A declared absence is
+                    # a positive statement about the world, so an unverified one
+                    # must block LIVE exactly like an unverified threshold: "no
+                    # authoritative correspondence exists" is a sentence a client
+                    # will act on.
+                    for item in v.values():
+                        if isinstance(item, Claim) and not item.verified:
+                            out.append(item)
 
         _walk(self.job_architecture, ("level_concept", "families", "mappings"))
-        _walk(self.skills, ("qualification_framework", "occupation_taxonomy", "mappings"))
+        _walk(self.skills, ("qualification_framework", "occupation_taxonomy", "mappings",
+                            "no_correspondence"))
         _walk(self.compensation,
               ("structure", "bargaining_coverage", "extension_mechanism",
                "seniority_progression", "market_data", "constraints"))
@@ -589,6 +632,30 @@ def validate(pack: CountryPack) -> list[str]:
                 problems.append(
                     f"crosswalk[{x.system}] scale for {g!r} starts at {lo}; a pay scale "
                     f"bound of zero or less is a transcription error, not a wage.")
+
+    # A declared absence is a claim like any other, and it is the one claim in
+    # the pack that closes a question rather than answering it. If it may be
+    # written without evidence it becomes the cheapest way to make a gap stop
+    # showing up as a gap, which is the opposite of what it is for.
+    for dimension, claim in ((getattr(p.skills, "no_correspondence", None) or {}).items()):
+        where = f"skills.no_correspondence[{dimension!r}]"
+        if dimension not in SPINE:
+            problems.append(
+                f"{where}: {dimension!r} is not a dimension. Known: "
+                + ", ".join(sorted(SPINE)) + ".")
+        elif SPINE[dimension] is None:
+            problems.append(
+                f"{where}: {dimension} has no spine at all, so there is nothing for a "
+                f"correspondence to be absent FROM. bridge() already refuses this "
+                f"dimension for every market; declaring it per pack says less, not more.")
+        _claim(claim, where)
+        if any(m.dimension == dimension
+               for slot in (p.job_architecture, p.skills)
+               for m in (getattr(slot, "mappings", ()) or ())):
+            problems.append(
+                f"{where}: this pack declares that no authoritative {dimension} "
+                f"correspondence exists AND holds a mapping for it. One of the two is "
+                f"wrong, and a reader cannot tell which.")
 
     if p.status == LIVE:
         if p.reporting is None:
@@ -769,6 +836,19 @@ def _mappings_for(pack: Optional[CountryPack], dimension: str) -> tuple:
         reverse=True))
 
 
+def _declared_absence(pack: Optional[CountryPack], dimension: str) -> Optional[Claim]:
+    """The claim, if any, that this market has no authoritative correspondence.
+
+    Only the skills slot carries these, and that is deliberate rather than an
+    oversight to be tidied later: occupation and qualification are the two
+    dimensions a spine exists for, and both of their mappings live there. Grade
+    and pay are refused for every market before a pack is even loaded, so there
+    is nowhere for a per-market absence to say anything.
+    """
+    return (getattr(pack, "skills", None)
+            and (pack.skills.no_correspondence or {}).get(dimension)) or None
+
+
 def bridge(source_country: str, target_country: str, dimension: str) -> dict:
     """Route data from one market to another along a dimension.
 
@@ -804,6 +884,7 @@ def bridge(source_country: str, target_country: str, dimension: str) -> dict:
     dimension = (dimension or "").strip().lower()
     if dimension not in SPINE:
         return {"ok": False, "route": [], "spine": None, "hardness": None,
+                "absence": {},
                 "refusal": f"Unknown dimension {dimension!r}. Known: "
                            + ", ".join(sorted(SPINE))}
 
@@ -823,29 +904,53 @@ def bridge(source_country: str, target_country: str, dimension: str) -> dict:
                    "which one is being asked, and the rate and date it uses, then convert "
                    "deliberately — this function will not choose for you.")
         return {"ok": False, "route": [], "spine": None, "hardness": None,
-                "refusal": why}
+                "absence": {}, "refusal": why}
 
     a, b = for_country(source_country), for_country(target_country)
     missing = [c for c, p in ((source_country, a), (target_country, b)) if p is None]
     if missing:
         return {"ok": False, "route": [], "spine": spine, "hardness": None,
+                "absence": {},
                 "refusal": f"No country pack for {', '.join(missing)}. An uncovered "
                            "market is answered with silence rather than a guess."}
 
     src = _mappings_for(a, dimension)
     dst = _mappings_for(b, dimension)
     if not src or not dst:
-        blank = [p.country for p, m in ((a, src), (b, dst)) if not m]
+        blank = [p for p, m in ((a, src), (b, dst)) if not m]
+        # The two absences no longer look identical. A pack that has finished
+        # the research says so on the skills slot, and this is where that answer
+        # is finally worth having: a caller can distinguish a market waiting to
+        # be mapped from a market where the mapping would have to be invented.
+        absence: dict[str, dict] = {}
+        sentences: list[str] = []
+        for p in blank:
+            declared = _declared_absence(p, dimension)
+            if declared is None:
+                absence[p.country] = {"kind": "unmapped", "hardness": None, "note": ""}
+                sentences.append(
+                    f"{p.country}: NOT LOOKED AT YET. No {dimension} mapping is held and "
+                    f"the pack makes no claim about whether an authoritative "
+                    f"correspondence exists, so this one is open — it is not evidence "
+                    f"that nothing is there.")
+            else:
+                absence[p.country] = {"kind": "no authoritative correspondence",
+                                      "hardness": declared.hardness,
+                                      "note": declared.note}
+                sentences.append(
+                    f"{p.country}: NO AUTHORITATIVE CORRESPONDENCE EXISTS to hold "
+                    f"({declared.hardness}"
+                    + (f", {declared.source}" if declared.source else "")
+                    + (f", checked {declared.as_of}" if declared.as_of else "")
+                    + f"). {declared.note or declared.value} This is a finished answer "
+                      f"rather than a gap, and mapping it anyway would mean inventing the "
+                      f"correspondence the research says is not there.")
         return {"ok": False, "route": [], "spine": spine, "hardness": None,
-                "refusal": f"No {dimension} mapping to {spine} held for "
-                           f"{', '.join(blank)}. The spine exists and this pack does not "
-                           "reach it. TWO DIFFERENT THINGS LOOK IDENTICAL FROM HERE: a "
-                           "market nobody has mapped yet, and a market where no "
-                           "authoritative correspondence exists to map — Germany's DQR is "
-                           "a joint declaration rather than a statute and confers no "
-                           "entitlement, so its absence may be the correct answer rather "
-                           "than a gap. This function cannot tell you which, and says so "
-                           "instead of implying a to-do."}
+                "absence": absence,
+                "refusal": f"No {dimension} route to {spine} for "
+                           f"{', '.join(p.country for p in blank)}. The spine exists and "
+                           f"these packs do not reach it, and THE TWO REASONS ARE NOT THE "
+                           f"SAME ANSWER. " + " ".join(sentences)}
 
     hop_out, hop_in = src[0], dst[0]
     order = (ONBEVESTIGD, CONVENTIE, UITLEG, WET)
@@ -854,6 +959,7 @@ def bridge(source_country: str, target_country: str, dimension: str) -> dict:
     return {
         "ok": True,
         "spine": spine,
+        "absence": {},
         "hardness": weakest,
         "route": [
             {"from": a.country, "scheme": hop_out.local_scheme, "to": spine,

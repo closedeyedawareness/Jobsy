@@ -223,7 +223,11 @@ def load_frames(client, org_id: str, library_org_id: str | None = None,
 
     for spec in _specs():
         db_to_workbook = {db: wb for wb, db in spec.columns.items()}
-        repo_key = SHEET_MAP.get(spec.sheet)
+        # The spec's own key wins. One sheet is normally one table, so SHEET_MAP
+        # answers this — but 0016 split two tables out of sheets that still hold
+        # both halves, and two specs sharing a sheet would otherwise both claim
+        # that sheet's repository key, the second replacing the first in silence.
+        repo_key = spec.repo_key or SHEET_MAP.get(spec.sheet)
         if repo_key is None:
             logger.warning(
                 "Table '%s' is in the library but has no SHEET_MAP entry, so nothing loads it "
@@ -233,7 +237,10 @@ def load_frames(client, org_id: str, library_org_id: str | None = None,
         rows = _fetch_all(client, spec.table, (org_id, library_org_id))
         rows, n_over = _merge_by_precedence(rows, spec.key, org_id, library_org_id or "")
         if n_over and overrides is not None:
-            overrides[spec.sheet] = n_over
+            # Keyed by sheet, because that is the name the panel shows — except
+            # for a spec that only owns part of a sheet, where the sheet name
+            # would overwrite the other spec's count with a different table's.
+            overrides[spec.sheet if spec.repo_key is None else spec.table] = n_over
 
         records = []
         for row in rows:
@@ -263,7 +270,12 @@ def load_frames(client, org_id: str, library_org_id: str | None = None,
         # Only for the tables that actually carry it; a country column on a
         # country-neutral table is one that drifts and is then believed, which
         # is the reasoning 0012 used to decide which tables got one.
-        if any("Country" in rec for rec in records):
+        # `not in columns` because 0016's two specs map Country themselves, so a
+        # workbook reissued with that heading imports it. Appending it twice
+        # would give the frame two columns of the same name, and `_val` reads
+        # rows as namedtuples — where the duplicate arrives renamed and the
+        # value the Repository wants is not under the name it asks for.
+        if "Country" not in columns and any("Country" in rec for rec in records):
             columns.append("Country")
         df = pd.DataFrame(records, columns=columns)
 

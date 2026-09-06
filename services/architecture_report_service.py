@@ -1210,7 +1210,7 @@ class ArchitectureReportService:
         findings.append({"severity":"low","title":"Role-assumed skill levels in use",
             "detail":"Skill gap analysis currently uses role-required levels as employee baselines. Uploading actual skill assessments will produce individual-level gap analysis and significantly sharper succession readiness scores."})
         recs.append({"category":"Development","title":"Collect individual skill assessments to sharpen succession scoring",
-            "action":"Use the Jobsy Skills Assessment template to collect manager-assessed or self-assessed skill levels for all employees. This transforms succession readiness from a role-proxy to an individual measure.",
+            "action":"Use the Skills Assessment template to collect manager-assessed or self-assessed skill levels for all employees. This transforms succession readiness from a role-proxy to an individual measure.",
             "impact":"Higher accuracy succession planning, personalised development plans, credible board reporting."})
 
         self._findings      = findings

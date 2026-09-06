@@ -36,6 +36,17 @@ def main() -> None:
     repo = Catalog(str(REPO_ROOT / "jobsy_reference_library.xlsx")).load().repository
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Which market the responsibility evidence below is read for. 0016 moved
+    # management_level out of job_profiles into a table keyed by country,
+    # because "Lead" is a rung in a national grading ladder and means a
+    # different thing across the border. Named in the sheet so a rating can be
+    # traced to the ladder it was made against.
+    from services import country_service
+    try:
+        market = (country_service.active_country() or "NL").strip().upper()
+    except Exception:
+        market = "NL"
+
     scoring_rows = []
     recon_rows = []
     for jid, job in sorted(repo.jobs.items()):
@@ -61,7 +72,12 @@ def main() -> None:
             "skills_n_core": n_core,
             "skills_n_leadership": n_leadership,
             # -- evidence: Responsibility --
-            "management_level": (prof.management_level if prof else "") or "",
+            # From the repository, which resolves country then the EU baseline
+            # then nothing — not off the profile record, whose copy of this is
+            # fixed at build time. Blank means this market makes no positioning
+            # claim for the role, which is an answer and not a gap.
+            "management_level": repo.management_level_for(jid),
+            "positioning_country": market,
             "key_responsibilities": " | ".join(prof.key_responsibilities) if prof else "",
             # -- evidence: general --
             "description": (prof.description if prof else "") or "",

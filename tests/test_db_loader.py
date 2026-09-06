@@ -415,3 +415,54 @@ def test_the_loader_reports_what_it_overrode():
     frames = load_frames(client, CLIENT, library_org_id=LIB, overrides=seen)
     assert seen.get("SalaryBands") == 1
     assert len(frames["salary"]) == 1
+
+
+# ── 0016: two tables split out of sheets that still hold both halves ─────────
+
+def test_the_split_tables_arrive_under_their_own_keys():
+    """A spec that shares a sheet must not be filed under that sheet's key.
+
+    SHEET_MAP answers "which repository key" from the sheet name, and since 0016
+    two specs read JobProfiles and two read SeniorityLevels. Without TableSpec's
+    own repo_key the second frame would land on top of the first, and the
+    Repository would build profiles out of positioning rows — or, worse, the
+    other way round, and nobody would see anything missing.
+    """
+    client = _FakeClient({
+        "job_profiles": [_row(job_id="J-1", description="Runs the thing",
+                              management_level="People Manager")],
+        "job_profile_positioning": [_row(id="p1", job_id="J-1", country="NL",
+                                         management_level="People Manager")],
+        "seniority_levels": [_row(l_code="L3", l_name="Senior", definition="d",
+                                  maps_to_level="Senior", grade_range="7-10",
+                                  grades="Grade 7-10")],
+        "seniority_grade_binding": [_row(id="b1", l_code="L3", country="NL",
+                                         maps_to_level="Senior", grade_range="7-10",
+                                         grades="Grade 7-10")],
+    })
+    frames = load_frames(client, "org-1")
+
+    assert set(frames["profiles"].columns) >= {"JobID", "Description"}
+    assert frames["profiles"].iloc[0]["Description"] == "Runs the thing"
+    assert frames["senioritylevels"].iloc[0]["LName"] == "Senior"
+
+    pos = frames["jobpositioning"]
+    assert list(pos["JobID"]) == ["J-1"]
+    assert pos.iloc[0]["ManagementLevel"] == "People Manager"
+    assert pos.iloc[0]["Country"] == "NL"
+
+    binding = frames["senioritybinding"]
+    assert binding.iloc[0]["GradeRange"] == "7-10"
+    assert binding.iloc[0]["Country"] == "NL"
+
+
+def test_country_appears_once_even_when_the_spec_maps_it_itself():
+    """0016's specs map Country so a reissued workbook can import it, and the
+    loader adds Country for every table that carries one. Both, and the frame
+    would have two columns of that name — where itertuples renames the duplicate
+    and Repository's _val() looks for a name that is no longer there."""
+    client = _FakeClient({"job_profile_positioning": [
+        _row(id="p1", job_id="J-1", country="BE", management_level="Cadre")]})
+    df = load_frames(client, "org-1")["jobpositioning"]
+    assert list(df.columns).count("Country") == 1
+    assert df.iloc[0]["Country"] == "BE"

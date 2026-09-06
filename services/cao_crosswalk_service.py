@@ -137,9 +137,10 @@ def crosswalk_to_isf(job_grade: float, grade_min: float, grade_max: float,
         salarisgroep=letter, isf_point_range=(lo, hi), monthly_scale=scale,
         is_hoger_personeel=is_hp, rank_fraction=round(frac, 3), basis=basis,
         note=(f"Indicatief: salarisgroep {letter} — officiële ISF-indeling vereist een "
-              f"gecertificeerde weging. Dit positioneert Jobsy's eigen gradering binnen de "
+              f"gecertificeerde weging. Dit positioneert de eigen gradering van dit "
+              f"instrument binnen de "
               f"publieke ISF-bandbreedtes; het is geen berekende ISF-score."
-              + (" De positie volgt Jobsy's eigen puntenbereik per graad — een eigen schaal "
+              + (" De positie volgt het eigen puntenbereik per graad — een eigen schaal "
                  "(100–1800), niet de ISF-puntenschaal en er niet in opgezocht."
                  if basis == "own point range" else
                  " De positie volgt de rangorde van de graad; het puntenbereik per graad is "

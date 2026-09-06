@@ -10,6 +10,9 @@ records (models.py), validates them (validator.py), builds the resolution index
     salary             (function, level) -> SalaryBand, for the market being
                        looked at: country, then the EU baseline, then nothing.
                        Never another market's rows — see _MarketRows.
+    job_positioning    job_id -> JobPositioning, for the market being looked
+                       at. Same resolution as salary, same object (0016).
+    seniority_bindings l_code -> SeniorityGradeBinding, likewise.
     title_mapping      dict[normalized existing title -> job_id]
     career_paths       dict[job_id -> CareerStep]
     levels             list[str]   (seniority ladder, in sheet order)
@@ -37,9 +40,10 @@ import pandas as pd
 import logging
 logger = logging.getLogger('jobsy')
 from core.models import (BenefitCatalogItem, BenefitObservation, CareerStep, CompetencyLevel,
-    Employee, Industry, IndustrySalaryFactor, IndustrySkill, Job, JobGrade, JobProfile,
-    PayElement, PayMixEntry,
-    LevelBenefitFactor, RoleSkillRequirement, SalaryBand, SeniorityLevel, Skill, SkillAssessment)
+    Employee, Industry, IndustrySalaryFactor, IndustrySkill, Job, JobGrade, JobPositioning,
+    JobProfile, PayElement, PayMixEntry,
+    LevelBenefitFactor, RoleSkillRequirement, SalaryBand, SeniorityGradeBinding,
+    SeniorityLevel, Skill, SkillAssessment)
 from core.search_index import SearchIndex
 from core.utils import normalize_title
 from core.validator import Validator
@@ -77,11 +81,13 @@ def _num(row, *names: str) -> Optional[float]:
 class _MarketRows(Mapping):
     """Library rows seen from the market currently being looked at.
 
-    Used for salary bands, pay elements and the benefits catalogue — three
-    tables that each hold a national fact under a key that does not mention a
-    country. Written once for bands and generalised the day migration 0015 gave
-    the other two a country column, because a rule enforced in one place and
-    reimplemented in two is a rule with two chances to be got wrong.
+    Used for salary bands, pay elements, the benefits catalogue, job
+    positioning and the seniority-grade binding — five tables that each hold a
+    national fact under a key that does not mention a country. Written once for
+    bands, generalised the day migration 0015 gave pay elements and the
+    benefits catalogue a country column, and reused unchanged when 0016 split
+    the last two out, because a rule enforced in one place and reimplemented in
+    four is a rule with four chances to be got wrong.
 
     A Mapping rather than a dict because every existing caller reaches for
     `.get((function, level))`, `len(...)` or `in` — nine sites across core,
@@ -203,21 +209,40 @@ class Repository:
         # element_id key silently picks one of them for everybody.
         self._pay_elements_by_country: dict[str, dict] = {}
         self.pay_elements = _MarketRows(self._pay_elements_by_country)
+        # 0016 split the positioning claim off job_profiles and the grade
+        # binding off seniority_levels, for the reason the migration gives:
+        # "management level: Lead" and "L3 = grades 7-10" are claims against a
+        # NATIONAL grading instrument, and the same words assert a different
+        # rung across the border. Both are read through the same view as the
+        # three above, so there is still exactly one answer in this file to
+        # "which market's rows am I looking at".
+        self._positioning_by_country: dict[str, dict[str, JobPositioning]] = {}
+        self.job_positioning = _MarketRows(self._positioning_by_country)
+        self._seniority_binding_by_country: dict[str, dict[str, SeniorityGradeBinding]] = {}
+        self.seniority_bindings = _MarketRows(self._seniority_binding_by_country)
 
-        self._build_jobs(data.get("jobs"))
-        self._build_profiles(data.get("profiles"))
-        self._build_salary(data.get("salary"))
-        self._build_titles(data.get("titles"))
-        self._build_career(data.get("career"))
-        self._build_levels(data.get("levels"))
-        self._build_employees(data.get("employees"))
-
+        # Defined before the first builder that needs it, not halfway down: the
+        # frames arrive keyed by sheet, by repository key or by table name
+        # depending on which loader produced them.
         def _get(d, *keys):
             for k in keys:
                 v = d.get(k)
                 if v is not None:
                     return v
             return None
+
+        self._build_jobs(data.get("jobs"))
+        # Positioning first: _build_profiles reads the market's view of it
+        # rather than job_profiles.management_level.
+        self._build_job_positioning(
+            _get(data, "jobpositioning", "JobProfilePositioning", "job_profile_positioning"),
+            data.get("profiles"))
+        self._build_profiles(data.get("profiles"))
+        self._build_salary(data.get("salary"))
+        self._build_titles(data.get("titles"))
+        self._build_career(data.get("career"))
+        self._build_levels(data.get("levels"))
+        self._build_employees(data.get("employees"))
 
         self._build_skills(data.get("skills"))
         self._build_skill_assessments(data.get("employees"))
@@ -227,6 +252,9 @@ class Repository:
         self._build_industries(_get(data, "industries", "Industries"))
         self._build_industry_factors(_get(data, "industrysalaryfactors", "IndustrySalaryFactors"))
         self._build_industry_skills(_get(data, "industryskills", "IndustrySkills"))
+        self._build_seniority_bindings(
+            _get(data, "senioritybinding", "SeniorityGradeBinding", "seniority_grade_binding"),
+            _get(data, "senioritylevels", "SeniorityLevels"))
         self._build_seniority_levels(_get(data, "senioritylevels", "SeniorityLevels"))
         self._build_skill_proficiency(_get(data, "skillproficiency", "SkillProficiency", "skill_proficiency"))
         self._build_benefits_catalog(_get(data, "benefitscatalog", "BenefitsCatalog"))
@@ -265,9 +293,49 @@ class Repository:
             self.jobs_by_function.setdefault(function, []).append(job)
             self.jobs_by_level.setdefault(level, []).append(job)
 
+    def _build_job_positioning(self, df, profiles_df=None) -> None:
+        """job_profile_positioning, per market — 0016 §1.
+
+        THE SECOND ARGUMENT IS THE COMPATIBILITY WINDOW, AND IT IS NARROW ON
+        PURPOSE. The workbook in a client's hands has no positioning sheet; it
+        still carries ManagementLevel on JobProfiles, and `LIBRARY_SOURCE=excel`
+        is a supported, working path. With no positioning frame, the flat column
+        is read instead — and filed under 'NL' ONLY, because that is what those
+        values are: 0016 measured every existing row as Dutch before copying
+        them. Filing them under whatever market happens to be active would
+        hand a Belgian client the Dutch functiegroep, which is the defect this
+        split exists to prevent, wearing the clothes of a fallback.
+
+        The window closes when the workbook is reissued with a positioning
+        sheet, or when the old column is dropped under 0016 §3.
+        """
+        from_flat_column = df is None or len(df) == 0
+        if from_flat_column:
+            df = profiles_df
+        if df is None:
+            return
+        for row in df.itertuples(index=False):
+            job_id = _val(row, "JobID", "job_id")
+            if not job_id:
+                continue
+            country = ("NL" if from_flat_column
+                       else (_val(row, "Country", "country") or "NL").strip().upper())
+            self._positioning_by_country.setdefault(country, {})[job_id] = JobPositioning(
+                job_id=job_id,
+                management_level=_val(row, "ManagementLevel", "management_level") or "",
+                country=country,
+            )
+
     def _build_profiles(self, df) -> None:
         if df is None:
             return
+        # One view of the market, not one per profile: `_MarketRows` rebuilds
+        # its merged dict on every lookup, and 81 profiles is 81 rebuilds plus
+        # 81 trips to the session for the active country. Snapshotting also says
+        # honestly what the field on JobProfile is — a value fixed at build
+        # time, which is why models.JobProfile points at job_positioning for
+        # anything that has to survive a market change.
+        positioning = dict(self.job_positioning)
         def _split(row, *names):
             raw = _val(row, *names) or ""
             if not raw or str(raw).lower() in ("nan", "none", ""):
@@ -278,9 +346,12 @@ class Repository:
             if not job_id:
                 continue
             desc  = _val(row, "Description", "description", "Summary", "summary") or ""
-            mgmt  = _val(row, "ManagementLevel", "management_level") or ""
-            if str(mgmt).lower() in ("nan", "none"):
-                mgmt = ""
+            # NOT read off this row any more. The profile frame still carries
+            # ManagementLevel while 0016's old column stands, and reading it
+            # here would give a Belgian client the Dutch answer no matter what
+            # job_profile_positioning says — the flat column has no market.
+            pos = positioning.get(job_id)
+            mgmt = pos.management_level if pos else ""
             self.profiles[job_id] = JobProfile(
                 job_id=job_id,
                 description=desc,
@@ -599,18 +670,51 @@ class Repository:
                 default_level=int(_num(row, "DefaultLevel", "default_level") or 3),
             ))
 
+    def _build_seniority_bindings(self, df, levels_df=None) -> None:
+        """seniority_grade_binding, per market — 0016 §2.
+
+        Same shape and same compatibility window as _build_job_positioning,
+        because it is the same question: the workbook's SeniorityLevels sheet
+        still holds GradeRange / MapsToLevel / Grades, and those five rows are
+        Dutch, so with no binding frame they are read as 'NL' and nobody else's.
+        """
+        from_flat_columns = df is None or len(df) == 0
+        if from_flat_columns:
+            df = levels_df
+        if df is None:
+            return
+        for row in df.itertuples(index=False):
+            lc = _val(row, "LCode", "l_code")
+            if not lc:
+                continue
+            country = ("NL" if from_flat_columns
+                       else (_val(row, "Country", "country") or "NL").strip().upper())
+            self._seniority_binding_by_country.setdefault(country, {})[lc] = SeniorityGradeBinding(
+                l_code=lc,
+                grade_range=_val(row, "GradeRange", "grade_range") or "",
+                maps_to_level=_val(row, "MapsToLevel", "maps_to_level") or "",
+                grades=_val(row, "Grades", "grades") or "",
+                country=country,
+            )
+
     def _build_seniority_levels(self, df) -> None:
         if df is None: return
+        # The market's bindings, snapshotted once — see _build_profiles for why
+        # the field on the record and the live mapping are both kept.
+        bindings = dict(self.seniority_bindings)
         for row in df.itertuples(index=False):
             lc = _val(row, "LCode", "l_code")
             if not lc: continue
+            # L1..L5 and their names are the product's own and stay on this row;
+            # what the rung BINDS TO is national and comes from the binding.
+            b = bindings.get(lc)
             self.seniority_levels[lc] = SeniorityLevel(
                 l_code=lc,
                 l_name=_val(row, "LName", "l_name") or "",
-                maps_to_level=_val(row, "MapsToLevel", "maps_to_level") or "",
-                grade_range=_val(row, "GradeRange", "grade_range") or "",
+                maps_to_level=b.maps_to_level if b else "",
+                grade_range=b.grade_range if b else "",
                 definition=_val(row, "Definition", "definition") or "",
-                grades=_val(row, "Grades", "grades") or "",
+                grades=b.grades if b else "",
             )
 
     def _build_benefits_catalog(self, df) -> None:
@@ -705,6 +809,31 @@ class Repository:
 
     def get_profile(self, job_id: str) -> Optional[JobProfile]:
         return self.profiles.get(job_id)
+
+    def management_level_for(self, job_id: str) -> str:
+        """This role's positioning IN THE MARKET BEING LOOKED AT, or "".
+
+        The read that stays right when the market moves, which the field on
+        JobProfile cannot: that one is fixed when the Repository is built. An
+        empty string here means this market has no positioning claim for the
+        role — which is the correct answer, not a reason to show another
+        market's rung.
+        """
+        pos = self.job_positioning.get(job_id)
+        return pos.management_level if pos else ""
+
+    def seniority_binding_for(self, l_code: str):
+        """What this L-code binds to in the market being looked at, or None."""
+        return self.seniority_bindings.get(l_code)
+
+    def positioning_markets(self) -> tuple[str, ...]:
+        """Every market this library holds a positioning claim for.
+
+        The same distinction salary_markets() exists for: "we have positioning,
+        none of it yours" and "we have none at all" look identical through an
+        empty mapping and mean different things.
+        """
+        return tuple(sorted(self._positioning_by_country))
 
     def get_salary(self, function: str, level: str) -> Optional[SalaryBand]:
         return self.salary.get((function, level))

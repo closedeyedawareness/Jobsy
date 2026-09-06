@@ -50,7 +50,11 @@ COLUMNS = [
     "skills_evidence", "skills_max_required_level", "skills_n_core", "skills_n_leadership",
     "esco_label",
     # ── responsibility evidence ──
-    "management_level", "key_responsibilities",
+    # management_level is a POSITIONING claim against a national grading
+    # instrument (0016 §1), so the market it was read for travels beside it.
+    # An Art. 4 evidence sheet that cannot say which ladder a rung belongs to
+    # is evidence nobody can check in 2028.
+    "management_level", "positioning_country", "key_responsibilities",
     "grade_autonomy", "grade_span_of_control", "grade_decision_rights", "grade_authority",
     # ── effort evidence: none exists ──
     # ── working conditions evidence: none exists ──
@@ -64,6 +68,16 @@ COLUMNS = [
 
 def build() -> list[dict]:
     repo = Catalog(str(ROOT / "jobsy_reference_library.xlsx"), source="excel").load().repository
+    # Which market's positioning this sheet is built from. Asked once, named in
+    # every row: 0016 moved management_level to a table keyed by country, and
+    # the resolver answers country then the EU baseline then NOTHING — so a
+    # blank management_level below means "this market makes no such claim", not
+    # "the library is thin".
+    from services import country_service
+    try:
+        market = (country_service.active_country() or "NL").strip().upper()
+    except Exception:
+        market = "NL"
     rows = []
     for job in sorted(repo.jobs.values(), key=lambda j: (j.function or "", j.grade or 0)):
         reqs = repo.role_skill_map.get(job.job_id, [])
@@ -82,7 +96,11 @@ def build() -> list[dict]:
             "skills_n_core": sum(1 for r in reqs if r.skill_type == "Core"),
             "skills_n_leadership": sum(1 for r in reqs if r.skill_type == "Leadership"),
             "esco_label": job.esco_label,
-            "management_level": getattr(profile, "management_level", "") if profile else "",
+            # Read through the repository, not off the profile: the field there is
+            # a snapshot taken when the library was built, and this accessor is
+            # the one that resolves the market at the moment it is asked.
+            "management_level": repo.management_level_for(job.job_id),
+            "positioning_country": market,
             "key_responsibilities": "; ".join(getattr(profile, "key_responsibilities", ()) or ())
                                     if profile else "",
             "grade_autonomy": getattr(grade, "autonomy", "") if grade else "",
