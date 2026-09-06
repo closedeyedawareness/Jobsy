@@ -1250,7 +1250,7 @@ def test_both_views_actually_call_the_panel():
     views = pathlib.Path(cp.__file__).parent.parent.parent / "ui" / "views"
     for name, kind in (("nine_box.py", "performance"), ("organigram.py", "org_structure")):
         text = (views / name).read_text(encoding="utf-8")
-        assert f'_market_panel("{kind}")' in text, (
+        assert f'market_panel("{kind}")' in text, (
             f"{name} defines or imports the panel but never calls it for {kind}")
 
 
@@ -1328,3 +1328,53 @@ def test_the_spanish_contribution_bases_reconcile_between_daily_and_monthly():
         f"the floor {floor_47} is not the monthly minimum wage plus a sixth "
         f"({smi_month * 7 / 6:.2f}) — one of the two is from a different year, which is "
         "exactly the error this check was written after")
+
+
+# ── a fraction stored as two integers ─────────────────────────────────────
+
+def test_the_polish_etat_pair_is_not_loose_in_the_fte_vocabulary():
+    """A numerator must never be reachable as if it were an FTE value.
+
+    Polish payroll exports commonly store working time as licznik/mianownik —
+    1 and 2 for a half-timer — with no single FTE column anywhere. Listed beside
+    real FTE names, either half is a plausible-looking number a detector will
+    happily take, and taking the numerator returns 1 for a half-timer with no
+    error raised. The whole of that error lands on part-time staff, who skew
+    female, in a tool whose output is a gender pay gap.
+
+    So the pair lives in FTE_RATIO_PAIRS, where the code can see the two belong
+    together, and nowhere else.
+    """
+    from services.country_packs import pl
+
+    loose = {name.lower() for name in pl.VOCABULARY["fte"]}
+    for numerator, denominator in pl.FTE_RATIO_PAIRS:
+        assert numerator.lower() not in loose
+        assert denominator.lower() not in loose
+        assert numerator != denominator, "a pair, not one name written twice"
+
+
+def test_a_value_that_is_a_finding_does_not_render_as_none():
+    """"We looked and there is none" must not print as "we did not look".
+
+    Poland's level_concept was stored as None with the finding in the note. Any
+    renderer that reaches the value without the note — a table cell, an export,
+    a debug line — printed "None", which reads as an absence of research rather
+    than a researched absence. Those are opposite answers.
+    """
+    packs = cp.load()
+    concept = packs["PL"].job_architecture.level_concept
+    assert concept.value is not None
+    assert "none" in str(concept.value).lower()
+    assert "private" in str(concept.value).lower(), "the scope is the finding"
+
+
+def test_a_scope_limit_travels_with_the_value_it_limits():
+    """The German step scale is TV-L; TVöD was never obtained.
+
+    A limitation stated four sentences into a note is a limitation that gets
+    quoted to a client without itself, and the two agreements cover different
+    parts of the German public sector.
+    """
+    claim = cp.load()["DE"].compensation.seniority_progression
+    assert "TV-L" in str(claim.value)

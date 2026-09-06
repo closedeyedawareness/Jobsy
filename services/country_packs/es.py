@@ -569,7 +569,14 @@ COMPENSATION = CompensationModel(
              "which lets a company disapply the convenio's pay terms on economic or "
              "organisational grounds by agreement with worker representatives."),
     seniority_progression=Claim(
-        0.6284, WET, _CCT2024, _VERIFIED,
+        # A TUPLE, not a bare float. 0,6284 on its own cannot say whether it
+        # counts agreements, employees or pay, and this pack's own constraints
+        # already carry that shape for exactly this reason. It matters as soon
+        # as a second market publishes a prevalence: Spain measures a share of
+        # AGREEMENTS and nobody else measures anything, so a renderer lining up
+        # two such numbers would compare different denominators without either
+        # of them saying so.
+        ("share_of_agreements", 0.6284), WET, _CCT2024, _VERIFIED,
         note="THE ONLY HARD PREVALENCE FIGURE FOR SENIORITY PAY IN ANY PACK, and it is "
              "official: 908 of 1.445 convenios signed in 2024 carry an antiguedad "
              "complement — 62,84% of agreements and 65,68% of covered workers, at "

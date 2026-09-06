@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from ui.shared import *  # noqa: F401,F403
 
+from services.pay_equity_service import AmbiguousGenderCodes
+
 
 def _is_dutch_client() -> bool:
     """Whether the Dutch collective-agreement crosswalk may be shown at all.
@@ -39,6 +41,59 @@ def _is_dutch_client() -> bool:
             return True     # no session to ask: the library is Dutch
 
 
+
+#: Where a reader's answer to a refusal is kept. Keyed by column name, so
+#: swapping to a different file does not silently inherit the previous file's
+#: mapping — that would be the same guess the refusal exists to prevent, made
+#: once by a human and then repeated by the machine.
+_GENDER_CHOICE = "_gender_code_choice"
+
+
+def _gender_override(gender_col: str) -> dict:
+    """The labels a reader supplied for a column this market cannot decide."""
+    chosen = st.session_state.get(_GENDER_CHOICE, {}).get(gender_col)
+    return {"female_label": chosen["female"], "male_label": chosen["male"]} if chosen else {}
+
+
+def _ask_for_gender_mapping(df, gender_col: str, refusal) -> None:
+    """Turn a refusal into a question the reader can actually answer.
+
+    Deliberately NOT a default with a confirm. A pre-selected answer to an
+    ambiguous question is a guess wearing a reader's consent, and the whole
+    reason the engine raised is that both readings are defensible. The selects
+    start empty and the analysis stays absent until somebody says which is
+    which.
+    """
+    codes = ", ".join(f"`{c.upper()}`" for c in refusal.codes)
+    st.warning(
+        f"**{gender_col}** uses {codes}, and in {refusal.country} that letter is used "
+        "two ways — it is *Mujer* in an H/M file and male in a Masculino/Femenino "
+        "one, and both appear in official sources. Reading it either way would "
+        "invert the gap rather than blur it, so nothing is computed until you say "
+        "which is which."
+    )
+    values = sorted({str(v).strip() for v in df[gender_col].dropna() if str(v).strip()})
+    left, right = st.columns(2)
+    with left:
+        female = st.selectbox("Value meaning WOMAN", ["—"] + values, key="_g_f")
+    with right:
+        male = st.selectbox("Value meaning MAN", ["—"] + values, key="_g_m")
+
+    if female == "—" or male == "—":
+        st.caption("Pick both to continue. Exporting the column spelled out "
+                   "(Mujer / Hombre, Kobieta / Mężczyzna) avoids the question entirely.")
+        return
+    if female == male:
+        st.error("Those are the same value.")
+        return
+
+    st.session_state.setdefault(_GENDER_CHOICE, {})[gender_col] = {
+        "female": female, "male": male,
+    }
+    st.caption(f"Reading {female} as women and {male} as men for this column.")
+    st.rerun()
+
+
 def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None, tenure_col=None, age_col=None, salary_already_fte=False, catalog=None):
     """
     Option A — structural gender pay gap straight from a client's leveled grid
@@ -61,9 +116,25 @@ def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, 
     if not gender_col:
         st.info("➕ Add a **Gender** column (M / F — Dutch M / V is read natively) to compute the gender pay gap."); return
 
-    r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
-                               gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
-                               tenure_col=tenure_col, age_col=age_col, salary_already_fte=salary_already_fte)
+    # A market that cannot decide a code refuses rather than guessing, and the
+    # refusal has to arrive as a question rather than as a stack trace. Spain is
+    # the case: in an H/M file `M` is *Mujer* and in a Masculino/Femenino file
+    # the same letter is male, and both vocabularies appear inside one official
+    # ministry workbook. Guessing inverts the gap for half the country — an
+    # analysis of women against nobody — so the engine raises. Losing an import
+    # is recoverable; handing a regulator a reversed pay gap is not.
+    #
+    # The mapping the reader chooses here is passed straight back as the labels,
+    # which is the one thing this screen knows and the engine cannot.
+    try:
+        r = analyze_gender_pay_gap(df, function_col=function_col, level_col=level_col,
+                                   gender_col=gender_col, salary_col=salary_col, fte_col=fte_col,
+                                   tenure_col=tenure_col, age_col=age_col,
+                                   salary_already_fte=salary_already_fte,
+                                   **_gender_override(gender_col))
+    except AmbiguousGenderCodes as refusal:
+        _ask_for_gender_mapping(df, gender_col, refusal)
+        return
     if not r.has_gap:
         st.info(f"Need both men and women with pay to compute a gap (M n={r.n_m}, F n={r.n_f})."); return
 

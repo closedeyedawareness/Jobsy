@@ -5,34 +5,6 @@ from __future__ import annotations
 from ui.shared import *  # noqa: F401,F403
 
 
-def _market_panel(kind: str) -> None:
-    """Render what this market changes about the page the reader is on.
-
-    Deliberately a copy of the panel in organigram.py and nine_box.py rather
-    than a shared helper: the natural home for it is ui/shared.py, which is
-    being edited elsewhere right now, and a few identical eight-line functions
-    are a cheaper problem than a conflict in the module every view star-imports.
-    Fold them together when shared.py is quiet.
-
-    Collapsed by default and not styled as a warning. Most of what it holds is
-    not a problem to be fixed — it is the shape of the market, and a banner
-    shouting every time somebody opens the page would be dismissed forever.
-    """
-    try:
-        from services import market_notes
-    except ImportError:
-        from jobsy.services import market_notes  # type: ignore
-
-    notes = market_notes.compensation_notes() if kind == "compensation" else []
-    if not notes:
-        return
-
-    with st.expander(notes[0], expanded=False):
-        for note in notes[1:]:
-            st.markdown(f"- {note}")
-        st.caption(market_notes.market_caveat())
-
-
 def benefits_benchmarking_page(catalog, benefits_svc):
     """Benchmark a benefits package against market percentiles (P25/median/P75/P90),
     computed from the self-built benefits reference library, with rule-based advice
@@ -187,7 +159,7 @@ def benefits_benchmarking_page(catalog, benefits_svc):
     # advance by tenure the residual is partly produced by the structure rather
     # than by any decision about a person. This is the one screen in the
     # product where somebody is holding that number about a real employee.
-    _market_panel("compensation")
+    market_panel("compensation")
 
     funcs = sorted(repo.jobs_by_function.keys())
     if funcs:

@@ -298,12 +298,22 @@ COMPENSATION = CompensationModel(
              "PC 200 as the residual catch-all for white-collar staff."),
     bargaining_coverage=Claim(
         1.0, UITLEG, "OECD/AIAS ICTWSS via the OECD SDMX API", _VERIFIED,
+        review_after_months=24,
         note="The OECD series returns 100% for Belgium for every year from 1995 to 2024 — "
              "effectively universal. The figure of about 96% that circulates could not be "
              "sourced anywhere, so it is not used here. For scale from the same pull: "
              "Germany 52, Netherlands 70,5, France 98, United States 11,6. Marked UITLEG "
              "rather than WET because the measure code behind the series could not be "
-             "verified."),
+             "verified. "
+             "IT ALSO ANCHORS A COMPARISON, which is why it now carries a review "
+             "interval where no other coverage figure does. Belgium sits at the top of "
+             "the cross-market ranking the benefits screen renders, so every other "
+             "market's position is read against a number that is an OECD estimate rather "
+             "than a Belgian measurement. A flat 100 for thirty consecutive years is a "
+             "series that has stopped moving, not a country that has stopped changing — "
+             "the same shape as the French 98 sitting two lines above it. Two years is "
+             "long enough not to nag and short enough that nobody inherits it "
+             "unexamined."),
     extension_mechanism=Claim(
         "koninklijk besluit (algemeen verbindend verklaring)", WET,
         "https://werk.belgie.be/nl/themas/paritaire-comites-en-collectieve-"

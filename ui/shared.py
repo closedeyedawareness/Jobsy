@@ -529,6 +529,41 @@ def _detect_fte_pair(cols):
     return None
 
 
+
+def market_panel(kind: str) -> None:
+    """What this market changes about the page the reader is on.
+
+    One home, after four copies. Three agents working in parallel each needed
+    this and none could edit the others' files, so each wrote its own — the
+    right outcome under the ownership rule, and a debt to settle the moment the
+    rule lifts. Four copies of a compliance panel is four places for one of them
+    to quietly stop matching.
+
+    Collapsed by default and deliberately not styled as a warning. Most of what
+    it holds is not a problem to be fixed but the shape of a market, and a banner
+    shouting at somebody every time they open the 9-box is read once and
+    dismissed for good.
+    """
+    try:
+        from services import market_notes
+    except ImportError:                                   # pragma: no cover
+        from jobsy.services import market_notes           # type: ignore
+
+    notes = {
+        "performance":      market_notes.performance_notes,
+        "org_structure":    market_notes.org_structure_notes,
+        "compensation":     market_notes.compensation_notes,
+        "job_architecture": market_notes.job_architecture_notes,
+    }[kind]()
+
+    if not notes:
+        return
+    with st.expander(notes[0], expanded=False):
+        for note in notes[1:]:
+            st.markdown(f"- {note}")
+        st.caption(market_notes.market_caveat())
+
+
 def _smart_detect(cols, exacts, contains, concept=None):
     """Pick a column by case-insensitive exact match first, then substring.
 

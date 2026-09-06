@@ -5,32 +5,6 @@ from __future__ import annotations
 from ui.shared import *  # noqa: F401,F403
 
 
-def _market_panel(kind: str) -> None:
-    """Render what this market changes about the page the reader is on.
-
-    Collapsed by default and deliberately not styled as a warning. Most of what
-    it holds is not a problem to be fixed — it is the shape of the market, and
-    a banner shouting at somebody every time they open the 9-box would be read
-    once and dismissed forever. What it must not be is absent: these findings
-    sat in the country packs for a day with nothing rendering them, which is
-    the same as not having them.
-    """
-    try:
-        from services import market_notes
-    except ImportError:
-        from jobsy.services import market_notes  # type: ignore
-
-    notes = (market_notes.performance_notes() if kind == "performance"
-             else market_notes.org_structure_notes())
-    if not notes:
-        return
-
-    with st.expander(notes[0], expanded=False):
-        for note in notes[1:]:
-            st.markdown(f"- {note}")
-        st.caption(market_notes.market_caveat())
-
-
 def _build_org_json(df_input, results, title_col):
     """Build dept-first tree: Company → Departments → Employees."""
     import json as _j, pandas as _pd2
@@ -114,7 +88,7 @@ def organigram_page(catalog):
     # The org chart is where the shape of the organisation is on screen, and in
     # these markets the shape IS the answer: "headcount" means a different unit
     # in every one of them, and every threshold in this product rests on which.
-    _market_panel("org_structure")
+    market_panel("org_structure")
 
     results=st.session_state.get("last_results",[]); df_input=st.session_state.get("upload_df")
     title_col=st.session_state.get("upload_title_col","JobTitle")

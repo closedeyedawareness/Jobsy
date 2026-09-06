@@ -116,8 +116,14 @@ VOCABULARY: dict[str, tuple[str, ...]] = {
     # a grade genuinely exists.
     "level":    ("kategoria zaszeregowania", "grupa zawodowa", "wspolczynnik pracy",
                  "współczynnik pracy", "stopien sluzbowy", "stopień służbowy"),
-    "fte":      ("wymiar etatu", "etat", "licznik_wymiaru_etatu",
-                 "mianownik_wymiaru_etatu", "wymiar czasu pracy", "niepelny etat"),
+    # NOTE the two names absent here: licznik_wymiaru_etatu and
+    # mianownik_wymiaru_etatu are a NUMERATOR AND A DENOMINATOR, not two
+    # spellings of one column, and listing them beside real FTE columns is what
+    # invites a detector to grab one — returning 1 for a half-timer, with no
+    # error anywhere, landing the whole error on part-time staff who skew
+    # female. They live in FTE_RATIO_PAIRS below, where the code can see that
+    # they belong together instead of inferring it from two similar names.
+    "fte":      ("wymiar etatu", "etat", "wymiar czasu pracy", "niepelny etat"),
     "tenure":   ("staz pracy", "staż pracy", "data zatrudnienia", "data_zatrudnienia",
                  "data zawarcia umowy", "data_zawarcia_umowy",
                  "data rozpoczecia pracy", "data_rozpoczecia_pracy"),
@@ -128,6 +134,21 @@ VOCABULARY: dict[str, tuple[str, ...]] = {
     "employee": ("numer ewidencyjny", "nr akt", "pesel", "nip", "identyfikator"),
     "country":  ("kraj", "panstwo", "państwo"),
 }
+
+#: Columns that carry the working-time fraction as two integers rather than as
+#: a number.
+#:
+#: Polish payroll exports commonly store it this way and hold NO single FTE
+#: value at all — 1 and 2 for a half-timer. A detector looking for one FTE
+#: column finds nothing here; one that grabs either half finds a number that
+#: looks entirely plausible and is wrong.
+#:
+#: Held as a pair so the code can know the two belong together. Nothing reads it
+#: yet — the detector still has to learn to ask — but the fact now lives where
+#: that work will look for it instead of only in a reviewer's memory.
+FTE_RATIO_PAIRS: tuple[tuple[str, str], ...] = (
+    ("licznik_wymiaru_etatu", "mianownik_wymiaru_etatu"),
+)
 
 #: `K` is kobieta — FEMALE — and no English- or Dutch-shaped parser recognises
 #: it. `M` is mężczyzna — MALE — which is the opposite of the Spanish H/M
@@ -378,7 +399,12 @@ PERFORMANCE = PerformanceModel(
 
 JOB_ARCHITECTURE = JobArchitecture(
     level_concept=Claim(
-        None, WET, _ICTWSS, _VERIFIED,
+        # "none in the private sector" rather than None. The finding was always
+        # in the note, but the VALUE said nothing — and anything that renders a
+        # claim outside the note-aware path prints "None", which reads as "we
+        # did not look" when the truth is "we looked and there is none". Those
+        # are different answers and only one of them is useful to a reader.
+        "none in the private sector", WET, _ICTWSS, _VERIFIED,
         note="THERE IS NO PRIVATE-SECTOR GRADE CONCEPT IN POLAND, and that is a finding "
              "rather than a gap. Bargaining covers 11,6% of employees, at company level, "
              "with no extension mechanism, and the collective-agreements title of the "

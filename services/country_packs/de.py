@@ -409,7 +409,12 @@ COMPENSATION = CompensationModel(
              "agreement, therefore it applies to the sector' is a Dutch assumption and is "
              "wrong in Germany about half the time."),
     seniority_progression=Claim(
-        "Stufenlaufzeit, 15 years to the top", WET, _TVL, _VERIFIED,
+        # The scope is IN THE VALUE, not only in the note. TV-L is the Länder
+        # agreement; TVöD, which covers the federal and municipal services, could
+        # not be obtained. A scope limit that only appears four sentences into
+        # the prose is a scope limit that gets quoted to a client without itself.
+        "Stufenlaufzeit, 15 years to the top (TV-L; TVöD unverified)",
+        WET, _TVL, _VERIFIED,
         note="TV-L section 16(3): six Stufen, reached after 1, then 2, then 3, then 4, "
              "then 5 years of uninterrupted service in the same Entgeltgruppe with the "
              "same employer — fifteen years cumulatively. Performance can shorten or "

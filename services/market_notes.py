@@ -47,6 +47,40 @@ _WEIGHT = {
 }
 
 
+#: What a measured share is a share OF, in words a reader can check.
+#:
+#: Unmapped slugs are not dropped — they are un-slugged and printed. A basis
+#: nobody added a phrase for still reads as something; a basis that vanishes
+#: leaves a percentage floating with no denominator, which is the exact failure
+#: this whole mechanism exists to prevent.
+_BASIS = {
+    "share_of_agreements": "collective agreements",
+    "share_of_employees": "employees",
+    "share_of_pay": "the pay bill",
+    "share_of_employers": "employers",
+}
+
+
+def _fraction_of(value) -> tuple[Optional[str], object]:
+    """Split a measurement into what it counts and how much.
+
+    A pack may store a share either as a bare fraction or as a
+    `(basis, fraction)` pair. The pair exists because 0,6284 on its own cannot
+    say whether it counts agreements, employees or pay — and the moment a second
+    market publishes a prevalence, a screen lining the two up would compare
+    different denominators with neither of them saying so.
+
+    Bare fractions stay legal: most fields have only ever had one sensible
+    denominator, and forcing a basis onto them would be ceremony rather than
+    information.
+    """
+    if (isinstance(value, tuple) and len(value) == 2
+            and isinstance(value[0], str) and not isinstance(value[1], str)):
+        basis = _BASIS.get(value[0], value[0].removeprefix("share_of_").replace("_", " "))
+        return basis, value[1]
+    return None, value
+
+
 def _as_percentage(value) -> Optional[str]:
     """A fraction rendered as what it is, or None if it is not one.
 
@@ -62,6 +96,7 @@ def _as_percentage(value) -> Optional[str]:
     Trailing zeros are stripped so 0.49 reads as 49% and not 49,00% — spurious
     precision is its own kind of dishonesty about a survey figure.
     """
+    value = _fraction_of(value)[1]
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     if not 0 <= value <= 1:
@@ -251,7 +286,8 @@ def _measured(claim, label: str, context: str = "") -> Optional[str]:
     if not (claim.note or "").strip():
         # No note to carry the figure's basis, so do not dress it up as one.
         return _line(claim, lead=f"{label}: ")
-    lead = f"{label}: {percentage}. "
+    basis = _fraction_of(getattr(claim, "value", None))[0]
+    lead = f"{label}: {percentage} of {basis}. " if basis else f"{label}: {percentage}. "
     if context:
         lead += context + " "
     return _line(claim, lead=lead)
@@ -286,8 +322,8 @@ def _seniority_line(claim, country=None) -> Optional[str]:
     """
     context = ""
     if _as_percentage(getattr(claim, "value", None)) is not None:
-        context = ("The note below says what that share is OF: it does not share a "
-                   "denominator with the coverage figure above.")
+        context = ("That denominator is not the one the coverage figure above uses, "
+                   "so the two percentages are not on one scale.")
         if len(_seniority_measured()) == 1:
             context += (" It is also the only market here that answers this with a "
                         "measured prevalence rather than a description of the "

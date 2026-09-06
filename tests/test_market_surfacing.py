@@ -45,12 +45,23 @@ VIEWS = pathlib.Path(cp.__file__).resolve().parent.parent.parent / "ui" / "views
     ("organigram.py", "org_structure", "org_structure_notes"),
 ])
 def test_the_view_calls_the_panel_and_the_panel_calls_the_helper(view, kind, helper):
-    """Both hops. A panel nobody calls and a panel that calls nothing both fail."""
+    """Both hops. A panel nobody calls and a panel that calls nothing both fail.
+
+    The second hop moved. Each view carried its own copy of the panel while
+    three agents worked in parallel and none could edit another's files — the
+    ownership rule working, and a debt to settle once it lifted. There is one
+    `market_panel` in `ui/shared.py` now, so hop one is still checked in the
+    view and hop two is checked where the panel actually lives.
+    """
     text = (VIEWS / view).read_text(encoding="utf-8")
-    assert f'_market_panel("{kind}")' in text, (
+    assert f'market_panel("{kind}")' in text, (
         f"{view} never calls the market panel for {kind}, so the slot renders nowhere")
-    assert f"market_notes.{helper}(" in text, (
-        f"{view} calls a panel that never reaches market_notes.{helper}")
+    assert "def market_panel" not in text, (
+        f"{view} has grown its own copy of the panel again — there is one in ui/shared.py")
+
+    shared = (VIEWS.parent / "shared.py").read_text(encoding="utf-8")
+    assert f"market_notes.{helper}" in shared, (
+        f"the shared panel never reaches market_notes.{helper}, so {kind} renders nothing")
 
 
 def test_the_panel_is_reached_before_the_page_can_return_early():
@@ -69,7 +80,7 @@ def test_the_panel_is_reached_before_the_page_can_return_early():
 
         call_lines = [n.lineno for n in ast.walk(page)
                       if isinstance(n, ast.Call)
-                      and getattr(n.func, "id", "") == "_market_panel"]
+                      and getattr(n.func, "id", "") == "market_panel"]
         assert call_lines, f"{view}: the page function never calls _market_panel"
 
         # There must be page content BELOW the panel, or it has been parked at
@@ -259,11 +270,17 @@ def test_there_is_exactly_one_not_advice_statement():
     assert source.count("NOT legal advice") == 1, (
         "market_notes should hold one not-advice statement, in market_caveat()")
 
-    for view in ("benefits.py", "job_family.py"):
+    # The caveat now lives once, in the shared panel, and that is a stronger
+    # guarantee than one assertion per view: a page cannot render market notes
+    # without it by forgetting a line, because it no longer writes the line.
+    shared = (VIEWS.parent / "shared.py").read_text(encoding="utf-8")
+    assert "market_notes.market_caveat()" in shared, (
+        "the shared panel renders market notes without the framing they are read under")
+
+    # What each view must still not do is write a SECOND one of its own.
+    for view in ("benefits.py", "job_family.py", "nine_box.py", "organigram.py"):
         text = (VIEWS / view).read_text(encoding="utf-8")
-        assert "market_notes.market_caveat()" in text, (
-            f"{view} renders market notes without the framing they are read under")
-        assert "legal advice" not in text.replace("market_caveat", ""), (
+        assert "legal advice" not in text, (
             f"{view} writes its own not-advice sentence instead of reusing the one")
 
 
@@ -291,3 +308,37 @@ def test_no_note_tells_an_employer_what_it_must_do():
         for banned in ("you must", "you should", "you are required",
                        "we recommend", "make sure you"):
             assert banned not in lowered, f"{banned!r} in: {text}"
+
+
+# ── a share that carries what it counts ───────────────────────────────────
+
+@pytest.mark.parametrize("value, basis, percentage", [
+    (("share_of_agreements", 0.6284), "collective agreements", "62,84%"),
+    (("share_of_employees", 0.5), "employees", "50%"),
+    (0.5, None, "50%"),                       # a bare fraction stays legal
+    (("share_of_widgets", 0.25), "widgets", "25%"),   # unmapped, still readable
+])
+def test_a_measured_share_can_carry_its_denominator(value, basis, percentage):
+    """A fraction may say what it is a fraction OF, and must not lose the figure.
+
+    An unmapped basis is un-slugged rather than dropped. A denominator nobody
+    wrote a phrase for still reads as something; a denominator that silently
+    vanishes leaves a percentage floating, which is the failure the pair exists
+    to prevent.
+    """
+    assert market_notes._fraction_of(value)[0] == basis
+    assert market_notes._as_percentage(value) == percentage
+
+
+def test_the_spanish_denominator_is_on_the_line_not_only_in_the_note():
+    """62,84% of WHAT has to survive being quoted on its own.
+
+    The note underneath says 908 of 1.445 convenios, but a reader who copies the
+    labelled line into a slide takes the figure and leaves the note. Spain counts
+    a share of AGREEMENTS where the coverage figure two lines up counts a share
+    of EMPLOYEES, and two percentages side by side on one screen read as one
+    scale unless the line itself says otherwise.
+    """
+    line = next(n for n in market_notes.compensation_notes("ES")
+                if "Automatic progression with service" in n)
+    assert "62,84% of collective agreements" in line
