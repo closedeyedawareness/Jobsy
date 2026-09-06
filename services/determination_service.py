@@ -43,7 +43,8 @@ from typing import Any, Optional
 __all__ = ["Determination", "Evidence", "Participant", "GENDER_CODE_MAPPING",
            "CROSS_COUNTRY_EQUIVALENCE", "PAY_COMPARISON_BASIS", "TITLE_TO_ROLE",
            "gender_code_determination", "cross_country_equivalence",
-           "pay_comparison_basis", "record", "recorded",
+           "pay_comparison_basis", "title_to_role_determination",
+           "record", "recorded",
            "EQUIVALENCE_USES", "REVIEW_MONTHS", "PAY_BASES", "FX_REVIEW_MONTHS"]
 
 #: What an employer might want a cross-country equivalence to be good FOR.
@@ -359,6 +360,79 @@ def cross_country_equivalence(*, source_country: str, target_country: str,
             capacity="Set an internal equivalence for their own organisation",
         ),) if actor else (),
     )
+
+
+def title_to_role_determination(*, country: str, title: str, chosen_job_id: str,
+                                chosen_role: str, rejected: tuple,
+                                population: Optional[int] = None,
+                                actor: str = "", reason: str = "") -> Determination:
+    """One real-world job title, two plausible standard roles, one decision.
+
+    The fourth type, and the one `review_service` has been doing all along
+    without keeping the reasoning — it writes the winning row to title_mapping
+    with `source = "Approved in review by X"` and the alternative simply
+    vanishes. That is a label; this is the record.
+
+    WHY THIS ONE IS NOT A TRIVIAL CASE. The alternatives usually differ by a
+    LEVEL — a German Finanzbuchhalter(in) is either a Finance Assistant (Junior)
+    or an Accountant (Medior), and the two sit in different salary bands. So the
+    choice moves somebody's pay comparison, which makes it exactly the kind of
+    judgement that has to be attributable in 2028 rather than inferred from
+    whichever row survived an upsert.
+
+    The rejected options are kept BY NAME. "We mapped it to Accountant" and "we
+    considered Finance Assistant and rejected it" are different records, and
+    only the second shows a decision was made at all.
+    """
+    return Determination(
+        determination_type=TITLE_TO_ROLE,
+        countries=(country.upper(),),
+        scope={"title": title, "job_id": chosen_job_id},
+        population_at_decision=population,
+        question=(
+            f"In {country.upper()}, the job title \u201c{title}\u201d appears against more "
+            f"than one standard role. Which role does it mean for this "
+            f"organisation?"),
+        system_proposed=(
+            "None. The importer refused the file rather than choosing: the "
+            "workbook offered two roles for one title, and picking either would "
+            "have made this decision silently."),
+        options=tuple({"option": f"{jid} \u2014 {name}"} for jid, name in
+                      ((chosen_job_id, chosen_role),) + tuple(rejected)),
+        chosen=f"{chosen_job_id} \u2014 {chosen_role}",
+        permitted_uses=(f"Resolving this title in {country.upper()} rosters",),
+        excluded_uses=(
+            "Any other market, where the same words may sit at a different level",
+            "Any assertion about what this title means in that labour market "
+            "generally",
+            "Any other employer",),
+        rationale={
+            "business_purpose": reason or (
+                "Resolve a title that the reference library maps two ways, so "
+                "rosters from this market match deterministically."),
+            "criteria": "The seniority the title carries in its own language, "
+                        "read against the standard role set.",
+            "residual_uncertainty": (
+                "The alternatives differ by level and therefore by salary band. "
+                "An employer whose usage differs should record their own "
+                "determination rather than inherit this one."),
+        },
+        review_trigger="A roster from this market where the title clearly means the other role",
+        review_due=_add_months(date.today(), REVIEW_MONTHS),
+        evidence=(Evidence(
+            kind="importer_refusal",
+            reference="library_import_service.build_rows",
+            hardness="CONVENTIE",
+            excerpt=(f"{country.upper()}/{title}: repeated natural key holding "
+                     f"different values for job_id. The workbook has to say which "
+                     f"is right \u2014 importing either would make the choice silently."),
+        ),),
+        participants=(Participant(
+            person=actor or "unknown", action="decided",
+            capacity="Resolved an ambiguous title for their own reference library",
+        ),) if actor else (),
+    )
+
 
 
 def pay_comparison_basis(*, countries, basis: str, rate: str = "",
