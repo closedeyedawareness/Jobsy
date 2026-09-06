@@ -190,3 +190,63 @@ found two defects in the half that reads it:
   conflated with it here.
 - **National transpositions of the directive differ.** `pay_equity_service` carries one note about
   Dutch implementing legislation. That becomes per-country content once a second market is live.
+
+---
+
+## 6. The next three: Italy, Portugal, the United Kingdom
+
+Elmar's intent, recorded 2026-09-06: **once the current gates are green, three more markets go in —
+IT, PT and UK.** Written here rather than left in a conversation, because two of the three carry
+consequences that have to be designed for before the data arrives, not discovered after it.
+
+### 6.1 What "once things are in order" has to mean
+
+Not "the suite is green". The suite was green through every one of the country defects found on
+6 September. Concretely, these close first:
+
+- the three `xfail(strict)` findings in `Repository` — `title_mapping` keyed without a country,
+  `plan_write_back` ignoring its parameter, and seven builders reading `(row country or "NL")`.
+
+They are one finding, not three: **a layer that does not carry the country dimension while the
+database does.** Adding three markets on top of that does not add three problems, it multiplies the
+existing one — every new market is another set of rows competing for a key that can hold only one.
+
+### 6.2 Italy and Portugal — the known shape
+
+Euro, EU, directive applies. Structurally these look like ES and FR, so the work is importing rows
+rather than changing the model. The part that is **not** a copy is the crosswalk: Italy's **CCNL**
+and Portugal's sectoral agreements are different institutions, exactly as §5 says of ERA and the
+conventions collectives. The honesty boundary in `docs/cao-metalektro-isf-reference.md` has to be
+re-argued for each, never inherited.
+
+### 6.3 The United Kingdom — the one that breaks assumptions
+
+The UK is the first market that is **not in the EU**, and three things in this codebase silently
+assume it would be.
+
+1. **Directive (EU) 2023/970 does not apply, and `vacancy_service.draft` asserts it unconditionally.**
+   Verified 2026-09-06: the `requirements` tuple is built with no country test, so a UK vacancy is
+   told it must state pay under art. 5(1)(a) and name a collective agreement under 5(1)(b) — citing
+   an instrument that does not bind that employer. That is worse than a missing feature. It is the
+   product being confidently wrong about the law, in the one module whose output is **published**.
+   The requirement set becomes per-country content before a UK role can be drafted.
+
+2. **The UK has its own regime, and it is a different instrument rather than a translation.**
+   Gender pay gap reporting under the Equality Act 2010 (employers of 250+), with its own
+   definitions, reference dates and published figures. Mapping art. 5 onto it would be the same
+   category error §5 warns about for ERA and the CAO.
+
+3. **GBP, and the EU-baseline fallback.** Currency is already per-country (`countries.currency`, and
+   the report service handles zloty, krona, krone and koruna), and §5's decision *not* to convert is
+   more right here, not less. But `_MarketRows` resolves country → EU baseline → nothing, and **a UK
+   row must never fall back to an EU baseline**: for a non-member state that fallback is wrong by
+   construction, not merely imprecise. The resolution order needs an explicit answer for markets
+   outside the union before UK rows exist.
+
+### 6.4 The measurement to take before, not after
+
+Every country defect this month was found by loading **two markets with different values** and
+asserting the first market's number comes back. Before IT, PT or UK are seeded, that fixture should
+already contain a non-euro, non-EU market — otherwise the assumptions in 6.3 stay invisible in
+exactly the way the `(row country or "NL")` default did: measured once when it was true, and never
+measured again.
