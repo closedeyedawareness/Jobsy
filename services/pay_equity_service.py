@@ -808,6 +808,18 @@ def _gender_classes(raw: pd.Series, country_values=None):
     notes = []
     active = _pack_for(None)
 
+    # Work positionally. `out.loc[mapped.index] = mapped` below is a label
+    # assignment, and a frame built by a merge can carry duplicate index labels
+    # -- pandas then refuses with "cannot reindex on an axis with duplicate
+    # labels". It happened to work on the first caller's frame and not on the
+    # second's, which is the kind of difference that shows up as a crash in one
+    # analysis and not the other for no reason a reader could guess. Both
+    # callers zip the result by position anyway, so nothing downstream wants
+    # the original labels.
+    norm = norm.reset_index(drop=True)
+    if country_values is not None:
+        country_values = country_values.reset_index(drop=True)
+
     groups = []
     if country_values is not None:
         keys = (country_values.where(country_values.notna(), "")
@@ -1262,13 +1274,31 @@ def analyze_variable_pay_exposure(
 
     d["_fun"] = d[function_col].astype(str).str.strip()
     d["_lvl"] = d[level_col].astype(str).str.strip()
-    # Same normalisation as analyze_gender_pay_gap, including the Dutch M/V fold.
-    # A file that analyses natively there must analyse natively here, or the two
-    # numbers on one screen would be computed over different populations.
+    # Same normalisation as analyze_gender_pay_gap. That sentence was written
+    # when both sites shared a hardcoded Dutch M/V fold, and for a few hours it
+    # stopped being true: the gap analysis learned to read the market's own
+    # codes and this one did not. The comment's own reasoning is why that had to
+    # be closed rather than noted -- a Polish or German file would have analysed
+    # natively above and lost every woman here, so the exposure figure and the
+    # gap figure on one screen would have been computed over different
+    # populations, with nothing on the screen saying so.
     m_lab = male_label.strip().upper()[:1]
     f_lab = female_label.strip().upper()[:1]
-    d["_g"] = d[gender_col].astype(str).str.strip().str.upper().str[:1]
-    d["_g"] = d["_g"].apply(lambda g: f_lab if g in ("F", "V") else (m_lab if g == "M" else g))
+    # No country column is threaded through here, so this resolves on the active
+    # market alone. That is a real limit and worth naming rather than hiding: on
+    # a roster spanning several countries the gap analysis reads each row with
+    # its own market's pack and this one reads them all with the session's. The
+    # two therefore still diverge on a MIXED roster, though no longer on a
+    # single-market one, which was the common case and the whole defect. Closing
+    # it fully means giving this function the country column too.
+    _cls, _ = _gender_classes(d[gender_col], None)
+    # An unknown keeps its own first letter, so it stays outside both labels,
+    # exactly as the old fold left it.
+    _fallback = d[gender_col].astype(str).str.strip().str.upper().str[:1]
+    d["_g"] = [
+        f_lab if c == FEMALE else (m_lab if c == MALE else f)
+        for c, f in zip(_cls, _fallback)
+    ]
 
     d = d[d["_sal"].notna() & (d["_sal"] > 0) & (d["_fun"] != "") & (d["_lvl"] != "")]
     n = len(d)
