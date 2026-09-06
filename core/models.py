@@ -235,6 +235,30 @@ _NL_REGULATORY_SKILL_IDS = frozenset({
 })
 
 
+def country_from_skill_id(skill_id: str) -> str:
+    """Which market a regulatory skill id names, or "" when it names none.
+
+    The country packs are SK-IND-XX-nn and carry their market IN the id, so it
+    can be read rather than assumed. The nine NL seed rows do not, and this
+    returns "" for them: saying nothing is the honest answer, and the caller
+    then falls back to the measured default.
+
+    Migration 0019 did exactly this with
+    `coalesce(substring(skill_id from '^SK-IND-([A-Z]{2})-'), 'NL')`. Written
+    here so the import cannot disagree with the database about whose law a row
+    states -- and it did disagree, for four hours: the import defaulted every
+    row of a shared sheet to NL, which filed SK-IND-DE-01 (GwG, German) and
+    SK-IND-ES-01 (Ley 10/2010, Spanish) under Dutch law. The id said so all
+    along and nothing read it.
+    """
+    sid = (skill_id or "").strip().upper()
+    parts = sid.split("-")
+    if (len(parts) == 4 and parts[0] == "SK" and parts[1] == "IND"
+            and len(parts[2]) == 2 and parts[2].isalpha()):
+        return parts[2]
+    return ""
+
+
 def is_regulatory_skill_id(skill_id: str) -> bool:
     """Does this industry skill belong to a country rather than to practice?
 

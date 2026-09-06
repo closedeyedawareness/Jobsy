@@ -465,16 +465,46 @@ def test_an_old_workbook_splits_the_shared_sheet_the_way_the_migration_did():
         "a row claimed by neither half is a row the import silently loses"
 
 
-def test_the_old_workbook_cannot_say_which_market_so_every_row_reads_dutch():
-    """An honest limit, not a guess. The sheet has no Country column, and 0019
-    measured every pre-existing row as Dutch before moving it. The German and
-    Spanish ids are the interesting case: they are national by construction but
-    this workbook cannot say WHOSE, so `defaults` answers and a reissued
-    workbook with a Country column overrides it per row."""
+def test_the_market_is_read_from_the_id_where_the_id_names_one():
+    """The first version of this test asserted the DEFECT and called it a limit.
+
+    It said every row of a shared sheet reads Dutch — because `defaults` is one
+    static value and cannot look at the row — so SK-IND-DE-01 (GwG) and
+    SK-IND-ES-01 (Ley 10/2010) were filed under Dutch law, and the test blessed
+    it with a docstring arguing the workbook "cannot say WHOSE". It can say.
+    The id says. Migration 0019 read it all along; the import did not, and for
+    four hours the two disagreed about whose law a row states.
+
+    An engine must not fill in what it does not know — and it must not decline
+    to read what it does. NL is the answer only where the id is silent: the
+    nine seed rows 0019 measured as Dutch before moving them.
+    """
     payload, _ = _rows(_book(IndustrySkills=_OLD_SHEET))
-    assert {r["country"] for r in payload["industry_regulatory_skills"]} == {"NL"}
+    by_id = {r["skill_id"]: r["country"] for r in payload["industry_regulatory_skills"]}
+
+    assert by_id["SK-IND-DE-01"] == "DE", "the id names Germany; do not file it as Dutch"
+    assert by_id["SK-IND-ES-01"] == "ES"
+    assert by_id["SK-IND-01"] == "NL", "no marker on the seed rows — measured, not guessed"
+    assert by_id["SK-IND-02"] == "NL"
+
     assert all("country" not in r for r in payload["industry_skills"]), \
         "the universal half must not acquire the column 0019 dropped"
+
+
+def test_the_import_and_the_migration_agree_on_whose_law_a_row_states():
+    """One rule, checked against the migration's own SQL rather than restated.
+
+    Two copies of a classification rule is how the halves quietly diverge, and
+    this pair diverged for four hours while a green suite said otherwise."""
+    sql = open("supabase/migrations/0019_industry_skills_regulatory_split.sql",
+               encoding="utf-8").read()
+    assert "'^SK-IND-([A-Z]{2})-'" in sql, \
+        "the migration no longer derives country from the id — re-check the import"
+
+    from core.models import country_from_skill_id
+    for sid, want in (("SK-IND-BE-03", "BE"), ("SK-IND-FR-01", "FR"),
+                      ("SK-IND-01", ""), ("SK-IND-05", "")):
+        assert country_from_skill_id(sid) == want, sid
 
 
 def test_a_reissued_workbook_is_preferred_and_carries_its_own_markets():

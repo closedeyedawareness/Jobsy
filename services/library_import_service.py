@@ -52,11 +52,11 @@ import pandas as pd
 try:
     from core.validator import Validator
     from core.catalog import SHEET_MAP
-    from core.models import is_regulatory_skill_id
+    from core.models import is_regulatory_skill_id, country_from_skill_id
 except ImportError:  # pragma: no cover - package-relative fallback
     from jobsy.core.validator import Validator
     from jobsy.core.catalog import SHEET_MAP
-    from jobsy.core.models import is_regulatory_skill_id
+    from jobsy.core.models import is_regulatory_skill_id, country_from_skill_id
 
 
 DEFAULT_WORKBOOK = "jobsy_reference_library.xlsx"
@@ -136,6 +136,21 @@ class TableSpec:
     # not, the sheet and the database disagree about what the table IS, which is
     # exactly the moment somebody should hear about it.
     row_filter: object = None
+    # Fields the ROW ITSELF can answer, read before `defaults` guesses.
+    #
+    # Given the mapped row, returns {column: value} for whatever it can work
+    # out; anything it cannot, it leaves out. Applied after the sheet and
+    # before the defaults, so the order of authority reads: what the workbook
+    # SAYS, then what the row IMPLIES, then what we MEASURED once and assume.
+    #
+    # This exists because the defaults were doing a job they cannot do. A
+    # regulatory skill id names its own market -- SK-IND-DE-01 is German by
+    # construction -- and the import was filing every row of a shared sheet
+    # under NL anyway, because `defaults` is one static value and cannot look
+    # at the row. Migration 0019 read the id; the import did not; and the two
+    # disagreed about whose law a row states. An engine must not fill in what
+    # it does not know, and it must not decline to read what it does.
+    derive: object = None
 
 
 # Order matters: a table may only appear after everything it references.
@@ -281,6 +296,7 @@ SPECS: list[TableSpec] = [
         defaults={"country": "NL"},
         repo_key="industryregulatoryskills",
         prefers_sheet="IndustryRegulatorySkills",
+        derive=lambda row: {"country": country_from_skill_id(row.get("skill_id"))},
         row_filter=lambda row: is_regulatory_skill_id(row.get("skill_id"))),
     # NOT keyed on country, unlike its neighbours. The unique here is
     # (org_id, obs_id) — a SURROGATE — so country varies freely underneath it
@@ -387,6 +403,10 @@ def build_rows(book: dict[str, pd.DataFrame], *, org_id: str,
             # column is nullable — and the two that use defaults are NOT NULL,
             # so a blank Country in a reissued workbook falls back here rather
             # than failing the insert.
+            if spec.derive is not None:
+                for db_col, value in (spec.derive(row) or {}).items():
+                    if row.get(db_col) in (None, "") and value not in (None, ""):
+                        row[db_col] = value
             for db_col, value in spec.defaults.items():
                 if row.get(db_col) in (None, ""):
                     row[db_col] = value
