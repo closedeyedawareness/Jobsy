@@ -227,7 +227,71 @@ hold, and a judgement layer is exactly where it would get crossed by accident.
 
 ---
 
-## 6. What this is not
+## 6. Learning across tenants — DECIDED 6 September 2026
+
+Decided by Elmar. Recorded here because it must be settled **before** the first
+client, not after: what has already been learned cannot be un-learned, and a
+sharing rule written after the fact is a rule nobody agreed to.
+
+### The decision
+
+Learning is shared by default, with the contributing organisation anonymised and
+only its **industry** carried through — subject to one threshold, below.
+
+### Why a threshold is still needed
+
+Anonymising protects **language**. It does not protect **structure**.
+
+"Boekhouder means accountant" says nothing about who said it. But a title
+carrying a grade, or an equivalence between two countries, is an imprint of how
+one employer is built. With eight industries in the system, "an energy company,
+grade 12, these function names" is not anonymous to an HR director in that
+sector — recognising a competitor's architecture is their job.
+
+**This product already holds that position and already ships it.**
+`pay_equity_service.SMALL_N = 5` suppresses exposure figures with the note:
+
+> "Fewer than 5 of one gender with a known entitlement — exposure figures are
+> suppressed as unreliable and **re-identifying**."
+
+Small group means recognisable, with or without a name. The cross-tenant rule is
+that same rule one level up, and it deliberately reuses the same number.
+
+### The threshold
+
+**K = 5 contributing organisations.** Not a new constant: it is
+`pay_equity_service.SMALL_N`, and any implementation must import it rather than
+restate it. Two thresholds that mean the same thing will drift, and the one that
+drifts will be the one nobody is watching.
+
+### The three categories
+
+| Category | What it is | Rule |
+|---|---|---|
+| **Vocabulary** | title → role, with no grade and no money | Anonymised, industry attached, shared. **No threshold** — it carries no identity. |
+| **Structure or money** | title *with* a grade, salary bands, benefit observations | Visible only at **K ≥ 5 contributing organisations**. Below that it stays with its source. |
+| **Determinations** | the D4-equals-C3 kind | **Never shared as records**, at any K. At most counted: *"7 employers have made an equivalence between these two"* — never which, never how, never why. |
+
+The third row is the one to hold. A determination is by definition an employer's
+judgement about their own people; that is the single category where sharing is
+wrong even anonymised and even at scale. It is also the smallest category, so
+almost nothing is lost by excluding it.
+
+### Why this shape is worth having
+
+It needs no permission dialogue with a first client. Sharing vocabulary is
+uncontroversial; everything genuinely sensitive waits automatically until enough
+sources exist that nobody can be picked out of it. That is a rule that can go
+into a contract and then enforce itself, rather than one that depends on someone
+making a judgement call per row.
+
+**What still has to be written by a person, not inferred from this document:**
+the contractual clause. A technical rule the client never agreed to is not
+consent, however well it behaves.
+
+---
+
+## 7. What this is not
 
 **Not "court-proof".** No record can be. The honest promise:
 
@@ -239,7 +303,7 @@ behind.
 
 ---
 
-## 7. Open, and not for an agent to decide
+## 8. Open, and not for an agent to decide
 
 1. **The AI Act intended-use analysis has never been done.** Employment AI that
    influences terms of work can fall in the high-risk category, which carries
@@ -252,11 +316,7 @@ behind.
    minimisation and deletion rules and the two have to be reconciled
    deliberately: the reasoning is arguably not personal data, the population
    snapshot is.
-3. **Whether learning may cross tenants.** The compounding asset is the corpus
-   of adjudications — which mappings humans accept, which they reject, why
-   exceptions are made. That is also the most sensitive thing in the database.
-   Contractual and technical separation before, not after.
-4. **First slice.** `gender_code_mapping` is the cheapest and proves the shape;
+3. **First slice.** `gender_code_mapping` is the cheapest and proves the shape;
    `cross_country_equivalence` is the one that carries commercial weight because
    it turns the spine's refusal from a dead end into the beginning of a
    defensible decision.
