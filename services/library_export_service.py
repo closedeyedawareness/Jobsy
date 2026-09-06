@@ -22,13 +22,20 @@ Two properties this is built around:
 
 `ExportInfo` is not in SHEET_MAP, so re-importing the file ignores it.
 
+A note on the paragraph below, kept out of it on purpose. It once counted the
+sheets and listed pay_mix and pay_elements as tables "nothing loads yet"; by
+6 September 2026 the map had grown well past that count and held both of them.
+A stale honest-limit is worse than none, because this is the one place a reader
+is told what the export does NOT contain — name the wrong omissions and the
+honesty becomes decorative. So it now names no count and no table, and
+`test_the_honest_limit_stays_true` keeps it that way.
+
 HONEST LIMIT — this is a snapshot of the LIBRARY THE APP READS, not a backup of
-the database. The app loads the 20 sheets in SHEET_MAP; the database also holds
-pay_mix and pay_elements, which nothing loads yet, and the append-only
-library_audit and library_revisions history, which a workbook cannot hold at
-all. Restoring from this file restores what the app uses and loses the rest.
-The ExportInfo sheet reports the sheet and row counts so the difference is
-visible rather than assumed.
+the database. The app loads every sheet in SHEET_MAP; what a workbook cannot
+hold is the append-only library_audit and library_revisions history. Restoring
+from this file restores what the app uses and loses that trail. The ExportInfo
+sheet reports the sheet and row counts so the difference is visible rather than
+assumed.
 """
 from __future__ import annotations
 

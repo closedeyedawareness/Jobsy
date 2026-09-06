@@ -99,3 +99,38 @@ def test_export_bytes_produces_a_real_workbook(catalog):
 def test_the_filename_names_the_source(catalog):
     assert "excel" in LibraryExportService(catalog).suggested_filename()
     assert LibraryExportService(catalog).suggested_filename().endswith(".xlsx")
+
+
+def test_the_honest_limit_stays_true():
+    """The docstring's HONEST LIMIT is the one place a reader is told what the
+    export does NOT contain. It rotted once and nobody noticed.
+
+    Until 6 September 2026 it said "the 20 sheets in SHEET_MAP" and named
+    pay_mix and pay_elements as tables "nothing loads yet". By then the map held
+    25 sheets and both of those were in it. Naming the wrong omissions makes the
+    honesty decorative — a reader trusts the paragraph precisely because it
+    admits something.
+
+    So the text now names no count and no table, and this test keeps it that
+    way: a hard-coded number in that paragraph is a promise that goes stale on
+    the next migration.
+    """
+    import re
+
+    from core.catalog import SHEET_MAP
+    from services import library_export_service as svc
+
+    doc = svc.__doc__ or ""
+    start = doc.find("HONEST LIMIT")
+    assert start != -1, "the HONEST LIMIT paragraph is gone"
+    limit = doc[start:]
+
+    counts = re.findall(r"\b(\d+)\s+sheets\b", limit)
+    assert not counts, (
+        f"HONEST LIMIT hard-codes a sheet count {counts}; SHEET_MAP holds "
+        f"{len(SHEET_MAP)} and the number will rot again")
+
+    for sheet, key in SHEET_MAP.items():
+        assert key not in limit.split("library_audit")[0], (
+            f"HONEST LIMIT names {key!r} as something the app does not load, "
+            f"but {sheet} is in SHEET_MAP")
