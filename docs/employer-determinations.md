@@ -305,12 +305,42 @@ behind.
 
 ## 8. Open, and not for an agent to decide
 
-1. **The AI Act intended-use analysis has never been done.** Employment AI that
-   influences terms of work can fall in the high-risk category, which carries
-   logging, human-oversight, override and worker-information obligations. A
-   judgement layer with a `system_proposed` column is *evidence of human
-   oversight* and may help — but the classification is counsel's call, in either
-   direction, and must not be assumed here.
+1. **The AI Act intended-use analysis.** Read at source 6 September 2026; the
+   classification itself remains counsel's call, but three things are now known
+   rather than assumed.
+
+   **Annex III(4)(b)** covers, verbatim:
+
+   > "AI systems intended to be used to make decisions affecting terms of
+   > work-related relationships, the promotion or termination of work-related
+   > contractual relationships, to allocate tasks based on individual behaviour
+   > or personal traits or characteristics or **to monitor and evaluate the
+   > performance and behaviour of persons** in such relationships."
+
+   *Source: Regulation (EU) 2024/1689, Annex III point 4. Hardness: WET as to the
+   wording; UITLEG as to whether this product falls inside it.*
+
+   **THE MODULE NEAREST THE LINE IS THE 9-BOX, NOT PAY EQUITY.** That was not the
+   expected answer. Matching and pay-equity analysis produce findings a human
+   acts on; the operative words there are "intended to be used **to make
+   decisions**", and this product proposes rather than decides. The 9-box is
+   different: "monitor and evaluate the performance and behaviour of persons" is
+   a description of what a 9-box grid IS. The German pack already flags §87(1)
+   Nr. 6 co-determination for precisely that screen, from a different direction
+   entirely — two instruments converging on the same module is worth noticing.
+
+   **Article 6(3)** lets a system listed in Annex III fall outside high-risk
+   where it performs a narrow procedural task or provides only an additional
+   layer to human activity. The judgement layer is directly relevant: a
+   determination that stores what the system proposed BESIDE what the employer
+   decided is documentary evidence of that shape. Building it may improve the
+   position; it does not settle it.
+
+   **AND THE ANALYSIS IS REQUIRED EITHER WAY.** A provider who concludes their
+   system is *not* high-risk must document that assessment **before the system
+   is placed on the market** and produce it to authorities on request. So "we
+   have not done one" is a gap whichever way the answer goes — it is not
+   paperwork that becomes necessary only if the answer is yes.
 2. ~~**Retention.**~~ **DECIDED 6 September 2026, by Elmar.** The retention
    period follows the applicable directive rather than a number this product
    invents, and PH-LiveOps signals when renewal is due — the same mechanism
@@ -319,13 +349,43 @@ behind.
 
    Two things that decision does **not** yet settle, and neither may be guessed:
 
-   * **Which period, from which instrument.** "Per the directive" is the right
-     principle and not yet a number. The Pay Transparency Directive, the
-     national limitation period for a pay claim, and GDPR storage limitation are
-     three different clocks and the longest one governs how long a determination
-     must remain defensible. Until that is sourced it is ONBEVESTIGD, exactly as
-     any other legal claim in this product would be, and it must not be written
-     into `library_review_policy` as though it were known.
+   * **Which period, from which instrument — READ AT SOURCE 6 September 2026,
+     and the answer is that the directive does not give one.**
+
+     Directive (EU) 2023/970 **specifies no retention period at all.** What it
+     specifies instead decides the question anyway:
+
+     - **Art. 21(1):** limitation periods for bringing a claim "shall be no
+       shorter than three years", and "shall not begin to run before the
+       claimant is aware, or can reasonably be expected to be aware, of an
+       infringement". Member States may further provide that they do not run
+       while the infringement is ongoing, or before the employment relationship
+       ends.
+     - **Art. 18:** the burden of proof is REVERSED. Once a worker establishes
+       facts suggesting discrimination, the employer must prove there was none —
+       and where the employer failed its transparency obligations, it carries
+       that burden outright.
+     - **Art. 9(9):** an employer answers with "information from the previous
+       four years, if available."
+
+     *Hardness: WET. Source: Directive (EU) 2023/970, Arts. 9, 18 and 21, read
+     from the EUR-Lex text on 6 September 2026.*
+
+     **THREE YEARS IS A FLOOR, NOT AN ANSWER, and reading it as one would be the
+     expensive mistake.** The clock may not start until the worker becomes aware,
+     and in some member states not until they leave. So a determination recorded
+     in 2026 about somebody who stays until 2040 may still have to be defended
+     after that. There is no upper bound derivable from the directive.
+
+     The reversed burden is what makes this urgent rather than administrative.
+     The employer has to prove a negative, and a determination is the evidence
+     they prove it with. **Deleting the record does not reduce exposure — it
+     removes the defence while leaving the claim.**
+
+     What is therefore still open is not "what does the directive say" but a
+     policy choice for Elmar with counsel: the national limitation period that
+     actually applies, and whether to keep determinations for a fixed long
+     period or for the life of the employment relationship plus that period.
    * **The tension with migration 0010.** Minimisation and deletion apply to the
      roster; a determination has to outlive it. The reasoning, the criteria and
      the participants are arguably not personal data. The population snapshot

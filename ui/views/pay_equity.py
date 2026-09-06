@@ -90,8 +90,51 @@ def _ask_for_gender_mapping(df, gender_col: str, refusal) -> None:
     st.session_state.setdefault(_GENDER_CHOICE, {})[gender_col] = {
         "female": female, "male": male,
     }
+    _record_gender_determination(gender_col, refusal, female, male, len(df))
     st.caption(f"Reading {female} as women and {male} as men for this column.")
     st.rerun()
+
+
+def _record_gender_determination(gender_col, refusal, female, male, population) -> None:
+    """Keep the answer instead of throwing it away at the end of the session.
+
+    This is the first slice of the judgement layer, and it was chosen because
+    NOTHING NEW HAD TO BE INVENTED. The question is already asked, already
+    answered by a person, and already discarded — the next upload of the same
+    file asks it again. What was missing was somewhere to put it.
+
+    Failure is reported, never raised. The analysis is what the user asked for;
+    the record is what we owe them. Losing the second must not cost them the
+    first — but it must not pass in silence either, which is why this says so on
+    screen rather than swallowing the reason.
+    """
+    try:
+        from services import auth_service
+        from services import determination_service as det
+    except ImportError:                                   # pragma: no cover
+        from jobsy.services import auth_service                     # type: ignore
+        from jobsy.services import determination_service as det     # type: ignore
+
+    org_id = auth_service.active_org_id()
+    if not org_id:
+        return
+
+    who = ""
+    try:
+        who = (auth_service.current_user() or {}).get("email") or ""
+    except Exception:
+        pass
+
+    determination = det.gender_code_determination(
+        country=getattr(refusal, "country", "") or "",
+        column=gender_col,
+        codes=getattr(refusal, "codes", ()) or (),
+        female_value=female, male_value=male,
+        population=population, actor=who,
+    )
+    _id, err = det.record(auth_service.db(), org_id, determination, actor=who)
+    if err:
+        st.caption(f"The analysis will run; the decision was not recorded: {err}")
 
 
 def _render_leveled_gap(df, *, function_col, level_col, gender_col, salary_col, fte_col=None,
