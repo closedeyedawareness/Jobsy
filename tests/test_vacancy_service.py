@@ -47,18 +47,76 @@ class _Skill:
 
 
 class _Repo:
+    """Two markets, deliberately.
+
+    The earlier single-market fixture is why the Dutch band reached a Spanish
+    advertisement: with one country loaded, honouring the requested market and
+    ignoring it produce identical output, and the test cannot tell them apart.
+    The Spanish figures are the real ones from the incident.
+    """
+
     def __init__(self, band=_Band(), title="HR Business Partner"):
         self.jobs = {"J-HR-03": _Job("J-HR-03", title)}
         self.profiles = {"J-HR-03": _Profile()}
         self.salary = {("HR", "Senior"): band} if band else {}
+        self._by_market = {
+            "NL": {("HR", "Senior"): band} if band else {},
+            "ES": {("HR", "Senior"): _Band(33100, 46700)} if band else {},
+        }
         self.role_skill_map = {"J-HR-03": [_Requirement("SK-01")]}
         self.skills = {"SK-01": _Skill("Coaching and mentoring")}
+
+    def salary_for(self, function, level, country):
+        """What the real repository does: answer for the market it was ASKED
+        about, not the one the session happens to be on."""
+        market = (country or "NL").strip().upper()
+        return self._by_market.get(market, {}).get((function, level))
 
 
 class _Pack:
     class compensation:
         class structure:
             value = "CAO, extended by ministerial declaration"
+
+
+# ── the fallback that used to hide the bug ───────────────────────────────────
+
+def test_a_repository_without_salary_for_raises_rather_than_guessing():
+    """The first version guarded this call with hasattr and fell back to
+    repo.salary, which resolves on the SESSION's market. That fallback is how a
+    Dutch band reached a Spanish advertisement, and a stub repository took it
+    silently — the branch even carried `pragma: no cover`, so nothing reported
+    it as untested.
+
+    A repository that cannot answer for a named market must stop the draft. The
+    assertion is deliberately that it RAISES: no vacancy is a recoverable
+    outcome, and the wrong country's pay in a published one is not.
+    """
+    class _Bare:
+        """Everything draft() needs EXCEPT salary_for -- the stub, the rename,
+        the half-built double."""
+        def __init__(self):
+            full = _Repo()
+            self.jobs, self.profiles = full.jobs, full.profiles
+            self.salary = full.salary          # the tempting wrong answer
+            self.role_skill_map, self.skills = full.role_skill_map, full.skills
+
+    with pytest.raises(AttributeError):
+        vs.draft(_Bare(), "J-HR-03", country="ES")
+
+
+def test_the_named_market_is_honoured_not_the_session():
+    """The regression itself, stated once: ask for ES and the ES band appears,
+    whatever market the session happens to be on."""
+    seen = {}
+
+    class _TwoMarket(_Repo):
+        def salary_for(self, function, level, country):
+            seen["country"] = country
+            return super().salary_for(function, level, country)
+
+    vs.draft(_TwoMarket(), "J-HR-03", country="ES")
+    assert seen["country"] == "ES"
 
 
 # ── art. 5(1)(a): the pay, and what happens when there is none ────────────

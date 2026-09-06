@@ -228,10 +228,16 @@ def draft(repo, job_id: str, *, country: str, pack=None) -> Optional[VacancyDraf
     # country_service.active_country(), which is right for a screen and wrong
     # here: this function is handed a country and must honour it. The first
     # version did not, and put a Dutch salary band into a Spanish vacancy.
-    if hasattr(repo, "salary_for"):
-        band = repo.salary_for(job.function, job.level, country)
-    else:                                                  # pragma: no cover
-        band = repo.salary.get((job.function, job.level))
+    # No hasattr guard, and no fallback to repo.salary. The fallback WAS the
+    # defect: it resolves on the session's market, so any repository without
+    # salary_for -- a stub, a fixture, a rename -- would quietly put one
+    # country's pay into another country's advertisement, which is the exact
+    # harm this function is careful about. It also carried `pragma: no cover`,
+    # so nothing would ever have reported the branch as untested.
+    #
+    # A missing salary_for raises here and stops the draft. Loud and no vacancy
+    # beats quiet and the wrong country's salary in a published one.
+    band = repo.salary_for(job.function, job.level, country)
     pay = _money(getattr(band, "min", None), getattr(band, "max", None),
                  getattr(band, "currency", "") or "") if band else ""
 
