@@ -495,3 +495,37 @@ def active_org_id() -> Optional[str]:
 def is_admin() -> bool:
     org = active_org()
     return bool(org) and org["role"] in ("partner_admin", "client_admin")
+
+
+def can_export_library() -> bool:
+    """May this account download the reference library as a workbook?
+
+    PARTNER ADMIN ONLY, and deliberately narrower than `is_admin()`. That helper
+    includes `client_admin`, which is the customer's own administrator — the
+    person this restriction is most about. The library is the product: 81
+    standard roles, 45 salary bands, the grade ladder, the skills taxonomy and
+    571 role-to-skill links, built over months. A client who exports it once
+    does not need the product again.
+
+    Their own data is a different question with a different answer. A client's
+    roster, their matches, their pay-equity report and their own overrides are
+    theirs, and every one of those has its own export that stays available. What
+    this gate removes is the one button that hands over the reference set.
+
+    ── THE HONEST LIMIT, because a gate that is oversold is worse than none ──
+
+    THIS IS NOT CONTAINMENT. A client's session legitimately loads the shared
+    library — that is how matching works at all, so `_fetch_all` reads the
+    client org AND the library org together — which means those rows are in
+    their browser whatever this function returns. Hiding the button removes the
+    sanctioned one-click path and puts the remaining routes outside what the
+    product offers; it does not make the data unreachable to somebody
+    determined.
+
+    A real boundary would mean a client never receiving the full library at
+    all — matching answering server-side and returning only the rows their own
+    file touched. That is an architectural change, not a permission check, and
+    it should be decided as one.
+    """
+    org = active_org()
+    return bool(org) and org["role"] == "partner_admin"

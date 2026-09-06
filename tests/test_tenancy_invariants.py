@@ -354,3 +354,79 @@ def test_no_user_facing_string_hard_codes_the_product_name(path):
         + "; ".join(f"line {ln}: {t!r}" for ln, t in offenders)
         + " — route them through _brand_name()"
     )
+
+
+# ── the library is the product, and it had a download button on it ────────
+
+@pytest.mark.parametrize("role, may", [
+    ("partner_admin",   True),    # the account that maintains the library
+    ("partner_analyst", False),
+    ("client_admin",    False),   # the customer's own admin — the point of this
+    ("analyst",         False),
+    ("viewer",          False),
+])
+def test_only_the_partner_admin_may_export_the_library(role, may):
+    """81 roles, 45 salary bands, a grade ladder and 571 role-to-skill links.
+
+    A client who exports that once does not need the product again. Until 6
+    September 2026 the navigation list was unfiltered, so every signed-in
+    account reached the Data Quality page, and the export button sat on it with
+    no check at all.
+
+    Narrower than `is_admin()` deliberately: that helper includes client_admin,
+    which is the customer's own administrator and the role this exists to stop.
+    """
+    from unittest.mock import patch
+    from services import auth_service
+
+    with patch.object(auth_service, "active_org", lambda: {"role": role}):
+        assert auth_service.can_export_library() is may
+
+
+def test_no_signed_out_session_can_export():
+    from unittest.mock import patch
+    from services import auth_service
+    with patch.object(auth_service, "active_org", lambda: None):
+        assert auth_service.can_export_library() is False
+
+
+def test_the_export_button_is_behind_that_check_and_not_merely_beside_it():
+    """Structural, because the failure is a button that renders anyway.
+
+    A permission helper that exists and is never consulted reads exactly like
+    one that is — the pay-equity `country_col` and the report's `currency` were
+    both that shape this week.
+    """
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "ui" / "views" / "data_quality.py").read_text(encoding="utf-8")
+
+    assert "can_export_library()" in src, "nothing decides who may export the library"
+    guard = src.index("can_export_library()")
+    button = src.index("Export library to Excel")
+    assert guard < button, "the check is declared after the button it should gate"
+
+    # And the button must sit inside the allowed branch, not merely below the
+    # check: `if not _may_export` followed by an unguarded call would pass the
+    # ordering test above while rendering for everybody.
+    between = src[guard:button]
+    assert "else:" in between, (
+        "the export is not inside the branch the permission check opens")
+
+
+def test_a_client_keeps_the_exports_that_are_about_their_own_data():
+    """The gate must not become a general refusal to let clients have anything.
+
+    Their roster, their matches, their pay-equity report and the architecture
+    report are theirs. Only the reference set is withheld.
+    """
+    import pathlib
+    ui = pathlib.Path(__file__).resolve().parents[1] / "ui"
+    others = [p for p in ui.rglob("*.py")
+              if "_logged_download(" in p.read_text(encoding="utf-8")
+              and p.name != "shared.py"]
+    gated = [p for p in others
+             if "can_export_library" in p.read_text(encoding="utf-8")]
+    assert len(others) > len(gated), (
+        "every download in the product is now behind the library gate, which "
+        "withholds a client's own data along with ours")

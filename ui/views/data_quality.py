@@ -101,20 +101,35 @@ def data_quality_page(catalog):
     # in the repo is not the master and cannot be trusted as a copy of it; this
     # button produces one from whatever the app is actually reading.
     _src_label = getattr(catalog, "active_source", None) or "the library"
+    # PARTNER ADMIN ONLY. The navigation list is unfiltered, so every signed-in
+    # account — a viewer at a client included — reaches this page, and until now
+    # reached this button with it. The library is the product; a client who
+    # exports it once does not need the product again. Their own roster,
+    # matches and reports keep their own exports.
+    try:
+        from services import auth_service as _auth
+    except ImportError:                                   # pragma: no cover
+        from jobsy.services import auth_service as _auth  # type: ignore
+    _may_export = _auth.can_export_library()
+
     _c_exp, _c_note = st.columns([1, 3])
     with _c_exp:
-        try:
-            from services.library_export_service import LibraryExportService, export_bytes
-            _exporter = LibraryExportService(catalog)
-            _logged_download(
-                "Export library to Excel",
-                data=export_bytes(catalog),
-                file_name=_exporter.suggested_filename(),
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                help="A snapshot of the library the app is reading right now.",
-            )
-        except Exception as _exc:
-            st.caption(f"Export unavailable: {_exc}")
+        if not _may_export:
+            st.caption("The library export is limited to the partner account that "
+                       "maintains it.")
+        else:
+            try:
+                from services.library_export_service import LibraryExportService, export_bytes
+                _exporter = LibraryExportService(catalog)
+                _logged_download(
+                    "Export library to Excel",
+                    data=export_bytes(catalog),
+                    file_name=_exporter.suggested_filename(),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="A snapshot of the library the app is reading right now.",
+                )
+            except Exception as _exc:
+                st.caption(f"Export unavailable: {_exc}")
     with _c_note:
         st.caption(f"Snapshot of the library as loaded from **{_src_label}**, with an ExportInfo "
                    f"sheet recording the source, the time and the row counts. It restores the "
