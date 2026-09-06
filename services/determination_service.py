@@ -42,7 +42,32 @@ from typing import Any, Optional
 
 __all__ = ["Determination", "Evidence", "Participant", "GENDER_CODE_MAPPING",
            "CROSS_COUNTRY_EQUIVALENCE", "PAY_COMPARISON_BASIS", "TITLE_TO_ROLE",
-           "gender_code_determination", "record"]
+           "gender_code_determination", "cross_country_equivalence",
+           "record", "recorded", "EQUIVALENCE_USES", "REVIEW_MONTHS"]
+
+#: What an employer might want a cross-country equivalence to be good FOR.
+#:
+#: A closed list rather than a free-text box, because the whole point of the
+#: field is that a reader must be able to tell later which uses were agreed and
+#: which were not. "Mobility" typed one way in 2026 and another in 2028 defeats
+#: that. Offered on screen as checkboxes; whatever is NOT ticked becomes an
+#: excluded use explicitly, rather than merely being absent.
+EQUIVALENCE_USES = (
+    ("reporting",  "Internal and statutory reporting"),
+    ("mobility",   "Moving people between the two markets"),
+    ("career",     "Career paths and progression planning"),
+    ("pay",        "Setting or comparing pay"),
+    ("promotion",  "Promotion eligibility"),
+    ("benefits",   "Benefit entitlement"),
+)
+
+#: How long before an equivalence should be looked at again.
+#:
+#: 12 months, and NOT a new number: it is the interval migration 0017 already
+#: sets for `job_grades`, on the ground that the ladder is the employer's and
+#: the money in it is the market's. An equivalence rests on TWO such ladders and
+#: cannot be sounder than the shorter-lived of them.
+REVIEW_MONTHS = 12
 
 TABLE = "employer_determination"
 
@@ -209,6 +234,137 @@ def gender_code_determination(*, country: str, column: str, codes,
             capacity="Supplied the coding convention for their own file",
         ),) if actor else (),
     )
+
+
+def _add_months(start: date, months: int) -> date:
+    """Calendar arithmetic that does not fall over on 29 February.
+
+    `start.replace(year=+1)` raises on a leap day, and a review date that raises
+    once every four years is a review date that fails in production and nowhere
+    else.
+    """
+    total = start.month - 1 + months
+    year = start.year + total // 12
+    month = total % 12 + 1
+    last = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
+            31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+    return date(year, month, min(start.day, last))
+
+
+def cross_country_equivalence(*, source_country: str, target_country: str,
+                              source_grade: str, target_grade: str,
+                              purposes, refusal: str = "",
+                              population: Optional[int] = None,
+                              actor: str = "", reason: str = "") -> Determination:
+    """The slice that turns a refusal into the start of a decision.
+
+    `bridge()` refuses GRADE outright and is right to: ISF, CATS, ERA, PC 200
+    and the Metallurgie groupes are separate institutions negotiated by
+    different parties under different law, with no legal equivalence between
+    them. A table claiming a Dutch schaal 9 "is" an Entgeltgruppe 11 would be an
+    invention with a product's authority behind it.
+
+    But the employer with sites in both still has to run one career
+    architecture. Until now the product said "that judgement belongs to them"
+    and stopped — which is exactly where a client is left holding a real problem
+    with nowhere to put the answer.
+
+    WHAT MAKES THIS DIFFERENT FROM THE TABLE WE REFUSE TO SHIP: it is scoped to
+    one employer, marked CONVENTIE, dated, attributed, carries the uses it is
+    NOT good for, and is never visible to another client. It does not become a
+    fact about the two countries.
+
+    `purposes` is the load-bearing argument. Everything in EQUIVALENCE_USES not
+    chosen is written into `excluded_uses` explicitly, because "we did not tick
+    pay" and "pay is excluded" look identical in a record that lists only what
+    was agreed — and only one of them is defensible two years later.
+    """
+    src, tgt = source_country.upper(), target_country.upper()
+    chosen_keys = {str(p) for p in (purposes or ())}
+    permitted = tuple(label for key, label in EQUIVALENCE_USES if key in chosen_keys)
+    excluded = tuple(label for key, label in EQUIVALENCE_USES if key not in chosen_keys)
+
+    return Determination(
+        determination_type=CROSS_COUNTRY_EQUIVALENCE,
+        countries=(src, tgt),
+        scope={"source_grade": source_grade, "target_grade": target_grade},
+        population_at_decision=population,
+        question=(
+            f"For this employer's internal purposes only, should {src} "
+            f"{source_grade} and {tgt} {target_grade} be treated as equivalent — "
+            f"and for which uses?"),
+        system_proposed=(
+            refusal or
+            "None. Grades cannot be bridged between countries: they are separate "
+            "institutions negotiated by different parties under different law, "
+            "with no legal equivalence between them."),
+        options=(
+            {"option": f"Treat {src} {source_grade} as equivalent to {tgt} "
+                       f"{target_grade} for the selected uses"},
+            {"option": "Treat them as not equivalent for any purpose"},
+            {"option": "Defer, and handle each case individually"},
+        ),
+        chosen=f"{src} {source_grade} = {tgt} {target_grade}",
+        permitted_uses=permitted,
+        excluded_uses=excluded + (
+            "Any assertion that these grades are legally equivalent",
+            "Any other employer",),
+        rationale={
+            "business_purpose": reason or "Run one career architecture across "
+                                          "both markets.",
+            "criteria": "The employer's own comparison of the two roles' scope, "
+                        "responsibility and place in their organisation.",
+            "residual_uncertainty": (
+                "No legal equivalence exists between these grading instruments. "
+                "This is the employer's convention and is not evidence about "
+                "either national system."),
+        },
+        review_trigger=(f"A change to either grading instrument, or to this "
+                        f"employer's own ladder in {src} or {tgt}"),
+        review_due=_add_months(date.today(), REVIEW_MONTHS),
+        evidence=(Evidence(
+            kind="engine_refusal",
+            reference="country_packs.bridge(grade)",
+            hardness="WET",
+            excerpt=(refusal or "Grades cannot be bridged between countries."),
+        ),),
+        participants=(Participant(
+            person=actor or "unknown", action="decided",
+            capacity="Set an internal equivalence for their own organisation",
+        ),) if actor else (),
+    )
+
+
+def recorded(client, org_id: str, determination_type: str, *,
+             countries=None) -> list:
+    """Determinations this employer has already made. Read-only.
+
+    THE HALF THAT MAKES THIS A FEATURE RATHER THAN A FILING CABINET. A record
+    nobody reads back is a compliance gesture. The point is that the next person
+    to meet the same refusal sees that their organisation already answered it —
+    when, by whom, and for which uses — instead of deciding it again slightly
+    differently and leaving two conventions in the same company.
+
+    Superseded and withdrawn rows are excluded: a replaced determination is
+    history, and showing it beside the live one invites somebody to act on the
+    wrong answer. It stays in the table, because the dossier is the point.
+
+    Never raises. A read failure must not take down the analysis it decorates.
+    """
+    if client is None:
+        return []
+    try:
+        q = (client.table(TABLE).select("*")
+             .eq("org_id", org_id)
+             .eq("determination_type", determination_type)
+             .in_("state", ["decided", "activated"])
+             .order("created_at", desc=True))
+        if countries:
+            q = q.contains("countries", [c.upper() for c in countries])
+        return (q.execute().data or [])
+    except Exception:                              # noqa: BLE001 — decoration, not data
+        return []
+
 
 
 def record(client, org_id: str, determination: Determination, *,

@@ -578,7 +578,10 @@ def crossing_notes(target: str, source: Optional[str] = None) -> list[str]:
         "a stated day, purchasing power parity and a labour-cost index answer three "
         "different questions with three different numbers. Either can be decided "
         "deliberately by an employer — that judgement belongs to them and is not a "
-        "fact about the two markets."
+        "fact about the two markets. AND THAT IS NO LONGER THE END OF IT: you can "
+        "record such a decision below, as YOURS — dated, attributed, and carrying "
+        "the uses it is expressly not good for. It stays your organisation's "
+        "convention and never becomes a fact about either country."
     )
     return out
 

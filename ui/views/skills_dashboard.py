@@ -50,6 +50,110 @@ def _crossing_panel() -> None:
             st.markdown(f"- {note}" if not note.startswith("    ") else f"  {note.strip()}")
         st.caption(market_notes.market_caveat())
 
+        _equivalences(here, target)
+
+
+def _equivalences(here: str, target: str) -> None:
+    """What this employer has decided where the product refuses to decide.
+
+    The refusal above is correct and it used to be the end of the conversation:
+    "that judgement belongs to them", and then nothing. This is the other half.
+    Two things happen here and the FIRST matters more:
+
+      1. What has already been decided is shown back. A record nobody reads is a
+         compliance gesture. The point is that the next person to meet this
+         refusal sees their organisation already answered it — when, by whom,
+         and for which uses — instead of deciding it again slightly differently
+         and leaving two conventions inside one company.
+      2. A new one can be recorded.
+
+    The uses are checkboxes over a closed list, and everything left unticked is
+    written into the record as an EXCLUDED use rather than merely being absent.
+    "We did not tick pay" and "pay is excluded" look identical in a record that
+    lists only what was agreed, and only one of them is defensible in 2028.
+    """
+    try:
+        from services import auth_service
+        from services import determination_service as det
+    except ImportError:                                   # pragma: no cover
+        from jobsy.services import auth_service                    # type: ignore
+        from jobsy.services import determination_service as det    # type: ignore
+
+    org_id = auth_service.active_org_id()
+    if not org_id:
+        return
+
+    existing = det.recorded(auth_service.db(), org_id,
+                            det.CROSS_COUNTRY_EQUIVALENCE, countries=(here, target))
+
+    st.markdown(f"**Your organisation's own equivalences — {here} and {target}**")
+    if existing:
+        for row in existing:
+            scope = row.get("scope") or {}
+            excluded = ", ".join(row.get("excluded_uses") or []) or "—"
+            permitted = ", ".join(row.get("permitted_uses") or []) or "none selected"
+            st.markdown(
+                f"- **{scope.get('source_grade','?')} = {scope.get('target_grade','?')}** "
+                f"· decided {str(row.get('effective_from') or '')[:10]}"
+                + (f" by {row['created_by']}" if row.get("created_by") else "")
+                + f" · review due {str(row.get('review_due') or '—')[:10]}")
+            st.caption(f"For: {permitted}.  NOT for: {excluded}.")
+    else:
+        st.caption("None recorded. The refusal above stands on its own until you "
+                   "decide something — which is a legitimate place to stop.")
+
+    with st.form("_equiv_form", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            src_grade = st.text_input(f"{here} grade or level", key="_eq_src")
+        with c2:
+            tgt_grade = st.text_input(f"{target} grade or level", key="_eq_tgt")
+        picked = [key for key, label in det.EQUIVALENCE_USES
+                  if st.checkbox(label, key=f"_eq_use_{key}")]
+        reason = st.text_area(
+            "Why these two, in your organisation's terms",
+            help="What a works council would want to read. Scope, responsibility, "
+                 "where each sits in your own structure.", key="_eq_why")
+        submitted = st.form_submit_button("Record this as our decision")
+
+    if not submitted:
+        return
+    if not (src_grade.strip() and tgt_grade.strip()):
+        st.warning("Both grades are needed — a determination has to say what it is about.")
+        return
+    if not picked:
+        # An equivalence good for nothing is not a decision, and recording one
+        # would put a convention in the dossier that permits nothing while
+        # looking like an answer.
+        st.warning("Choose at least one use. An equivalence that is not good for "
+                   "anything is not a decision.")
+        return
+
+    who = ""
+    try:
+        who = (auth_service.current_user() or {}).get("email") or ""
+    except Exception:
+        pass
+
+    refusal = ""
+    try:
+        from services import country_packs as cp
+        refusal = cp.bridge(here, target, cp.GRADE).get("refusal") or ""
+    except Exception:
+        pass
+
+    determination = det.cross_country_equivalence(
+        source_country=here, target_country=target,
+        source_grade=src_grade.strip(), target_grade=tgt_grade.strip(),
+        purposes=picked, refusal=refusal, actor=who, reason=reason.strip())
+    _id, err = det.record(auth_service.db(), org_id, determination, actor=who)
+    if err:
+        st.error(f"Not recorded: {err}")
+    else:
+        st.success("Recorded as your organisation's convention, with the uses it "
+                   "is expressly not good for.")
+        st.rerun()
+
 
 def skills_dashboard_page(catalog):
     """Skills-based organisation lens: org-wide skills intelligence (tiles +

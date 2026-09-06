@@ -174,3 +174,126 @@ def test_a_write_failure_is_returned_and_not_raised():
 def test_no_client_is_reported_rather_than_treated_as_success():
     det_id, err = det.record(None, "org-1", _example())
     assert det_id is None and err
+
+
+# ── the slice that turns a refusal into the start of a decision ───────────
+
+def _equiv(purposes=("reporting", "mobility"), actor="elmar@example.com"):
+    return det.cross_country_equivalence(
+        source_country="nl", target_country="de",
+        source_grade="schaal 9", target_grade="EG 11",
+        purposes=purposes, actor=actor, population=43)
+
+
+def test_what_was_not_chosen_is_excluded_explicitly_not_merely_absent():
+    """The whole reason this record is worth keeping.
+
+    "We did not tick pay" and "pay is excluded" look identical in a record that
+    lists only what was agreed — and only one of them is defensible in 2028. So
+    every use in the closed list that was not chosen is written down as excluded.
+    """
+    chosen = ("reporting",)
+    d = _equiv(purposes=chosen)
+    labels = dict(det.EQUIVALENCE_USES)
+
+    # Compared by LABEL, not by keyword: "mobility" renders as "Moving people
+    # between the two markets", and a substring test would have passed on a
+    # record that said nothing.
+    assert set(d.permitted_uses) == {labels[k] for k in chosen}
+    for key, label in det.EQUIVALENCE_USES:
+        if key in chosen:
+            continue
+        assert label in d.excluded_uses, (
+            f"{key!r} was not chosen and is not excluded either — absence and "
+            "exclusion must not look the same in the record")
+
+
+def test_an_equivalence_can_never_claim_to_be_a_legal_one():
+    """It is the employer's convention. Two exclusions are unconditional and are
+    added whatever the reader ticks: it is not a statement of law, and it does
+    not travel to another employer."""
+    joined = " ".join(_equiv(purposes=tuple(k for k, _ in det.EQUIVALENCE_USES)).excluded_uses).lower()
+    assert "legally equivalent" in joined
+    assert "any other employer" in joined
+
+
+def test_the_refusal_itself_is_the_evidence():
+    """What the system said when the employer decided, kept as it was.
+
+    Here the honest value is that the engine proposed nothing — it refused — and
+    the refusal is the evidence that the decision was taken knowing no legal
+    equivalence exists.
+    """
+    d = det.cross_country_equivalence(
+        source_country="NL", target_country="DE", source_grade="9",
+        target_grade="EG 11", purposes=("reporting",),
+        refusal="Grades cannot be bridged between countries. ISF, CATS, ERA...")
+    e = d.evidence[0]
+    assert e.kind == "engine_refusal"
+    assert "cannot be bridged" in (e.excerpt or "")
+    assert e.content_hash, "the refusal must be hashed like any other evidence"
+    assert "cannot be bridged" in (d.system_proposed or "")
+
+
+def test_the_review_date_reuses_the_grade_interval_rather_than_inventing_one():
+    """An equivalence rests on two grade ladders and cannot be sounder than the
+    shorter-lived of them. 12 months is migration 0017's interval for
+    job_grades, not a second number that will drift away from it."""
+    from datetime import date
+    assert det.REVIEW_MONTHS == 12
+    d = _equiv()
+    assert d.review_due == det._add_months(date.today(), 12)
+
+
+def test_the_review_date_survives_a_leap_day():
+    """`date.replace(year=+1)` raises on 29 February — a review date that fails
+    once every four years and nowhere else."""
+    from datetime import date
+    assert det._add_months(date(2028, 2, 29), 12) == date(2029, 2, 28)
+    assert det._add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
+
+
+# ── reading it back is the half that makes it a feature ───────────────────
+
+class _FakeQuery:
+    def __init__(self, rows, sink): self._rows, self._sink = rows, sink
+    def select(self, *_a, **_k): return self
+    def eq(self, col, val): self._sink.setdefault("eq", []).append((col, val)); return self
+    def in_(self, col, vals): self._sink["in"] = (col, list(vals)); return self
+    def contains(self, col, vals): self._sink["contains"] = (col, list(vals)); return self
+    def order(self, *_a, **_k): return self
+    def execute(self): return type("R", (), {"data": self._rows})()
+
+
+class _FakeClient:
+    def __init__(self, rows=None): self.rows, self.calls = rows or [], {}
+    def table(self, _n): return _FakeQuery(self.rows, self.calls)
+
+
+def test_superseded_determinations_are_not_read_back():
+    """A replaced determination is history. Showing it beside the live one
+    invites somebody to act on the answer that was withdrawn — so the query asks
+    for decided and activated only. It stays in the table; the dossier is the
+    point."""
+    c = _FakeClient()
+    det.recorded(c, "org-1", det.CROSS_COUNTRY_EQUIVALENCE)
+    col, states = c.calls["in"]
+    assert col == "state"
+    assert set(states) == {"decided", "activated"}
+    assert "superseded" not in states and "withdrawn" not in states
+
+
+def test_reading_back_is_scoped_to_the_org_and_the_two_markets():
+    c = _FakeClient()
+    det.recorded(c, "org-1", det.CROSS_COUNTRY_EQUIVALENCE, countries=("nl", "de"))
+    assert ("org_id", "org-1") in c.calls["eq"]
+    assert c.calls["contains"] == ("countries", ["NL", "DE"])
+
+
+def test_a_read_failure_decorates_nothing_rather_than_breaking_the_page():
+    """This read decorates an analysis. Losing it must cost the reader a panel,
+    never the answer they came for."""
+    class _Boom:
+        def table(self, _): raise RuntimeError("gone")
+    assert det.recorded(_Boom(), "org-1", det.CROSS_COUNTRY_EQUIVALENCE) == []
+    assert det.recorded(None, "org-1", det.CROSS_COUNTRY_EQUIVALENCE) == []
