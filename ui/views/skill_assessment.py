@@ -264,6 +264,10 @@ def skill_assessment_page(catalog):
 
     import pandas as _pdsa, io as _iosa
 
+    # This is the screen where levels are CAPTURED, so it is the screen where
+    # what they are read against matters most.
+    market_panel("skills")
+
     if not getattr(catalog.repository, "skills", None):
         st.warning("Skills data requires the **Reference workbook**.")
         return
@@ -300,6 +304,16 @@ def skill_assessment_page(catalog):
         with st.expander("📊 Proficiency rubric — what levels 1–5 mean for each skill category"):
             st.caption("Score people against these behavioural anchors so ratings stay consistent "
                        "across assessors. Included as a sheet in the template above.")
+            # Stated because the alternative is that a reader assumes it. Five
+            # levels next to a market panel naming an eight-level national
+            # framework invites the reading that 5 is somewhere near 8, and
+            # nothing on this page contradicts it. Whether these levels SHOULD
+            # anchor to the EQF is an open decision; what is true today is that
+            # they do not, and a reader deciding what to enter deserves the
+            # current fact rather than the eventual one.
+            st.caption("These five levels are this tool's own behavioural scale. They are NOT "
+                       "anchored to the EQF or to any national qualification framework, so a "
+                       "level here is not a qualification level and does not travel to one.")
             for cat in sorted(_rubric):
                 rows = "".join(
                     f'<div style="display:flex;gap:10px;margin:3px 0">'

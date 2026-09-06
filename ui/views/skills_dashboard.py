@@ -5,6 +5,52 @@ from __future__ import annotations
 from ui.shared import *  # noqa: F401,F403
 
 
+
+def _crossing_panel() -> None:
+    """Whether this market's skills data can be read against another one.
+
+    The panel that finally gives `bridge()` a caller. It was built with the
+    spine and read by nothing, which meant its REFUSALS — the load-bearing part
+    — had never reached a person. A refusal nobody is shown is indistinguishable
+    from a feature nobody built.
+
+    Only offered where a second market exists to pick. On a single-market
+    deployment this is noise, and a selector with one option in it is a promise
+    the product cannot keep.
+
+    Deliberately not a converter. Nothing here transforms a code; it says
+    whether a published correspondence exists and where, which is the whole
+    posture — several of the official files are free to read and restricted to
+    redistribute, so citing one is not shipping it.
+    """
+    try:
+        from services import country_service, market_notes
+    except ImportError:                                   # pragma: no cover
+        from jobsy.services import country_service, market_notes   # type: ignore
+
+    here = country_service.active_country()
+    others = [c for c in country_service.live_countries() if c.get("code") != here]
+    if not others:
+        return
+
+    with st.expander("Read this against another market", expanded=False):
+        st.caption(
+            "Skills themselves travel — negotiating is negotiating. What does not "
+            "travel by itself is the coding: a qualification level and an occupation "
+            "code are national instruments, and crossing them means going through a "
+            "neutral reference. This says whether that route exists, not what it "
+            "would produce."
+        )
+        labels = {c["code"]: c.get("name") or c["code"] for c in others}
+        target = st.selectbox(
+            "Against which market?", list(labels),
+            format_func=lambda code: labels[code], key="_skills_crossing_target",
+        )
+        for note in market_notes.crossing_notes(target, source=here):
+            st.markdown(f"- {note}" if not note.startswith("    ") else f"  {note.strip()}")
+        st.caption(market_notes.market_caveat())
+
+
 def skills_dashboard_page(catalog):
     """Skills-based organisation lens: org-wide skills intelligence (tiles +
     category treemap + demand/supply table) and the per-role proficiency wheel.
@@ -28,6 +74,17 @@ def skills_dashboard_page(catalog):
         f'supply side appears when assessments are uploaded on the Skills Assessment page.</p>',
         unsafe_allow_html=True,
     )
+
+    # A skill is largely the same thing across a border — negotiating is
+    # negotiating — which is why the catalogue is not split by market. What is
+    # NOT the same is what a skill and a qualification are READ AGAINST: the
+    # national qualification framework and the national occupation taxonomy,
+    # both instruments with law behind them. Belgium is the sharp case and it is
+    # not even cross-border: qualifications are a Community competence there, so
+    # one employer with sites in Flanders and Wallonia faces two frameworks, and
+    # the EQF level is the only reliable join between them.
+    market_panel("skills")
+    _crossing_panel()
 
     # supply: session assessments {emp: {skill_id: level}} -> flat shim list
     _sa = st.session_state.get("skill_assessments") or {}

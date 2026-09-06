@@ -838,8 +838,14 @@ def bridge(source_country: str, target_country: str, dimension: str) -> dict:
         blank = [p.country for p, m in ((a, src), (b, dst)) if not m]
         return {"ok": False, "route": [], "spine": spine, "hardness": None,
                 "refusal": f"No {dimension} mapping to {spine} held for "
-                           f"{', '.join(blank)}. The spine exists; this pack has not "
-                           "been mapped to it yet."}
+                           f"{', '.join(blank)}. The spine exists and this pack does not "
+                           "reach it. TWO DIFFERENT THINGS LOOK IDENTICAL FROM HERE: a "
+                           "market nobody has mapped yet, and a market where no "
+                           "authoritative correspondence exists to map — Germany's DQR is "
+                           "a joint declaration rather than a statute and confers no "
+                           "entitlement, so its absence may be the correct answer rather "
+                           "than a gap. This function cannot tell you which, and says so "
+                           "instead of implying a to-do."}
 
     hop_out, hop_in = src[0], dst[0]
     order = (ONBEVESTIGD, CONVENTIE, UITLEG, WET)

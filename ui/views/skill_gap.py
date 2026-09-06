@@ -18,6 +18,13 @@ def skill_gap_page(catalog, service):
         unsafe_allow_html=True,
     )
 
+    # Placed BEFORE the workbook guard on purpose. A client with no reference
+    # workbook loaded still gets the market reading — the taxonomies are facts
+    # about their country, not about whether they have uploaded anything, and a
+    # panel that appears only once data is present teaches a reader that it is a
+    # property of the data.
+    market_panel("skills")
+
     if not getattr(catalog.repository, "skills", None):
         st.warning("Skills data requires the **Reference workbook**. Switch data source in the sidebar.")
         return

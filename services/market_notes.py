@@ -402,6 +402,186 @@ def job_architecture_notes(country: Optional[str] = None) -> list[str]:
                        "WHAT A LEVEL MEANS IN THIS MARKET")
 
 
+
+# ── skills ────────────────────────────────────────────────────────────────
+
+def _reference_line(mapping) -> Optional[str]:
+    """One spine mapping as a sentence that says what we DO and DO NOT hold.
+
+    Rendered here rather than through `_claims_in`, which unwraps a mapping to
+    its `.source` Claim and by doing so drops the two facts a reader of this
+    page actually needs: which scheme, and whether the correspondence itself is
+    in our hands or somebody else's.
+
+    Three shapes, and the difference between them is the whole posture:
+
+      * IDENTITY — the market's coding IS the spine (Belgium codes occupations
+        in ISCO-08 with no national adaptation). Nothing to cross, so nothing
+        can be got wrong crossing it.
+      * A REFERENCE — we record THAT a correspondence exists and WHERE the
+        official one is published, and hold no table. This is the normal case
+        and it is deliberate: several of those official files are free to read
+        and restricted to redistribute, so a product that ships one is
+        redistributing it and a product that cites it is not.
+      * A TABLE — held only where the correspondence is set out in the law
+        itself, level by level. Reproducing what a statute says is not
+        reproducing anybody's dataset.
+    """
+    if mapping is None or not mapping.spine:
+        return None
+    scheme = (mapping.local_scheme or "").strip()
+    spine = mapping.spine
+    weight = _WEIGHT.get(mapping.source.hardness, "")
+    where = (mapping.source.source or "").strip()
+
+    if not mapping.mapping:
+        if scheme.startswith(spine):
+            body = (f"{scheme} — this market's coding IS {spine}, so there is no "
+                    f"crossing to get wrong.")
+        else:
+            body = (f"{scheme} reaches {spine} through a correspondence published by "
+                    f"the issuing body. THIS PRODUCT CITES IT AND DOES NOT HOLD IT"
+                    + (f" ({where})" if where else "") + ".")
+    else:
+        body = (f"{scheme} to {spine} is set out level by level in law, so the "
+                f"correspondence is held here"
+                + (f" ({where})" if where else "")
+                + f": {_pairs(mapping.mapping)}.")
+    return weight + f"{mapping.dimension.capitalize()} — " + body
+
+
+def _pairs(table: dict, limit: int = 4) -> str:
+    """A small correspondence table as text, truncated honestly.
+
+    Truncated with a count rather than an ellipsis: "and 4 more" tells a reader
+    the table is complete somewhere, where a trailing "…" invites them to
+    wonder whether the rest exists.
+    """
+    items = list(table.items())
+    shown = ", ".join(f"{k}={v}" for k, v in items[:limit])
+    rest = len(items) - limit
+    return shown + (f", and {rest} more" if rest > 0 else "")
+
+
+def skills_notes(country: Optional[str] = None) -> list[str]:
+    """The taxonomies a skill and a qualification are read against here.
+
+    PLACED ON THE THREE SKILLS SCREENS, which until now were the only module
+    group in the product with no country awareness at all — no market panel, no
+    caveat, not one mention of a country in either the service or the views.
+    That was not a judgement that skills are universal; it was simply never
+    asked.
+
+    And the honest position is that skills mostly ARE universal — negotiating
+    is negotiating on both sides of a border, which is why the catalogue itself
+    is not being split. What is NOT universal is the two things this slot holds:
+    the QUALIFICATION framework a level is anchored to, and the OCCUPATION
+    taxonomy a role is coded in. Those are national instruments with national
+    law behind them, and they are what a cross-market reading has to travel
+    through.
+
+    THE COST OF THE POSTURE IS STATED ON THE SCREEN, because it is the thing a
+    reader is most likely to assume away: a reference does not convert. Knowing
+    that KldB reaches ISCO-08 does not put a German roster into ISCO-08. Either
+    the data already carries ISCO, or the client runs the official free file
+    themselves, or nothing crosses — and the third is a real answer here rather
+    than a failure.
+
+    Deliberately silent on Jobsy's own five proficiency levels. Whether those
+    anchor to EQF's eight or stay the product's own is an open decision, and a
+    page that quietly implied either answer would be settling it by rendering.
+    """
+    pack = cp.for_country(country)
+    if pack is None:
+        return []
+    slot = pack.skills
+    if slot is None:
+        return ["WHAT A SKILL IS READ AGAINST HERE — no answer is held for "
+                f"{pack.name} yet. That is a gap in this tool, not a finding that "
+                "there is nothing to say."]
+
+    out = [f"WHAT A SKILL IS READ AGAINST HERE — {pack.name}."]
+    for claim, lead in ((slot.qualification_framework, "Qualification framework — "),
+                        (slot.occupation_taxonomy, "Occupation taxonomy — ")):
+        line = _line(claim, lead=lead)
+        if line:
+            out.append(line)
+
+    routes = [line for line in (_reference_line(m) for m in slot.mappings) if line]
+    out.extend(routes)
+
+    if routes:
+        out.append(
+            "A REFERENCE DOES NOT CONVERT. Every route above records that a "
+            "correspondence exists and where the official one is published; it does "
+            "not move a code across on its own. A roster in a national coding still "
+            "has to reach the reference somehow — because it already carries it, or "
+            "because you run the official file yourself — and where neither is true, "
+            "nothing crosses. That is an answer, not a failure: an invented "
+            "equivalence with a product's authority behind it would be worse than a "
+            "blank."
+        )
+    return out
+
+
+def crossing_notes(target: str, source: Optional[str] = None) -> list[str]:
+    """Reading this market's skills data against another one, hop by hop.
+
+    THE FIRST CALLER `bridge()` HAS EVER HAD. It was written with the spine,
+    tested, and then read by nothing for as long as it existed — which meant its
+    refusals, the part that carries the most weight, had never once reached a
+    person. A refusal nobody is shown is indistinguishable from a feature nobody
+    built.
+
+    Both dimensions this page can ask about are rendered, including the one that
+    says no, because "there is no route" is the answer more often than not and a
+    reader needs to see it stated rather than infer it from an empty panel.
+
+    The two hops are shown SEPARATELY and the weaker hardness is what labels the
+    whole route, because a chain is exactly as sound as its softest link.
+    Reporting the stronger one would flatter the answer — and the flattering
+    version is the one that gets quoted.
+
+    Note what is NOT offered here: grade and pay. `bridge()` refuses both
+    outright and this page does not ask, because putting them on screen as
+    greyed-out options would suggest they are coming.
+    """
+    src = cp.for_country(source)
+    dst = cp.for_country(target)
+    if src is None or dst is None:
+        missing = [c for c, p in ((source, src), (target, dst)) if p is None]
+        return [f"No country pack for {', '.join(str(m) for m in missing)}. An "
+                "uncovered market is answered with silence rather than a guess."]
+    if src.country == dst.country:
+        return [f"{src.name} and {dst.name} are the same market — nothing to cross."]
+
+    out = [f"READING {src.name.upper()} AGAINST {dst.name.upper()}."]
+    for dimension, label in ((cp.OCCUPATION, "Occupation"),
+                             (cp.QUALIFICATION, "Qualification")):
+        result = cp.bridge(src.country, dst.country, dimension)
+        if not result["ok"]:
+            out.append(f"{label} — NO ROUTE. {result['refusal']}")
+            continue
+        weight = _WEIGHT.get(result["hardness"], "")
+        out.append(
+            f"{weight}{label} — {src.name} to {dst.name} via {result['spine']}, "
+            f"and the route is only as sound as its weaker half:")
+        for hop in result["route"]:
+            out.append(
+                f"    · {hop['from']} to {hop['to']}"
+                + (f" ({hop['scheme']})" if hop.get("scheme") else "")
+                + (f" — {hop['source']}" if hop.get("source") else ""))
+    out.append(
+        "Grade and pay are not offered here and will not be. Grades are separate "
+        "institutions negotiated by different parties under different law, with no "
+        "legal equivalence between them; pay has no neutral unit, and an FX rate on "
+        "a stated day, purchasing power parity and a labour-cost index answer three "
+        "different questions with three different numbers. Either can be decided "
+        "deliberately by an employer — that judgement belongs to them and is not a "
+        "fact about the two markets."
+    )
+    return out
+
 def market_caveat() -> str:
     """The framing both of the above are read under."""
     return (

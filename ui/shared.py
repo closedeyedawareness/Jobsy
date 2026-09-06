@@ -554,6 +554,7 @@ def market_panel(kind: str) -> None:
         "org_structure":    market_notes.org_structure_notes,
         "compensation":     market_notes.compensation_notes,
         "job_architecture": market_notes.job_architecture_notes,
+        "skills":           market_notes.skills_notes,
     }[kind]()
 
     if not notes:
