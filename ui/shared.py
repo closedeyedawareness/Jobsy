@@ -510,20 +510,54 @@ def _pack_vocabulary(concept):
 #: what is implemented here is the refusal: when the pair is present, neither
 #: half is offered as "the FTE column", and the caller falls through to its
 #: no-FTE path, which says so on screen. `_detect_fte_pair` is the seam for the
-#: real fix. This table belongs in the country pack (pl.py holds both names in
-#: VOCABULARY["fte"] but does not mark them as a pair); the pack is another
-#: decision path's to change.
-_FTE_RATIO_PAIRS = (
-    ("licznik", "mianownik"),   # PL
-)
+#: real fix.
+#:
+#: The table itself no longer lives here. It used to, as `licznik`/`mianownik`,
+#: under a comment saying the pack "does not mark them as a pair" — true when it
+#: was written and untrue since `pl.py` grew `FTE_RATIO_PAIRS`. Two hand-written
+#: lists of one fact drift, and the half that drifts is the one nobody reads.
+#: The pack is the source now.
+def _pack_fte_pairs():
+    """Every (numerator, denominator) pair any loaded pack knows about.
+
+    The union over ALL packs, not just the active market's, and that is a
+    decision rather than laziness. A column called `Licznik_wymiaru_etatu` is a
+    fact about the FILE, not about which market the session happens to be set
+    to — and the cost of the two mistakes is not symmetrical. Refusing to treat
+    a Polish numerator as an FTE column while the market is NL costs the reader
+    one sentence on screen; failing to refuse reads a half-timer as full-time,
+    silently, and moves the pay gap in the direction that overstates it.
+    """
+    try:
+        try:
+            from services import country_packs
+        except ImportError:
+            from jobsy.services import country_packs
+        packs = country_packs.load()
+    except Exception:
+        return ()
+    out: list[tuple[str, str]] = []
+    for pack in (packs or {}).values():
+        for pair in getattr(pack, "fte_ratio_pairs", ()) or ():
+            if not pair or len(pair) != 2:
+                continue
+            num, den = str(pair[0]).strip().lower(), str(pair[1]).strip().lower()
+            if num and den and (num, den) not in out:
+                out.append((num, den))
+    return tuple(out)
 
 
 def _detect_fte_pair(cols):
     """The (numerator, denominator) columns of a fractional FTE, or None."""
     low = [(c, str(c).strip().lower()) for c in cols]
-    for num_kw, den_kw in _FTE_RATIO_PAIRS:
-        n = next((c for c, l in low if num_kw in l), None)
-        d = next((c for c, l in low if den_kw in l), None)
+    for num_kw, den_kw in _pack_fte_pairs():
+        # Match either way round. The pack holds the vendor's full column name
+        # (`licznik_wymiaru_etatu`); a real export may carry it shortened to
+        # `Licznik`. Testing only one direction would have narrowed what this
+        # refusal catches compared with the hand-written list it replaces —
+        # a silent regression hidden inside a tidy-up.
+        n = next((c for c, l in low if num_kw in l or l in num_kw), None)
+        d = next((c for c, l in low if den_kw in l or l in den_kw), None)
         if n is not None and d is not None:
             return (n, d)
     return None
@@ -746,7 +780,7 @@ def _smart_detect(cols, exacts, contains, concept=None):
 
     if concept == "fte":
         # A fraction split over two integer columns is not an FTE column. See
-        # _FTE_RATIO_PAIRS: returning either half reads a half-timer as
+        # `_pack_fte_pairs`: returning either half reads a half-timer as
         # full-time, silently, in the direction that overstates the gap.
         _pair = _detect_fte_pair(cols)
         if _pair:

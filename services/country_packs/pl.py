@@ -143,9 +143,12 @@ VOCABULARY: dict[str, tuple[str, ...]] = {
 #: column finds nothing here; one that grabs either half finds a number that
 #: looks entirely plausible and is wrong.
 #:
-#: Held as a pair so the code can know the two belong together. Nothing reads it
-#: yet — the detector still has to learn to ask — but the fact now lives where
-#: that work will look for it instead of only in a reviewer's memory.
+#: Held as a pair so the code can know the two belong together, and carried on
+#: the pack itself (`fte_ratio_pairs`) since 6 September 2026, so the detector
+#: reads the fact from here instead of from a second hand-written copy. That
+#: copy existed: `ui/shared.py` held `licznik`/`mianownik` of its own, under a
+#: comment saying this pack "does not mark them as a pair" — true when it was
+#: written and untrue since. Two lists of one fact drift.
 FTE_RATIO_PAIRS: tuple[tuple[str, str], ...] = (
     ("licznik_wymiaru_etatu", "mianownik_wymiaru_etatu"),
 )
@@ -742,6 +745,7 @@ PACK = CountryPack(
     countersigned_by="Elmar van Dijk",
     countersigned_on="2026-09-06",
     vocabulary=VOCABULARY,
+    fte_ratio_pairs=FTE_RATIO_PAIRS,
     gender_codes=GENDER_CODES,
     pay_components=PAY_COMPONENTS,
     reporting=REPORTING,

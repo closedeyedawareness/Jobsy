@@ -469,6 +469,21 @@ class CountryPack:
     #: uses. This is what stops `_smart_detect` from being a pile of Dutch
     #: words scattered across five files.
     vocabulary: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: (numerator, denominator) column pairs that carry working time as a
+    #: FRACTION instead of as one number — Poland's payroll exports hold 1 and
+    #: 2 for a half-timer and no FTE value at all.
+    #:
+    #: This is a separate slot and not a `vocabulary` concept on purpose: a
+    #: vocabulary entry says "this column means FTE", and for either half of a
+    #: pair that sentence is false. A detector that believes it reads a
+    #: half-timer as full-time, silently, in the direction that overstates the
+    #: gap — and lands that overstatement on part-time staff, who skew female.
+    #:
+    #: It lived as a module constant in `pl.py` with the note "nothing reads it
+    #: yet", while `ui/shared.py` kept a second hand-written copy of the same
+    #: two words. Two lists of one fact drift; this is the slot that lets the
+    #: pack carry it instead.
+    fte_ratio_pairs: tuple[tuple[str, str], ...] = ()
     #: statutory or near-universal pay components, each with its evidence
     pay_components: tuple[Claim, ...] = ()
     reporting: Optional[PayReporting] = None

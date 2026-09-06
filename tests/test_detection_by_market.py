@@ -350,3 +350,62 @@ def test_a_real_polish_fte_column_is_still_found(monkeypatch):
     _use_market(monkeypatch, "PL")
     exacts, contains = _CALLSITE["fte"]
     assert _smart_detect(["Nazwisko", "Wymiar etatu"], exacts, contains) == "Wymiar etatu"
+
+
+# ── the pair comes from the pack, not from a second copy ─────────────────────
+
+def test_the_pair_is_read_from_the_country_pack():
+    """One fact, one place.
+
+    Until 6 September 2026 this lived twice: `pl.py` held
+    `FTE_RATIO_PAIRS` with the vendor's full column names and a note saying
+    nothing read it, while `ui/shared.py` held its own `licznik`/`mianownik`
+    under a comment claiming the pack "does not mark them as a pair". That
+    comment was true when written and false by the time it mattered. Two
+    hand-written lists of one fact drift, and the half that drifts is the one
+    nobody opens.
+    """
+    from services.country_packs import pl
+    from ui.shared import _pack_fte_pairs
+
+    pairs = _pack_fte_pairs()
+    assert pairs, "no pack is offering an FTE ratio pair"
+    for numerator, denominator in pl.FTE_RATIO_PAIRS:
+        assert (numerator.lower(), denominator.lower()) in pairs, (
+            f"{numerator}/{denominator} is in the Polish pack but the detector "
+            "does not see it -- the pack is talking and nothing is listening")
+
+
+def test_a_shortened_column_name_is_still_caught():
+    """The pack holds `licznik_wymiaru_etatu`; an export may say `Licznik`.
+
+    The hand-written list this replaces matched on the short fragment, so
+    switching to the pack's full names could have narrowed the refusal without
+    anything failing -- a regression hidden inside a tidy-up. Both directions
+    are tested because only one of them was ever exercised before.
+    """
+    assert _detect_fte_pair(["Nazwisko", "Licznik", "Mianownik", "Brutto"]) == (
+        "Licznik", "Mianownik")
+
+
+def test_half_a_pair_is_not_a_pair():
+    """A numerator with no denominator is not a fraction, and refusing there
+    would hide a column that may genuinely be something else."""
+    assert _detect_fte_pair(["Nazwisko", "Licznik_wymiaru_etatu", "Brutto"]) is None
+    assert _detect_fte_pair(["Nazwisko", "FTE", "Brutto"]) is None
+
+
+def test_the_refusal_does_not_depend_on_the_active_market(monkeypatch):
+    """A Polish column name is a fact about the FILE, not about the session.
+
+    The two mistakes here do not cost the same. Refusing a Polish numerator
+    while the market is set to NL costs one sentence on screen; failing to
+    refuse reads a half-timer as full-time and moves the gap. So the detector
+    reads the union over every pack, and this test is what stops a later
+    "only the active market" tidy-up from looking harmless.
+    """
+    cols = ["Naam", "Licznik_wymiaru_etatu", "Mianownik_wymiaru_etatu", "Brutto"]
+    _use_market(monkeypatch, "NL")
+    assert _detect_fte_pair(cols) == ("Licznik_wymiaru_etatu", "Mianownik_wymiaru_etatu")
+    exacts, contains = _CALLSITE["fte"]
+    assert _smart_detect(cols, exacts, contains) is None
