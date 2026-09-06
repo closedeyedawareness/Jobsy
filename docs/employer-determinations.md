@@ -320,7 +320,23 @@ behind.
    *Source: Regulation (EU) 2024/1689, Annex III point 4. Hardness: WET as to the
    wording; UITLEG as to whether this product falls inside it.*
 
-   **THE MODULE NEAREST THE LINE IS THE 9-BOX, NOT PAY EQUITY.** That was not the
+   **AND AS OF 6 SEPTEMBER 2026 THERE IS A NEARER ONE STILL.** Elmar decided
+   the product will draft vacancy text. Annex III(4)(a) — the sub-point above
+   the one quoted here — covers "AI systems intended to be used for the
+   recruitment or selection of natural persons, **in particular to place
+   targeted job advertisements**, to analyse and filter job applications, and to
+   evaluate candidates". Drafting an advertisement is not obviously the same act
+   as *placing a targeted* one, and that distinction may well hold — but it is
+   now a question the intended-use analysis has to answer explicitly rather than
+   one nobody had reason to ask. It is the closest this product has come to a
+   named example in the annex.
+
+   The chosen shape helps rather than hurts: the employer edits and approves,
+   and both the generated text and the approved text are kept. That is the
+   Art. 6(3) "additional layer to human activity" argument made of evidence
+   instead of assertion. It does not settle the classification.
+
+   **THE MODULE NEAREST THE LINE WAS THE 9-BOX, NOT PAY EQUITY.** That was not the
    expected answer. Matching and pay-equity analysis produce findings a human
    acts on; the operative words there are "intended to be used **to make
    decisions**", and this product proposes rather than decides. The 9-box is

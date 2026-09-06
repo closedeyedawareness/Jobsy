@@ -94,6 +94,67 @@ out loud rather than assuming.
 
 ---
 
+## Clause 2 — Generated vacancy text
+
+**Origin:** Elmar's decision, 6 September 2026. The product will DRAFT vacancy
+text from a standard role's values, rather than only reporting what a source
+says.
+**Why it is needed:** this is the first thing this product writes for an
+EXTERNAL audience. Everything else it produces is an internal analysis a
+professional reads; a vacancy is published, and what it says can be unlawful.
+
+### What makes the position defensible
+
+The write-back. The employer edits the draft and what they publish is what they
+wrote — the tool proposes and a person disposes. That is not a disclaimer
+dressed up; it is the actual shape of the feature, and the clause below only
+describes it. A generator that published directly could not be defended by any
+wording.
+
+### Draft text
+
+> **Generated vacancy text.**
+>
+> **(a) What we provide.** Where you ask us to, the service drafts vacancy text
+> from the role information in your reference library. That draft is a starting
+> point prepared by software.
+>
+> **(b) You decide what is published.** The draft is presented for you to edit
+> and approve. Nothing is published by us and nothing leaves the service on your
+> behalf. The text you publish is your text, whether or not you changed our
+> draft.
+>
+> **(c) What we do not warrant.** We do not warrant that generated text complies
+> with recruitment, equal-treatment, non-discrimination or advertising law in
+> any jurisdiction, nor that it is accurate, complete or suitable for the role
+> you intend to fill. Those obligations rest on the employer who publishes, and
+> the service does not assume them.
+>
+> **(d) What we do provide instead of a warranty.** Every generated draft is
+> recorded with the role and version it was generated from, the text as
+> generated, and the text as you approved it — so the difference between the two
+> is always visible to you and to anyone you have to show it to.
+>
+> **(e) Nothing here limits liability that cannot be limited by law**, including
+> for our own intent or gross negligence.
+
+### Notes for the lawyer
+
+1. **(c) is a warranty exclusion, not an indemnity, and it is deliberately not
+   phrased as "we accept no responsibility for anything".** A blanket clause is
+   the kind courts read down. What is actually true — we cannot know the market,
+   the role or the audience, and the employer publishes — is narrower and holds
+   better.
+2. **(d) is the substance and should not be trimmed as boilerplate.** Keeping
+   the generated text beside the approved text is what makes (b) verifiable
+   rather than asserted, and it is the same evidence the AI Act point below
+   turns on.
+3. Check whether Dutch law (WAADI, the Algemene wet gelijke behandeling) or the
+   equivalent in BE, DE, FR or ES places any duty on a party that PREPARES an
+   advertisement rather than places it. The clause assumes it does not.
+
+---
+
 ## Still to draft
 
 Listed so they are not forgotten, and deliberately not attempted here:
