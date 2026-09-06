@@ -317,14 +317,54 @@ def test_an_empty_user_scoped_read_is_refused_rather_than_papered_over():
         cat.load()
 
 
-def test_the_secret_key_path_still_falls_back_to_the_workbook():
-    """Unchanged, and deliberately so: one tenant, a key that reads everything,
-    and a committed workbook that is genuinely the same library."""
+def test_the_secret_key_path_still_falls_back_to_the_workbook(monkeypatch):
+    """One tenant, a key that reads everything, and a committed workbook that is
+    genuinely the same library — so a database that cannot answer falls back.
+
+    THE FAILURE IS FORCED, and it did not used to be. This test asserted the
+    fallback while doing nothing to prevent the read from succeeding, so its
+    green depended on the machine happening to have no working credential. That
+    is an accident of the environment, not a property of the code: on 6
+    September 2026 a broken import in `_resolve_credentials` was repaired, the
+    read got further than before, and the test went red in the full suite while
+    still passing alone. Neither colour meant anything about the fallback.
+
+    Now the loader is made to fail on purpose, so what is asserted is the
+    fallback itself: not user-scoped, so the workbook is a legitimate answer,
+    and the catalog says plainly that it took it.
+    """
     from core.catalog import Catalog
+    from core import db_loader
+
+    def _no_database(*_a, **_k):
+        raise RuntimeError("simulated: the database did not answer")
+
+    monkeypatch.setattr(db_loader, "load_frames_from_config", _no_database)
 
     cat = Catalog(path="jobsy_reference_library.xlsx", source="db").load()
     assert cat.active_source == "excel"
     assert cat.fell_back_to_excel is True
+
+
+def test_a_user_scoped_read_refuses_rather_than_reaching_for_the_workbook(monkeypatch):
+    """The other half, and the one that protects a tenant.
+
+    Under LIBRARY_CLIENT="user" a failure is not "the database is down", it is
+    "this account may not read that org". Answering that with the workbook
+    committed to this repo would hand one client the default library as though
+    it were their own — a tenancy leak wearing the clothes of a resilience
+    feature. There is nothing safe to fall back TO, so it must raise.
+    """
+    import pytest as _pytest
+    from core.catalog import Catalog
+    from core import config as _cfg, db_loader
+
+    monkeypatch.setattr(_cfg, "LIBRARY_CLIENT", "user")
+    monkeypatch.setattr(db_loader, "load_frames_from_config",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("nobody signed in")))
+
+    with _pytest.raises(RuntimeError, match="not a substitute"):
+        Catalog(path="jobsy_reference_library.xlsx", source="db").load()
 
 
 # ── the client's own rows, over the library's ────────────────────────────────

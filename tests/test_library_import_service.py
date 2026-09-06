@@ -274,3 +274,47 @@ def test_the_positioning_keys_include_country_so_two_markets_are_two_rows():
     specs = {s.table: s for s in SPECS}
     assert specs["job_profile_positioning"].key == ("country", "job_id")
     assert specs["seniority_grade_binding"].key == ("country", "l_code")
+
+
+# ── the credential path only a script walks ───────────────────────────────
+
+def test_the_credential_resolver_can_actually_reach_what_it_imports():
+    """A broken import here fails in a place nothing looks.
+
+    `_resolve_credentials` imported `_read_secrets` from persistence_service.
+    The function had moved to auth_service, so BOTH branches failed — the first
+    on the missing name, the second on a `jobsy` package that does not exist —
+    and every service-key read of the library raised ModuleNotFoundError.
+
+    It went unnoticed for a reason worth stating: the app reads the library as
+    the signed-in user under RLS and never comes through this function. Only a
+    script does, and a script's failure was absorbed one layer up by
+    `Catalog.load()`, which falls back to the workbook on disk. So the symptom
+    was not an error — it was an export quietly built from a stale local file.
+
+    Called for real rather than checked with hasattr: the failure was an
+    ImportError INSIDE the function body, which no signature check reaches.
+    """
+    from services.library_import_service import _resolve_credentials
+
+    url, key = _resolve_credentials()          # must not raise
+    assert url, "no Supabase URL could be resolved from env or the secrets file"
+
+
+def test_a_fallback_export_says_it_is_a_fallback():
+    """The provenance that made the stale export detectable.
+
+    When the database cannot be reached, `Catalog.load()` falls back to the
+    workbook on disk — reasonable for an app that must stay usable, dangerous
+    for a file somebody forwards. The export's own ExportInfo sheet carries the
+    warning in words: this is a copy of the workbook, not a snapshot of the
+    master. That sentence is the only thing standing between a fallback and a
+    document that looks authoritative, so it is pinned here.
+    """
+    import inspect
+    from services import library_export_service as les
+
+    src = inspect.getsource(les)
+    assert "not a snapshot of the master" in src, (
+        "the fallback export no longer says it is a fallback, so a copy of a "
+        "possibly stale workbook is indistinguishable from a read of the database")

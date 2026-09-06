@@ -468,10 +468,23 @@ def _resolve_credentials() -> tuple[str | None, str | None]:
            or os.environ.get("SUPABASE_KEY"))
     if url and key:
         return url, key
+    # auth_service, not persistence_service. `_read_secrets` moved and this
+    # import was not moved with it, so BOTH branches failed — the first on the
+    # missing name, the second on a `jobsy` package that does not exist — and
+    # every service-key read of the library raised ModuleNotFoundError. Nothing
+    # noticed, because the app itself reads as the signed-in user under RLS
+    # (LIBRARY_CLIENT="user") and never comes through here. Only a script does,
+    # and a script's failure was absorbed one layer up by Catalog.load(), which
+    # falls back to the workbook on disk.
+    #
+    # WHAT COMES BACK FROM THE SECRETS FILE IS THE PUBLISHABLE KEY. That is the
+    # right source for the URL and the wrong kind of key for writing, which is
+    # exactly why `_require_writable_key` sits at the call site and warns. Env
+    # vars are checked first above for that reason; this is the last resort.
     try:
-        from services.persistence_service import _read_secrets
+        from services.auth_service import _read_secrets
     except ImportError:  # pragma: no cover
-        from jobsy.services.persistence_service import _read_secrets
+        from jobsy.services.auth_service import _read_secrets
     s_url, s_key = _read_secrets()
     return url or s_url, key or s_key
 
