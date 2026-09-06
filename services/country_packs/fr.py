@@ -47,7 +47,7 @@ agent has.
 from __future__ import annotations
 
 from . import (CONVENTIE, Claim, CompensationModel, CountryPack,
-               CrosswalkSpec, DRAFT, JobArchitecture, OCCUPATION,
+               CrosswalkSpec, DRAFT, LIVE, JobArchitecture, OCCUPATION,
                ONBEVESTIGD, OrgStructure, PayReporting, PerformanceModel,
                QUALIFICATION, ReportingBand, SkillsFramework, SpineMapping,
                UITLEG, WET)
@@ -617,7 +617,9 @@ PACK = CountryPack(
     name="France",
     currency="EUR",
     languages=("fr",),
-    status=DRAFT,
+    status=LIVE,
+    countersigned_by="Elmar van Dijk",
+    countersigned_on="2026-09-06",
     vocabulary=VOCABULARY,
     gender_codes=GENDER_CODES,
     pay_components=PAY_COMPONENTS,

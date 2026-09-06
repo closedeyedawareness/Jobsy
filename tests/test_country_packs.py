@@ -1383,3 +1383,51 @@ def test_a_scope_limit_travels_with_the_value_it_limits():
     """
     claim = cp.load()["DE"].compensation.seniority_progression
     assert "TV-L" in str(claim.value)
+
+
+# ── LIVE means a person, and the pack has to say which person ─────────────
+
+def test_a_live_pack_names_who_countersigned_it_and_when():
+    """A status flag does not say who stood behind it.
+
+    LIVE has always meant "a human checked the sources" — an agent's
+    verification earns DRAFT at best. But `status = LIVE` on its own records
+    only that somebody edited a constant, and in 2028 "it was live" is not an
+    answer to "who signed this off". So a live pack carries the name and the
+    date, and validate() refuses one that does not.
+    """
+    from datetime import date
+    for code, pack in cp.load().items():
+        if pack.status != cp.LIVE:
+            continue
+        assert pack.countersigned_by, f"{code} is live and names nobody"
+        assert pack.countersigned_on, f"{code} is live with no date"
+        # A date, not a mood.
+        date.fromisoformat(pack.countersigned_on)
+
+
+def test_an_unsigned_live_pack_is_refused_by_validate():
+    """The rule, exercised rather than asserted about."""
+    import dataclasses
+    pack = cp.load()["NL"]
+    unsigned = dataclasses.replace(pack, countersigned_by="", countersigned_on="")
+    problems = cp.validate(unsigned)
+    assert any("countersigned" in p for p in problems), problems
+
+
+def test_germany_is_not_live_and_the_reason_is_the_products_own_rule():
+    """A live pack may not carry an ONBEVESTIGD claim — "a market goes live when
+    we can stand behind every sentence it will put on a client's screen".
+
+    Germany's unverified claim is that a search on 5 September 2026 found no
+    German implementing act. That is unverifiable BY NATURE: nobody can
+    establish that a law does not exist, only that they looked and did not find
+    one. So it cannot be cleared by looking harder, and Germany stays DRAFT
+    until Germany transposes — which is a real consequence of the rule and is
+    pinned here so it is a decision rather than an oversight.
+    """
+    de = cp.load()["DE"]
+    assert de.status == cp.DRAFT
+    assert list(de.unverified), (
+        "Germany no longer carries an unverified claim — if the transposition "
+        "landed, this pack can be countersigned and this test should change")

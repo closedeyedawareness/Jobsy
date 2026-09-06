@@ -460,6 +460,11 @@ class CountryPack:
     currency: str
     languages: tuple[str, ...]
     status: str = STUB
+    #: Who checked the sources, and when. LIVE means a PERSON did — a status
+    #: flag on its own does not say which person, and "it was live" is not an
+    #: answer to "who stood behind this" two years later. Empty on a draft.
+    countersigned_by: str = ""
+    countersigned_on: str = ""
     #: concept -> the column names a payroll export in this country actually
     #: uses. This is what stops `_smart_detect` from being a pile of Dutch
     #: words scattered across five files.
@@ -658,6 +663,11 @@ def validate(pack: CountryPack) -> list[str]:
                 f"wrong, and a reader cannot tell which.")
 
     if p.status == LIVE:
+        if not (p.countersigned_by and p.countersigned_on):
+            problems.append(
+                "a live pack must name who countersigned it and when. LIVE is a "
+                "claim that a person checked the sources; without a name it is "
+                "only a claim that somebody edited a constant.")
         if p.reporting is None:
             problems.append("a live pack must state the reporting duty, even if the answer "
                             "is that there is none yet.")

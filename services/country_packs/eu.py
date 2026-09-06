@@ -36,7 +36,7 @@ whole reason a claim in this package carries its hardness and its date.
 """
 from __future__ import annotations
 
-from . import (CONVENTIE, Claim, CompensationModel, CountryPack, DRAFT,
+from . import (CONVENTIE, Claim, CompensationModel, CountryPack, DRAFT, LIVE,
                JobArchitecture, OCCUPATION, ONBEVESTIGD, OrgStructure,
                PayReporting, PerformanceModel, QUALIFICATION, ReportingBand,
                SkillsFramework, SpineMapping, UITLEG, WET)
@@ -201,7 +201,9 @@ PACK = CountryPack(
     name="European Union (directive baseline)",
     currency="EUR",
     languages=("en",),
-    status=DRAFT,
+    status=LIVE,
+    countersigned_by="Elmar van Dijk",
+    countersigned_on="2026-09-06",
     reporting=REPORTING,
     pay_components=(
         Claim(("pay_definition", "basic wage plus any other consideration, cash or in "
